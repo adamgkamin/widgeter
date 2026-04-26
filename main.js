@@ -1,4 +1,10 @@
-import { DISPLAY_WIDTH, DISPLAY_HEIGHT, BG, BRIGHT_WHITE, BRIGHT_YELLOW, BRIGHT_CYAN } from './constants.js';
+import {
+  DISPLAY_WIDTH, DISPLAY_HEIGHT, WORLD_ROWS,
+  STATUS_ROW, LOG_START_ROW, LOG_END_ROW, HINT_ROW,
+  BG, BRIGHT_WHITE, BRIGHT_YELLOW, BRIGHT_CYAN, DIM_GRAY,
+} from './constants.js';
+
+// ── Display init ──────────────────────────────────────────────────────────────
 
 const display = new ROT.Display({
   width: DISPLAY_WIDTH,
@@ -11,7 +17,25 @@ const display = new ROT.Display({
 
 document.body.appendChild(display.getContainer());
 
-// §3.3 — Title screen art
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function clearScreen() {
+  for (let y = 0; y < DISPLAY_HEIGHT; y++) {
+    for (let x = 0; x < DISPLAY_WIDTH; x++) {
+      display.draw(x, y, ' ', BRIGHT_WHITE, BG);
+    }
+  }
+}
+
+function drawRow(y, text, fg) {
+  for (let x = 0; x < DISPLAY_WIDTH; x++) {
+    const ch = x < text.length ? text[x] : ' ';
+    display.draw(x, y, ch, fg, BG);
+  }
+}
+
+// ── §3.3 Title screen ─────────────────────────────────────────────────────────
+
 const TITLE_ART = [
   "W       W IIII DDDD   GGGG  EEEE  TTTT EEEE  RRRR",
   "W       W  II  D  D  G     E      TT  E     R  R",
@@ -21,20 +45,11 @@ const TITLE_ART = [
 ];
 const PROMPT = "[ press any key to start ]";
 
-const ART_MAX_WIDTH = Math.max(...TITLE_ART.map(l => l.length));
-const ART_X        = Math.floor((DISPLAY_WIDTH - ART_MAX_WIDTH) / 2);
-const TOTAL_HEIGHT = TITLE_ART.length + 2 + 1; // art + 2 blank lines + prompt
-const ART_Y        = Math.floor((DISPLAY_HEIGHT - TOTAL_HEIGHT) / 2);
-const PROMPT_X     = Math.floor((DISPLAY_WIDTH - PROMPT.length) / 2);
-const PROMPT_Y     = ART_Y + TITLE_ART.length + 2;
-
-function clearScreen() {
-  for (let y = 0; y < DISPLAY_HEIGHT; y++) {
-    for (let x = 0; x < DISPLAY_WIDTH; x++) {
-      display.draw(x, y, ' ', BRIGHT_WHITE, BG);
-    }
-  }
-}
+const ART_MAX_W  = Math.max(...TITLE_ART.map(l => l.length));
+const ART_X      = Math.floor((DISPLAY_WIDTH - ART_MAX_W) / 2);
+const ART_Y      = Math.floor((DISPLAY_HEIGHT - (TITLE_ART.length + 2 + 1)) / 2);
+const PROMPT_X   = Math.floor((DISPLAY_WIDTH - PROMPT.length) / 2);
+const PROMPT_Y   = ART_Y + TITLE_ART.length + 2;
 
 function drawArt() {
   for (let row = 0; row < TITLE_ART.length; row++) {
@@ -52,14 +67,79 @@ function drawPrompt(visible) {
   }
 }
 
-// Initial render
 clearScreen();
 drawArt();
 drawPrompt(true);
 
-// Blink prompt at 1 Hz — toggle every 500ms (§3.3)
 let promptVisible = true;
-setInterval(() => {
+let blinkInterval = setInterval(() => {
   promptVisible = !promptVisible;
   drawPrompt(promptVisible);
 }, 500);
+
+// ── §3.4 Phase-in transition ──────────────────────────────────────────────────
+
+function drawWorld() {
+  // Outer border: row 0, row 42, col 0, col 79 (§4.1)
+  for (let x = 0; x < DISPLAY_WIDTH; x++) {
+    display.draw(x, 0,             '#', DIM_GRAY, BG);
+    display.draw(x, WORLD_ROWS - 1, '#', DIM_GRAY, BG);
+  }
+  for (let y = 1; y < WORLD_ROWS - 1; y++) {
+    display.draw(0,                 y, '#', DIM_GRAY, BG);
+    display.draw(DISPLAY_WIDTH - 1, y, '#', DIM_GRAY, BG);
+  }
+
+  // Player @ centered in game area (§3.5)
+  display.draw(
+    Math.floor(DISPLAY_WIDTH / 2),
+    Math.floor(WORLD_ROWS / 2),
+    '@', BRIGHT_WHITE, BG
+  );
+
+  // Status bar placeholder (§3.7)
+  drawRow(STATUS_ROW,
+    "Credits: 0    Raw: 0    Widgets: 0/5    Day 1    [============]",
+    BRIGHT_WHITE);
+
+  // Event log (§3.8) — first line per §3.4, remaining rows empty
+  drawRow(LOG_START_ROW,     "> The morning bell has rung.", BRIGHT_CYAN);
+  for (let r = LOG_START_ROW + 1; r <= LOG_END_ROW; r++) {
+    drawRow(r, ">", DIM_GRAY);
+  }
+
+  // Command hint (§3.9)
+  drawRow(HINT_ROW,
+    "[arrows: move]  [space: interact]  [i: inventory]  [L: look]  [?: help]",
+    DIM_GRAY);
+}
+
+function startPhaseIn() {
+  clearScreen();
+  let col = 0;
+
+  function step() {
+    if (col >= DISPLAY_WIDTH) {
+      drawWorld();
+      return;
+    }
+    // Reveal one column of the game-world area per frame (§3.4)
+    for (let row = 0; row < WORLD_ROWS; row++) {
+      display.draw(col, row, ' ', BRIGHT_WHITE, BG);
+    }
+    col++;
+    requestAnimationFrame(step);
+  }
+
+  requestAnimationFrame(step);
+}
+
+// ── Keypress: title → phase-in (§3.3) ────────────────────────────────────────
+
+function onAnyKey() {
+  clearInterval(blinkInterval);
+  window.removeEventListener('keydown', onAnyKey);
+  startPhaseIn();
+}
+
+window.addEventListener('keydown', onAnyKey);
