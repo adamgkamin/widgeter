@@ -1,0 +1,15 @@
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  background-color: #0a0a0a;
+  color: #f0f0f0;
+  font-family: 'IBM Plex Mono', 'Courier New', Courier, monospace;
+  height: 100%;
+  overflow: hidden;
+  /* §3.2 — CRT phosphor glow */
+  text-shadow: 0 0 8px rgba(240, 240, 240, 0.35);
+}
