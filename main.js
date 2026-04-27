@@ -99,6 +99,28 @@ let gameState = 'title'; // 'title' | 'transitioning' | 'intro' | 'playing'
 let playerX = 15;
 let playerY = 14;
 
+// ── Event log (§3.8) ──────────────────────────────────────────────────────────
+
+const logLines = []; // max 5 entries: {text, color}
+
+function addLog(message, color) {
+  logLines.push({ text: message, color });
+  if (logLines.length > 5) logLines.shift();
+  renderLog();
+}
+
+function renderLog() {
+  for (let i = 0; i < 5; i++) {
+    const row = LOG_START_ROW + i;
+    const entry = logLines[logLines.length - 5 + i]; // oldest first, newest at bottom
+    if (entry) {
+      drawRow(row, '> ' + entry.text, entry.color);
+    } else {
+      drawRow(row, '>', DIM_GRAY);
+    }
+  }
+}
+
 let promptVisible = true;
 let blinkInterval = setInterval(() => {
   promptVisible = !promptVisible;
@@ -240,11 +262,8 @@ function drawWorld() {
   sx = seg(sx, 'Day 1',                    BRIGHT_WHITE) + 4;
        seg(sx, '[== market open 180s ==]', '#ffd633');
 
-  // Event log (§3.8) — first line per §3.4, remaining rows empty
-  drawRow(LOG_START_ROW,     "> The morning bell has rung.", BRIGHT_CYAN);
-  for (let r = LOG_START_ROW + 1; r <= LOG_END_ROW; r++) {
-    drawRow(r, ">", DIM_GRAY);
-  }
+  // Event log (§3.8)
+  renderLog();
 
   // Command hint (§3.9)
   drawRow(HINT_ROW,
@@ -424,6 +443,7 @@ function dismissIntro() {
       display.draw(x, y, ' ', BRIGHT_WHITE, BG);
     }
   }
+  addLog('The morning bell has rung.', BRIGHT_CYAN);
   drawWorld();
 }
 
