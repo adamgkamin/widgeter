@@ -290,6 +290,23 @@ function buildTileMap() {
     }
   }
 
+  // Tall grass clusters — §4.2
+  const GRASS_ZONES = [
+    { x1: 55, y1:  2, x2: 70, y2:  8 }, // Zone A: northeast, near Bank
+    { x1:  3, y1: 20, x2: 12, y2: 30 }, // Zone B: southwest, near Factory
+    { x1: 40, y1: 30, x2: 55, y2: 40 }, // Zone C: south-center
+  ];
+  for (const z of GRASS_ZONES) {
+    for (let y = z.y1; y <= z.y2; y++) {
+      for (let x = z.x1; x <= z.x2; x++) {
+        const g = tileMap[x][y].glyph;
+        if (g === ':' || g === 'T') continue; // skip paths and trees
+        if (((x * 1664525 + y * 1013904223) >>> 16) % 100 < 60)
+          tileMap[x][y] = mk('"', '#1a3a1a', true);
+      }
+    }
+  }
+
   // Border — §4.1 (overwrites edge floor)
   for (let x = 0; x < DISPLAY_WIDTH; x++) {
     tileMap[x][0]            = mk('#', DIM_GRAY, false);
