@@ -81,7 +81,7 @@ const state = {
   },
   officeUnlocked: false,
   storage: { widgets: 0, rm: 0, widgetCap: 50, rmCap: 50 },
-  workers: { apprentices: [] },
+  workers: { apprentices: [], couriers: [] },
   skills: {
     apprentice:   0,
     courier:      0,
@@ -144,7 +144,8 @@ function loadGame() {
     state.stations             = data.stations          ?? { factory: { unlocked: false }, storage: { unlocked: false } };
     state.officeUnlocked       = data.officeUnlocked    ?? false;
     state.storage              = data.storage           ?? { widgets: 0, rm: 0, widgetCap: 50, rmCap: 50 };
-    state.workers              = data.workers           ?? { apprentices: [] };
+    state.workers              = data.workers           ?? { apprentices: [], couriers: [] };
+    state.workers.couriers     = state.workers.couriers ?? []; // normalise old saves
     state.skills               = data.skills            ?? { apprentice: 0, courier: 0, workerCarry: 0, workerSpeed: 0, courierCarry: 0, courierSpeed: 0 };
   } catch (_) {
     // corrupt save — start fresh
@@ -520,6 +521,8 @@ function drawWorld() {
   // Apprentice workers (§5.3)
   for (const w of state.workers.apprentices)
     display.draw(w.x, w.y, 'a', '#66ccff', BG);
+  for (const c of state.workers.couriers)
+    display.draw(c.x, c.y, 'c', '#cc66cc', BG);
 
   // Status bar (§3.7)
   drawStatusBar();
@@ -706,7 +709,7 @@ function resetState() {
   state.stations = { factory: { unlocked: false }, storage: { unlocked: false } };
   state.officeUnlocked = false;
   state.storage = { widgets: 0, rm: 0, widgetCap: 50, rmCap: 50 };
-  state.workers = { apprentices: [] };
+  state.workers = { apprentices: [], couriers: [] };
   state.skills = { apprentice: 0, courier: 0, workerCarry: 0, workerSpeed: 0, courierCarry: 0, courierSpeed: 0 };
   const fcDef = STATION_DEFS.find(s => s.label === 'FC');
   const stDef = STATION_DEFS.find(s => s.label === 'ST');
@@ -1205,7 +1208,7 @@ function openMarketMenu() {
 
 const OFFICE_NODES = [
   { num: 1, name: 'Hire Apprentice',    cost:  50, key: 'apprentice',   max: 3  },
-  { num: 2, name: 'Hire Courier Robot', cost:  30, key: 'courier',      max: 1  },
+  { num: 2, name: 'Hire Courier Robot', cost:  30, key: 'courier',      max: 4  },
   { num: 3, name: 'Worker Carry +1',    cost:  40, key: 'workerCarry',  max: 12 },
   { num: 4, name: 'Worker Speed +0.25', cost:  60, key: 'workerSpeed',  max: 6  },
   { num: 5, name: 'Courier Carry +5',   cost:  80, key: 'courierCarry', max: 8  },
@@ -1307,6 +1310,15 @@ function showOfficeMenu() {
           target: { x: 0, y: 0 },
           craftTimer: 0,
           paused: false,
+        });
+      }
+      if (node.key === 'courier') {
+        const ofDef = STATION_DEFS.find(s => s.label === 'OF');
+        state.workers.couriers.push({
+          x: ofDef.x + 1, y: ofDef.y + 2,
+          courierState: 'idle',
+          carryWidgets: 0,
+          target: { x: 0, y: 0 },
         });
       }
       addLog(`${node.name} purchased.`, '#cc66cc');
@@ -1758,6 +1770,79 @@ function tickApprentices() {
   }
 }
 
+// ── Courier robot logic (§5.3) ───────────────────────────────────────────────
+
+function tickCouriers() {
+  const stDef  = STATION_DEFS.find(s => s.label === 'ST');
+  const mtDef  = STATION_DEFS.find(s => s.label === 'MT');
+  const stDoor = { x: stDef.x + 1, y: stDef.y + 2 }; // (24, 34)
+  const mtDoor = { x: mtDef.x + 1, y: mtDef.y + 2 }; // (62, 25)
+  const speed    = Math.max(1, Math.round(1 + state.skills.courierSpeed * 0.5));
+  const carryMax = 10 + state.skills.courierCarry * 5;
+  const PRICE    = 8;
+
+  function moveToward(c, target) {
+    for (let s = 0; s < speed; s++) {
+      const dx = target.x - c.x, dy = target.y - c.y;
+      if (dx === 0 && dy === 0) break;
+      if (Math.abs(dx) >= Math.abs(dy)) c.x += dx > 0 ? 1 : -1;
+      else c.y += dy > 0 ? 1 : -1;
+    }
+  }
+
+  function near(c, door) {
+    return Math.abs(c.x - door.x) <= 1 && Math.abs(c.y - door.y) <= 1;
+  }
+
+  for (const c of state.workers.couriers) {
+    markDirty(c.x, c.y);
+
+    if (c.courierState === 'idle') {
+      if (state.storage.widgets > 0) {
+        c.target = { ...stDoor };
+        c.courierState = 'loading';
+      }
+    }
+
+    if (c.courierState === 'loading') {
+      moveToward(c, stDoor);
+      if (near(c, stDoor)) {
+        const take = Math.min(state.storage.widgets, carryMax);
+        state.storage.widgets -= take;
+        c.carryWidgets = take;
+        c.target = { ...mtDoor };
+        c.courierState = 'delivering';
+      }
+    }
+
+    if (c.courierState === 'delivering') {
+      if (!near(c, mtDoor)) moveToward(c, mtDoor);
+      if (near(c, mtDoor)) {
+        if (state.marketOpen && c.carryWidgets > 0) {
+          const n = c.carryWidgets;
+          const earned = n * PRICE;
+          state.player.credits += earned;
+          state.lifetimeCreditsEarned += earned;
+          c.carryWidgets = 0;
+          addLog(`Courier sold ${n} widget${n !== 1 ? 's' : ''} for ${earned}cr.`, '#66cc66');
+          drawStatusBar();
+          checkPhase2Trigger();
+          c.target = { ...stDoor };
+          c.courierState = 'returning';
+        }
+        // market closed: stay put and wait
+      }
+    }
+
+    if (c.courierState === 'returning') {
+      moveToward(c, stDoor);
+      if (near(c, stDoor)) c.courierState = 'idle';
+    }
+
+    markDirty(c.x, c.y);
+  }
+}
+
 // ── Tick loop — 1 tick/second (§7.1) ─────────────────────────────────────────
 
 setInterval(() => {
@@ -1795,12 +1880,13 @@ setInterval(() => {
     }
   }
 
-  // Apprentice workers — §5.3
-  if (state.workers.apprentices.length > 0) {
-    tickApprentices();
+  // Workers — §5.3
+  if (state.workers.apprentices.length > 0) tickApprentices();
+  if (state.workers.couriers.length > 0)    tickCouriers();
+  if (state.workers.apprentices.length > 0 || state.workers.couriers.length > 0) {
     renderDirty();
-    for (const w of state.workers.apprentices)
-      display.draw(w.x, w.y, 'a', '#66ccff', BG);
+    for (const w of state.workers.apprentices) display.draw(w.x, w.y, 'a', '#66ccff', BG);
+    for (const c of state.workers.couriers)    display.draw(c.x, c.y, 'c', '#cc66cc', BG);
     display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
   }
 
