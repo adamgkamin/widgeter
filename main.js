@@ -252,11 +252,19 @@ function renderDirty() {
 function buildTileMap() {
   const mk = (glyph, fg, walkable) => ({ glyph, fg, bg: BG, walkable });
 
-  // Initialise every cell as a floor tile
+  // Initialise every cell as mixed terrain (§4.2)
   for (let x = 0; x < DISPLAY_WIDTH; x++) {
     tileMap[x] = [];
     for (let y = 0; y < WORLD_ROWS; y++) {
-      tileMap[x][y] = mk('.', '#1a1a1a', true);
+      const h = ((x * 1664525 + y * 1013904223) >>> 16) % 100;
+      let glyph, fg;
+      if      (h <= 50) { glyph = '.'; fg = '#1a1a1a'; } // bare floor
+      else if (h <= 65) { glyph = ','; fg = '#2a2a1a'; } // dirt
+      else if (h <= 75) { glyph = "'"; fg = '#2a3a1a'; } // sparse grass
+      else if (h <= 82) { glyph = '`'; fg = '#1a2a1a'; } // moss
+      else if (h <= 87) { glyph = '_'; fg = '#3a3020'; } // worn earth
+      else              { glyph = '.'; fg = '#1a1a1a'; } // floor (88–100)
+      tileMap[x][y] = mk(glyph, fg, true);
     }
   }
 
