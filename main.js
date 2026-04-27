@@ -107,6 +107,54 @@ let blinkInterval = setInterval(() => {
 
 // ── §3.4 Phase-in transition ──────────────────────────────────────────────────
 
+// Station definitions — single source of truth for layout and colors
+const STATION_DEFS = [
+  { x: 10, y: 30, label: 'FC', wc: DIM_GRAY,   lc: DIM_GRAY   },
+  { x: 23, y: 32, label: 'ST', wc: DIM_GRAY,   lc: DIM_GRAY   },
+  { x: 61, y:  4, label: 'BK', wc: DIM_GRAY,   lc: DIM_GRAY   },
+  { x: 56, y: 16, label: 'DV', wc: DIM_GRAY,   lc: DIM_GRAY   },
+  { x:  9, y:  2, label: 'RM', wc: '#ff9933',  lc: '#ff9933'  },
+  { x: 34, y:  8, label: 'WB', wc: '#ff9933',  lc: '#ff9933'  },
+  { x: 61, y: 23, label: 'MT', wc: '#ffd633',  lc: '#ffd633'  },
+  { x: 23, y: 17, label: 'OF', wc: '#555555',  lc: '#ffffff'  },
+];
+
+// Return the map tile {ch, fg} at (x, y), ignoring the player
+function getTileAt(x, y) {
+  if (x === 0 || x === DISPLAY_WIDTH - 1 || y === 0 || y === WORLD_ROWS - 1)
+    return { ch: '#', fg: DIM_GRAY };
+
+  for (const s of STATION_DEFS) {
+    if (x < s.x || x > s.x + 3 || y < s.y || y > s.y + 2) continue;
+    if (y === s.y)
+      return { ch: (x === s.x || x === s.x + 3) ? '+' : '-', fg: s.wc };
+    if (y === s.y + 2)
+      return { ch: x === s.x + 1 ? '.' : (x === s.x || x === s.x + 3 ? '+' : '-'), fg: s.wc };
+    // middle row
+    if (x === s.x || x === s.x + 3) return { ch: '|', fg: s.wc };
+    return { ch: s.label[x - s.x - 1], fg: s.lc };
+  }
+
+  const onPath = (x === 15 && y >= 3 && y <= 28)
+              || (y === 14 && x >= 15 && x <= 62)
+              || (y === 28 && x >= 15 && x <= 62)
+              || (x === 62 && y >= 14 && y <= 28);
+  if (onPath) return { ch: ':', fg: '#3a3530' };
+
+  const reserved = (x >= 8  && x <= 13 && y >= 1  && y <= 5)
+                || (x >= 33 && x <= 38 && y >= 7  && y <= 11)
+                || (x >= 60 && x <= 65 && y >= 22 && y <= 26)
+                || (x >= 22 && x <= 27 && y >= 16 && y <= 20);
+  if (!reserved && (x * 7 + y * 13 + 42) % 100 < 8) return { ch: 'T', fg: '#2d5a2d' };
+
+  return { ch: '.', fg: '#1a1a1a' };
+}
+
+function isBlocked(x, y) {
+  const { ch } = getTileAt(x, y);
+  return ch === '#' || ch === '+' || ch === '-' || ch === '|';
+}
+
 // Draw a 4×3 station house: +--+ / |XY| / +.-+ (door at bottom-left+1) (§3.6)
 function drawStation(x, y, label, wallColor, labelColor) {
   display.draw(x,   y,   '+', wallColor,  BG);
@@ -384,3 +432,21 @@ function onAnyKey() {
 }
 
 window.addEventListener('keydown', onAnyKey);
+
+// ── Arrow key movement (§3.5) ─────────────────────────────────────────────────
+
+window.addEventListener('keydown', (e) => {
+  if (gameState !== 'playing') return;
+  const DIRS = { ArrowLeft:[-1,0], ArrowRight:[1,0], ArrowUp:[0,-1], ArrowDown:[0,1] };
+  const d = DIRS[e.key];
+  if (!d) return;
+  e.preventDefault(); // stop arrow keys scrolling the page
+  const nx = playerX + d[0];
+  const ny = playerY + d[1];
+  if (isBlocked(nx, ny)) return;
+  const { ch, fg } = getTileAt(playerX, playerY);
+  display.draw(playerX, playerY, ch, fg, BG);
+  playerX = nx;
+  playerY = ny;
+  display.draw(playerX, playerY, '@', BRIGHT_WHITE, BG);
+});
