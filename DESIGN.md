@@ -92,15 +92,17 @@ Background is `#0a0a0a` (near-black, not pure black — softer on eyes).
 On launch, the screen shows:
 
 ```
-                        W       W IIII DDDD   GGGG  EEEE  TTTT EEEE  RRRR
-                        W       W  II  D  D  G     E      TT  E     R  R
-                        W   W   W  II  D  D  G GG  EEE    TT  EEE   RRRR
-                        W  W W  W  II  D  D  G  G  E      TT  E     R R
-                         WW   WW  IIII DDDD   GGGG  EEEE   TT  EEEE  R  R
+W       W IIII DDDD   GGGG  EEEE  TTTT EEEE  RRRR
+W       W  II  D  D  G     E      TT  E     R  R
+W   W   W  II  D  D  G GG  EEE    TT  EEE   RRRR
+W  W W  W  II  D  D  G  G  E      TT  E     R R
+ WW   WW  IIII DDDD   GGGG  EEEE   TT  EEEE  R  R
 
 
-                              [ press any key to start ]
+[ press any key to start ]
 ```
+
+Centering is computed at runtime: `x = floor((80 - maxLineWidth) / 2)`.
 
 Letters in BRIGHT_YELLOW. Subtitle in BRIGHT_CYAN, blinking at 1 Hz.
 
