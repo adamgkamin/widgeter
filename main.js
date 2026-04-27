@@ -357,6 +357,28 @@ function buildTileMap() {
     }
   }
 
+  // Fallen logs — §4.2
+  for (const [lx, ly] of [[8,6],[71,9],[5,35],[68,38],[44,4],[50,39]]) {
+    tileMap[lx][ly] = mk('&', '#5a4a2a', false);
+  }
+
+  // Worn ground near Market approach — §4.2
+  for (let y = 18; y <= 25; y++) {
+    for (let x = 55; x <= 63; x++) {
+      if (x <= 0 || x >= DISPLAY_WIDTH - 1 || y <= 0 || y >= WORLD_ROWS - 1) continue;
+      if (isPathTile(x, y) || isStationTile(x, y)) continue;
+      if (tileMap[x][y].glyph === 'T') continue;
+      const h = ((x * 1664525 + y * 1013904223) >>> 16) % 100;
+      if (h < 80) {
+        tileMap[x][y] = mk('.', '#1a1a1a', true);
+      } else if (h < 90) {
+        tileMap[x][y] = mk(',', '#2a2a1a', true);
+      } else {
+        tileMap[x][y] = mk('_', '#3a3020', true);
+      }
+    }
+  }
+
   // Border — §4.1 (overwrites edge floor)
   for (let x = 0; x < DISPLAY_WIDTH; x++) {
     tileMap[x][0]            = mk('#', DIM_GRAY, false);
