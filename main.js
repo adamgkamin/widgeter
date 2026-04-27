@@ -204,6 +204,23 @@ function drawTimeIndicator() {
   for (let i = 0; i < text.length; i++) display.draw(TIMER_X + i, STATUS_ROW, text[i], fg, BG);
 }
 
+function drawStatusBar() {
+  drawRow(STATUS_ROW, '', BRIGHT_WHITE);
+  const seg = (x, text, fg) => {
+    for (let i = 0; i < text.length; i++) display.draw(x + i, STATUS_ROW, text[i], fg, BG);
+    return x + text.length;
+  };
+  const inv = state.player.inventory;
+  const cap = state.player.inventoryCaps;
+  const widgetFg = inv.widgets >= cap.widgets ? '#ff5555' : BRIGHT_WHITE;
+  let sx = 0;
+  sx = seg(sx, `Credits: ${state.player.credits}`,              '#ffd633') + 4;
+  sx = seg(sx, `Raw: ${inv.rm}`,                                '#ff9933') + 4;
+  sx = seg(sx, `Widgets: ${inv.widgets}/${cap.widgets}`,        widgetFg)  + 4;
+  sx = seg(sx, `Day ${state.day}`,                              BRIGHT_WHITE) + 4;
+  drawTimeIndicator();
+}
+
 // ── Tile map (§4.2) ───────────────────────────────────────────────────────────
 
 // Station definitions — single source of truth for layout and colors
@@ -307,15 +324,8 @@ function drawWorld() {
   // Player @ (§3.5)
   display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
 
-  // Status bar — colored segments (§3.7)
-  drawRow(STATUS_ROW, '', BRIGHT_WHITE);
-  const seg = (x, text, fg) => { for (let i = 0; i < text.length; i++) display.draw(x + i, STATUS_ROW, text[i], fg, BG); return x + text.length; };
-  let sx = 0;
-  sx = seg(sx, 'Credits: 10', '#ffd633') + 4;
-  sx = seg(sx, 'Raw: 0',      '#ff9933') + 4;
-  sx = seg(sx, 'Widgets: 0/5', BRIGHT_WHITE) + 4;
-  sx = seg(sx, 'Day 1',        BRIGHT_WHITE) + 4;
-  drawTimeIndicator();
+  // Status bar (§3.7)
+  drawStatusBar();
 
   // Event log (§3.8)
   renderLog();
@@ -501,6 +511,7 @@ window.addEventListener('keydown', onAnyKey);
 window.addEventListener('keydown', (e) => {
   if (state.gameState !== 'playing') return;
   if (e.key === 'o') { enterLookMode(); return; }
+  if (e.key === ' ') { e.preventDefault(); handleInteract(); return; }
   const DIRS = { ArrowLeft:[-1,0], ArrowRight:[1,0], ArrowUp:[0,-1], ArrowDown:[0,1] };
   const d = DIRS[e.key];
   if (!d) return;
@@ -608,6 +619,122 @@ window.addEventListener('keydown', (e) => {
   drawLookCursor(true);
   renderLookDescription();
 });
+
+// ── Menu system ───────────────────────────────────────────────────────────────
+
+function showMenu(title, options) {
+  state.gameState = 'menu';
+
+  const ESC_LABEL = 'ESC to cancel';
+  const INNER_W   = Math.max(title.length, ESC_LABEL.length,
+                             ...options.map((o, i) => `${i + 1}. ${o.label}`.length));
+  const BOX_W  = INNER_W + 4;           // 2 borders + 2 padding
+  const BOX_H  = options.length + 6;    // top + title + blank + options + blank + esc + bottom
+  const BOX_X  = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
+  const BOX_Y  = Math.floor((WORLD_ROWS  - BOX_H) / 2);
+  const CONT_X = BOX_X + 2;             // content left edge
+  const WC     = '#555555';
+
+  // Frame
+  display.draw(BOX_X, BOX_Y, '+', WC, BG);
+  display.draw(BOX_X + BOX_W - 1, BOX_Y, '+', WC, BG);
+  for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, BOX_Y, '-', WC, BG);
+  const botY = BOX_Y + BOX_H - 1;
+  display.draw(BOX_X, botY, '+', WC, BG);
+  display.draw(BOX_X + BOX_W - 1, botY, '+', WC, BG);
+  for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, botY, '-', WC, BG);
+  for (let y = 1; y < BOX_H - 1; y++) {
+    display.draw(BOX_X, BOX_Y + y, '|', WC, BG);
+    display.draw(BOX_X + BOX_W - 1, BOX_Y + y, '|', WC, BG);
+    for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, BOX_Y + y, ' ', BRIGHT_WHITE, BG);
+  }
+
+  // Title
+  for (let i = 0; i < title.length; i++) display.draw(CONT_X + i, BOX_Y + 1, title[i], BRIGHT_CYAN, BG);
+
+  // Options (row BOX_Y + 3 onward — gap of 1 after title)
+  for (let i = 0; i < options.length; i++) {
+    const opt  = options[i];
+    const fg   = opt.enabled === false ? DIM_GRAY : BRIGHT_WHITE;
+    const text = `${i + 1}. ${opt.label}`;
+    for (let j = 0; j < text.length; j++) display.draw(CONT_X + j, BOX_Y + 3 + i, text[j], fg, BG);
+  }
+
+  // ESC hint
+  for (let i = 0; i < ESC_LABEL.length; i++)
+    display.draw(CONT_X + i, BOX_Y + 3 + options.length + 1, ESC_LABEL[i], DIM_GRAY, BG);
+
+  function closeMenu() {
+    window.removeEventListener('keydown', menuKeyHandler);
+    for (let y = BOX_Y; y < BOX_Y + BOX_H; y++)
+      for (let x = BOX_X; x < BOX_X + BOX_W; x++)
+        if (x >= 0 && x < DISPLAY_WIDTH && y >= 0 && y < WORLD_ROWS) markDirty(x, y);
+    renderDirty();
+    display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
+    state.gameState = 'playing';
+  }
+
+  function menuKeyHandler(e) {
+    if (e.key === 'Escape') { closeMenu(); return; }
+    const num = parseInt(e.key);
+    if (num >= 1 && num <= options.length) {
+      const opt = options[num - 1];
+      if (opt.enabled === false) return; // disabled — do nothing, stay open
+      opt.action();
+      closeMenu();
+    }
+  }
+  window.addEventListener('keydown', menuKeyHandler);
+}
+
+// ── Station interaction (§5.2) ────────────────────────────────────────────────
+
+function isAdjacentToStation(s) {
+  const { x: px, y: py } = state.player;
+  // Wall tiles of a 4×3 station (excludes door at s.x+1, s.y+2)
+  const walls = [
+    [s.x,   s.y],   [s.x+1, s.y],   [s.x+2, s.y],   [s.x+3, s.y],
+    [s.x,   s.y+1], [s.x+3, s.y+1],
+    [s.x,   s.y+2], [s.x+2, s.y+2], [s.x+3, s.y+2],
+  ];
+  return walls.some(([wx, wy]) => Math.abs(px - wx) <= 1 && Math.abs(py - wy) <= 1);
+}
+
+function openRMShedMenu() {
+  const COST    = 3;
+  const rmSpace = state.player.inventoryCaps.rm - state.player.inventory.rm;
+  const maxBuy  = Math.min(rmSpace, Math.floor(state.player.credits / COST));
+  const canBuy1 = state.player.credits >= COST && rmSpace > 0;
+
+  showMenu('Raw Materials Shed', [
+    {
+      label:   `Buy 1 RM (${COST}cr)`,
+      enabled: canBuy1,
+      action:  () => {
+        state.player.credits     -= COST;
+        state.player.inventory.rm += 1;
+        addLog(`You buy 1 raw material.`, '#ff9933');
+        drawStatusBar();
+      },
+    },
+    {
+      label:   `Buy max (${maxBuy})`,
+      enabled: maxBuy > 0,
+      action:  () => {
+        state.player.credits      -= maxBuy * COST;
+        state.player.inventory.rm += maxBuy;
+        addLog(`You buy ${maxBuy} raw material${maxBuy !== 1 ? 's' : ''}.`, '#ff9933');
+        drawStatusBar();
+      },
+    },
+    { label: 'Cancel', enabled: true, action: () => {} },
+  ]);
+}
+
+function handleInteract() {
+  const rm = STATION_DEFS.find(s => s.label === 'RM');
+  if (rm && isAdjacentToStation(rm)) { openRMShedMenu(); return; }
+}
 
 // ── Tick loop — 1 tick/second (§7.1) ─────────────────────────────────────────
 
