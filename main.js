@@ -37,11 +37,11 @@ function drawRow(y, text, fg) {
 // ── §3.3 Title screen ─────────────────────────────────────────────────────────
 
 const TITLE_ART = [
-  "W       W IIII DDDD   GGGG  EEEE  TTTT EEEE  RRRR",
-  "W       W  II  D  D  G     E      TT  E     R  R",
-  "W   W   W  II  D  D  G GG  EEE    TT  EEE   RRRR",
-  "W  W W  W  II  D  D  G  G  E      TT  E     R R",
-  " WW   WW  IIII DDDD   GGGG  EEEE   TT  EEEE  R  R",
+  "W       W IIII DDDD   GGGG  EEEE  TTTT EEEE  RRRR ",
+  "W       W  II  D  D  G     E       TT  E     R  R ",
+  "W   W   W  II  D  D  G GG  EEE     TT  EEE   RRRR ",
+  "W  W W  W  II  D  D  G  G  E       TT  E     R R  ",
+  " WW   WW  IIII DDDD   GGGG  EEEE   TT  EEEE  R  R ",
 ];
 const PROMPT = "[ press any key to start ]";
 
@@ -70,6 +70,8 @@ function drawPrompt(visible) {
 clearScreen();
 drawArt();
 drawPrompt(true);
+
+let gameState = 'title'; // 'title' | 'transitioning' | 'playing'
 
 let promptVisible = true;
 let blinkInterval = setInterval(() => {
@@ -121,7 +123,9 @@ function startPhaseIn() {
   let index = 0;
 
   function step() {
+    if (gameState !== 'transitioning') return;
     if (index >= TOTAL_TILES) {
+      gameState = 'playing';
       drawWorld();
       return;
     }
@@ -144,6 +148,7 @@ function startPhaseIn() {
 function onAnyKey() {
   clearInterval(blinkInterval);
   window.removeEventListener('keydown', onAnyKey);
+  gameState = 'transitioning';
   startPhaseIn();
 }
 
