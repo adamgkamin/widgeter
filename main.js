@@ -80,6 +80,7 @@ const state = {
     storage: { unlocked: false },
   },
   officeUnlocked: false,
+  storage: { widgets: 0, rm: 0, widgetCap: 50, rmCap: 50 },
   skills: {
     apprentice:   0,
     courier:      0,
@@ -113,6 +114,7 @@ function saveGame() {
     stepsWalked:          state.stepsWalked,
     stations:             state.stations,
     officeUnlocked:       state.officeUnlocked,
+    storage:              state.storage,
     skills:               state.skills,
   };
   localStorage.setItem(SAVE_KEY, JSON.stringify(data));
@@ -139,6 +141,7 @@ function loadGame() {
     state.stepsWalked          = data.stepsWalked       ?? 0;
     state.stations             = data.stations          ?? { factory: { unlocked: false }, storage: { unlocked: false } };
     state.officeUnlocked       = data.officeUnlocked    ?? false;
+    state.storage              = data.storage           ?? { widgets: 0, rm: 0, widgetCap: 50, rmCap: 50 };
     state.skills               = data.skills            ?? { apprentice: 0, courier: 0, workerCarry: 0, workerSpeed: 0, courierCarry: 0, courierSpeed: 0 };
   } catch (_) {
     // corrupt save — start fresh
@@ -695,6 +698,7 @@ function resetState() {
   state.lastAmbientTick = 0; state.lastNarrativeTick = 0; state.nextAmbientDelay = 45; state.stepsWalked = 0;
   state.stations = { factory: { unlocked: false }, storage: { unlocked: false } };
   state.officeUnlocked = false;
+  state.storage = { widgets: 0, rm: 0, widgetCap: 50, rmCap: 50 };
   state.skills = { apprentice: 0, courier: 0, workerCarry: 0, workerSpeed: 0, courierCarry: 0, courierSpeed: 0 };
   const fcDef = STATION_DEFS.find(s => s.label === 'FC');
   const stDef = STATION_DEFS.find(s => s.label === 'ST');
@@ -1313,6 +1317,100 @@ function handlePonder() {
   addLog(hint, '#66ccff');
 }
 
+function openStorageMenu() {
+  if (!state.stations.storage.unlocked) return;
+  state.gameState = 'menu';
+
+  const BOX_W  = 44;
+  const BOX_H  = 17;
+  const BOX_X  = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
+  const BOX_Y  = Math.max(10, Math.floor((WORLD_ROWS - BOX_H) / 2));
+  const CONT_X = BOX_X + 2;
+  const CONT_W = BOX_W - 4; // 40
+  const WC     = '#555555';
+  const st     = state.storage;
+
+  function drawBar(row, label, current, max, barFg) {
+    const BAR_W  = 10;
+    const filled = max > 0 ? Math.min(Math.round(current / max * BAR_W), BAR_W) : 0;
+    const lbl    = label.padEnd(17);
+    const count  = `${current} / ${max}`.padStart(7);
+    for (let i = 0; i < 17; i++) display.draw(CONT_X+i, BOX_Y+row, lbl[i], BRIGHT_WHITE, BG);
+    display.draw(CONT_X+17, BOX_Y+row, '[', WC, BG);
+    for (let i = 0; i < BAR_W; i++)
+      display.draw(CONT_X+18+i, BOX_Y+row, i < filled ? '=' : ' ', i < filled ? barFg : WC, BG);
+    display.draw(CONT_X+28, BOX_Y+row, ']', WC, BG);
+    for (let i = 0; i < count.length; i++) display.draw(CONT_X+29+i, BOX_Y+row, count[i], BRIGHT_WHITE, BG);
+  }
+
+  function redraw() {
+    display.draw(BOX_X, BOX_Y, '+', WC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y, '+', WC, BG);
+    for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, BOX_Y, '-', WC, BG);
+    const botY = BOX_Y + BOX_H - 1;
+    display.draw(BOX_X, botY, '+', WC, BG); display.draw(BOX_X+BOX_W-1, botY, '+', WC, BG);
+    for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, botY, '-', WC, BG);
+    for (let y = 1; y < BOX_H-1; y++) {
+      display.draw(BOX_X, BOX_Y+y, '|', WC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y+y, '|', WC, BG);
+      for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, BOX_Y+y, ' ', BRIGHT_WHITE, BG);
+    }
+    const TITLE = '– STORAGE –';
+    const titleX = CONT_X + Math.floor((CONT_W - TITLE.length) / 2);
+    for (let i = 0; i < TITLE.length; i++) display.draw(titleX+i, BOX_Y+1, TITLE[i], '#66ccff', BG);
+    drawBar(3, 'Widgets stored:', st.widgets, st.widgetCap, '#f0f0f0');
+    drawBar(4, 'Raw Materials:', st.rm, st.rmCap, '#ff9933');
+    for (let i = 0; i < CONT_W; i++) display.draw(CONT_X+i, BOX_Y+6, '-', WC, BG);
+    const ah = 'Auto-halt when full: ON';
+    for (let i = 0; i < ah.length; i++) display.draw(CONT_X+i, BOX_Y+8, ah[i], '#66cc66', BG);
+    for (const [idx, txt] of [
+      [0, '1. Take all widgets'], [1, '2. Deposit all widgets'],
+      [2, '3. Take all RM'],      [3, '4. Deposit all RM'],
+    ]) for (let j = 0; j < txt.length; j++) display.draw(CONT_X+j, BOX_Y+10+idx, txt[j], BRIGHT_WHITE, BG);
+    const ESC = 'ESC to close';
+    const escX = CONT_X + Math.floor((CONT_W - ESC.length) / 2);
+    for (let i = 0; i < ESC.length; i++) display.draw(escX+i, BOX_Y+BOX_H-2, ESC[i], WC, BG);
+  }
+
+  redraw();
+
+  function closeStorage() {
+    window.removeEventListener('keydown', storageKeyHandler);
+    for (let y = BOX_Y; y < BOX_Y+BOX_H; y++)
+      for (let x = BOX_X; x < BOX_X+BOX_W; x++)
+        if (x >= 0 && x < DISPLAY_WIDTH && y >= 0 && y < WORLD_ROWS) markDirty(x, y);
+    renderDirty();
+    display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
+    state.gameState = 'playing';
+  }
+
+  function storageKeyHandler(e) {
+    if (e.key === 'Escape') { closeStorage(); return; }
+    const inv = state.player.inventory;
+    const cap = state.player.inventoryCaps;
+    if (e.key === '1') {
+      const take = Math.min(st.widgets, cap.widgets - inv.widgets);
+      if (take > 0) { st.widgets -= take; inv.widgets += take;
+        addLog(`You take ${take} widget${take !== 1 ? 's' : ''} from storage.`, BRIGHT_CYAN);
+        drawStatusBar(); redraw(); }
+    } else if (e.key === '2') {
+      const dep = Math.min(inv.widgets, st.widgetCap - st.widgets);
+      if (dep > 0) { inv.widgets -= dep; st.widgets += dep;
+        addLog(`You deposit ${dep} widget${dep !== 1 ? 's' : ''} into storage.`, BRIGHT_CYAN);
+        drawStatusBar(); redraw(); }
+    } else if (e.key === '3') {
+      const take = Math.min(st.rm, cap.rm - inv.rm);
+      if (take > 0) { st.rm -= take; inv.rm += take;
+        addLog(`You take ${take} raw material${take !== 1 ? 's' : ''} from storage.`, BRIGHT_CYAN);
+        drawStatusBar(); redraw(); }
+    } else if (e.key === '4') {
+      const dep = Math.min(inv.rm, st.rmCap - st.rm);
+      if (dep > 0) { inv.rm -= dep; st.rm += dep;
+        addLog(`You deposit ${dep} raw material${dep !== 1 ? 's' : ''} into storage.`, BRIGHT_CYAN);
+        drawStatusBar(); redraw(); }
+    }
+  }
+  window.addEventListener('keydown', storageKeyHandler);
+}
+
 function handleInteract() {
   const rm = STATION_DEFS.find(s => s.label === 'RM');
   if (rm && isAdjacentToStation(rm)) { openRMShedMenu(); return; }
@@ -1322,6 +1420,8 @@ function handleInteract() {
   if (mt && isAdjacentToStation(mt)) { openMarketMenu(); return; }
   const of = STATION_DEFS.find(s => s.label === 'OF');
   if (of && isAdjacentToStation(of)) { showOfficeMenu(); return; }
+  const stStation = STATION_DEFS.find(s => s.label === 'ST');
+  if (stStation && isAdjacentToStation(stStation)) { openStorageMenu(); return; }
 }
 
 // ── Inventory screen (§3.9) ──────────────────────────────────────────────────
