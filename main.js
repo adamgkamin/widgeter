@@ -209,7 +209,19 @@ const STATION_DEFS = [
   { x: 23, y: 17, label: 'OF', wc: '#aaaaaa', lc: '#ffffff' },
 ];
 
-let tileMap = []; // tileMap[x][y] = { glyph, fg, bg, walkable }
+let tileMap   = []; // tileMap[x][y] = { glyph, fg, bg, walkable }
+const dirtyTiles = new Set(); // "x,y" strings of tiles that need redrawing
+
+function markDirty(x, y) { dirtyTiles.add(`${x},${y}`); }
+
+function renderDirty() {
+  for (const key of dirtyTiles) {
+    const [x, y] = key.split(',').map(Number);
+    const t = tileMap[x][y];
+    display.draw(x, y, t.glyph, t.fg, t.bg);
+  }
+  dirtyTiles.clear();
+}
 
 function buildTileMap() {
   const mk = (glyph, fg, walkable) => ({ glyph, fg, bg: BG, walkable });
@@ -271,28 +283,17 @@ function buildTileMap() {
   }
 }
 
-// Read map tile under the player (for tile restoration on move)
-function getTileAt(x, y) {
-  const t = tileMap[x][y];
-  return { ch: t.glyph, fg: t.fg };
-}
-
-function isBlocked(x, y) {
-  return !tileMap[x][y].walkable;
-}
 
 // ── §3.4 Phase-in transition ──────────────────────────────────────────────────
 
 function drawWorld() {
   buildTileMap();
 
-  // Render every map tile from the tileMap
+  // Mark every map tile dirty so renderDirty redraws the full world
   for (let y = 0; y < WORLD_ROWS; y++) {
-    for (let x = 0; x < DISPLAY_WIDTH; x++) {
-      const t = tileMap[x][y];
-      display.draw(x, y, t.glyph, t.fg, t.bg);
-    }
+    for (let x = 0; x < DISPLAY_WIDTH; x++) markDirty(x, y);
   }
+  renderDirty();
 
   // Player @ (§3.5)
   display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
@@ -496,11 +497,12 @@ window.addEventListener('keydown', (e) => {
   e.preventDefault();
   const nx = state.player.x + d[0];
   const ny = state.player.y + d[1];
-  if (!tileMap[nx][ny].walkable) return; // collision via tileMap lookup
-  const { ch, fg } = getTileAt(state.player.x, state.player.y);
-  display.draw(state.player.x, state.player.y, ch, fg, BG);
+  if (!tileMap[nx][ny].walkable) return;
+  markDirty(state.player.x, state.player.y); // old position — restore from tileMap
   state.player.x = nx;
   state.player.y = ny;
+  markDirty(state.player.x, state.player.y); // new position — cleared before @ is drawn
+  renderDirty();                              // restores both tiles from tileMap
   display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
 });
 
