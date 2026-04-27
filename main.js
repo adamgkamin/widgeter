@@ -113,6 +113,15 @@ function loadGame() {
 
 loadGame();
 
+// ── Descriptions (§6.1) ───────────────────────────────────────────────────────
+
+let descriptions = null; // loaded async; look mode is gated on this being non-null
+
+fetch('src/content/descriptions.json')
+  .then(r => r.json())
+  .then(data => { descriptions = data; })
+  .catch(() => { descriptions = { glyphs: {}, tiles: {} }; }); // fail gracefully
+
 // ── §3.3 Title screen ─────────────────────────────────────────────────────────
 
 const TITLE_ART = [
@@ -528,18 +537,48 @@ function restoreLookTile() {
     display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
 }
 
-function logLookTile() {
+// Priority: tiles["x,y"] → glyphs[g].variants[hash] → glyphs[g].default → fallback (§6.1, §6.2)
+function getDescription(x, y, glyph) {
+  if (!descriptions) return 'Nothing remarkable.';
+  const td = descriptions.tiles && descriptions.tiles[`${x},${y}`];
+  if (td) return td;
+  const gd = descriptions.glyphs && descriptions.glyphs[glyph];
+  if (gd) {
+    if (gd.variants && gd.variants.length) {
+      const idx = ((x * 1664525 + y * 1013904223) >>> 16) % gd.variants.length;
+      return gd.variants[idx];
+    }
+    if (gd.default) return gd.default;
+  }
+  return (descriptions.glyphs && descriptions.glyphs.unknown) || 'Nothing remarkable.';
+}
+
+// Render description into the log area without touching state.logLines (§3.10)
+function renderLookDescription() {
   const onPlayer = lookX === state.player.x && lookY === state.player.y;
-  const glyph = onPlayer ? '@' : tileMap[lookX][lookY].glyph;
-  addLog(`You see: ${glyph}`, BRIGHT_CYAN);
+  const glyph  = onPlayer ? '@' : tileMap[lookX][lookY].glyph;
+  const tileFg = onPlayer ? BRIGHT_WHITE : tileMap[lookX][lookY].fg;
+  const desc   = getDescription(lookX, lookY, glyph);
+
+  for (let r = LOG_START_ROW; r <= LOG_END_ROW; r++) drawRow(r, '', BRIGHT_WHITE);
+
+  // Glyph in its native color at column 0, description in BRIGHT_CYAN from column 2
+  display.draw(0, LOG_START_ROW, glyph, tileFg, BG);
+  const lines = wordWrap(desc, DISPLAY_WIDTH - 2); // leave room for glyph+space on line 1
+  for (let i = 0; i < lines.length && i < 5; i++) {
+    const xOff = i === 0 ? 2 : 0;
+    for (let j = 0; j < lines[i].length; j++)
+      display.draw(xOff + j, LOG_START_ROW + i, lines[i][j], BRIGHT_CYAN, BG);
+  }
 }
 
 function enterLookMode() {
+  if (!descriptions) return; // wait for JSON to load
   state.gameState = 'look';
   lookX = state.player.x;
   lookY = state.player.y;
   drawLookCursor(true);
-  logLookTile();
+  renderLookDescription();
   let blinkOn = true;
   lookBlinkInterval = setInterval(() => {
     if (state.gameState !== 'look') { clearInterval(lookBlinkInterval); return; }
@@ -552,6 +591,7 @@ function exitLookMode() {
   clearInterval(lookBlinkInterval);
   lookBlinkInterval = null;
   restoreLookTile();
+  renderLog(); // restore event log (§3.10)
   state.gameState = 'playing';
 }
 
@@ -566,7 +606,7 @@ window.addEventListener('keydown', (e) => {
   lookX = Math.max(0, Math.min(DISPLAY_WIDTH - 1, lookX + d[0]));
   lookY = Math.max(0, Math.min(WORLD_ROWS - 1,    lookY + d[1]));
   drawLookCursor(true);
-  logLookTile();
+  renderLookDescription();
 });
 
 // ── Tick loop — 1 tick/second (§7.1) ─────────────────────────────────────────
