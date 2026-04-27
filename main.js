@@ -113,6 +113,13 @@ function drawWorld() {
     }
   }
 
+  // Path network — § 4.4
+  const PATH_COLOR = '#3a3530';
+  for (let y = 3;  y <= 28; y++) display.draw(15, y, ':', PATH_COLOR, BG); // vertical west
+  for (let x = 15; x <= 62; x++) display.draw(x, 14, ':', PATH_COLOR, BG); // horizontal north
+  for (let x = 15; x <= 62; x++) display.draw(x, 28, ':', PATH_COLOR, BG); // horizontal south
+  for (let y = 14; y <= 28; y++) display.draw(62, y, ':', PATH_COLOR, BG); // vertical east
+
   // Outer border: row 0, row 42, col 0, col 79 (§4.1)
   for (let x = 0; x < DISPLAY_WIDTH; x++) {
     display.draw(x, 0,             '#', DIM_GRAY, BG);
