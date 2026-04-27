@@ -1,0 +1,46 @@
+{
+  "glyphs": {
+    ".": {
+      "default": "Scuffed boards. A bent nail.",
+      "variants": [
+        "Worn floorboards. Dust settled in the grooves.",
+        "The boards creak underfoot.",
+        "A grease stain from some old work.",
+        "Floorboards, smooth from years of passage.",
+        "Something small and unidentifiable has been swept to one side."
+      ]
+    },
+    "T": {
+      "default": "A tree. Its leaves are still.",
+      "variants": [
+        "A gnarled tree. Moss gathers at the base.",
+        "An oak, or something like it. Old.",
+        "The branches cross overhead. No fruit.",
+        "A tree with a hollow at the base, just large enough for a hand.",
+        "Leaves overhead. Light comes through in patches."
+      ]
+    },
+    ":": {
+      "default": "A dirt path, worn by foot traffic.",
+      "variants": [
+        "The path here is packed hard.",
+        "Footprints going in both directions.",
+        "A well-trodden route. Someone has paced it many times.",
+        "The path narrows slightly here.",
+        "Stones pressed into the dirt to keep it dry."
+      ]
+    },
+    "#": {
+      "default": "A wall.",
+      "variants": [
+        "The outer wall. Solid.",
+        "A boundary. Beyond it, the wider world.",
+        "Rough stone. Cold to the touch."
+      ]
+    },
+    "@": {
+      "default": "That's you."
+    },
+    "unknown": "Nothing remarkable."
+  }
+}

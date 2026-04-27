@@ -491,6 +491,7 @@ window.addEventListener('keydown', onAnyKey);
 
 window.addEventListener('keydown', (e) => {
   if (state.gameState !== 'playing') return;
+  if (e.key === 'o') { enterLookMode(); return; }
   const DIRS = { ArrowLeft:[-1,0], ArrowRight:[1,0], ArrowUp:[0,-1], ArrowDown:[0,1] };
   const d = DIRS[e.key];
   if (!d) return;
@@ -498,12 +499,74 @@ window.addEventListener('keydown', (e) => {
   const nx = state.player.x + d[0];
   const ny = state.player.y + d[1];
   if (!tileMap[nx][ny].walkable) return;
-  markDirty(state.player.x, state.player.y); // old position — restore from tileMap
+  markDirty(state.player.x, state.player.y);
   state.player.x = nx;
   state.player.y = ny;
-  markDirty(state.player.x, state.player.y); // new position — cleared before @ is drawn
-  renderDirty();                              // restores both tiles from tileMap
+  markDirty(state.player.x, state.player.y);
+  renderDirty();
   display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
+});
+
+// ── Look Mode (§3.10) ─────────────────────────────────────────────────────────
+
+let lookX = 0;
+let lookY = 0;
+let lookBlinkInterval = null;
+
+function drawLookCursor(inverted) {
+  const onPlayer = lookX === state.player.x && lookY === state.player.y;
+  const glyph  = onPlayer ? '@'          : tileMap[lookX][lookY].glyph;
+  const tileFg = onPlayer ? BRIGHT_WHITE : tileMap[lookX][lookY].fg;
+  const tileBg = tileMap[lookX][lookY].bg;
+  display.draw(lookX, lookY, glyph, inverted ? tileBg : tileFg, inverted ? tileFg : tileBg);
+}
+
+function restoreLookTile() {
+  markDirty(lookX, lookY);
+  renderDirty();
+  if (lookX === state.player.x && lookY === state.player.y)
+    display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
+}
+
+function logLookTile() {
+  const onPlayer = lookX === state.player.x && lookY === state.player.y;
+  const glyph = onPlayer ? '@' : tileMap[lookX][lookY].glyph;
+  addLog(`You see: ${glyph}`, BRIGHT_CYAN);
+}
+
+function enterLookMode() {
+  state.gameState = 'look';
+  lookX = state.player.x;
+  lookY = state.player.y;
+  drawLookCursor(true);
+  logLookTile();
+  let blinkOn = true;
+  lookBlinkInterval = setInterval(() => {
+    if (state.gameState !== 'look') { clearInterval(lookBlinkInterval); return; }
+    blinkOn = !blinkOn;
+    drawLookCursor(blinkOn);
+  }, 500);
+}
+
+function exitLookMode() {
+  clearInterval(lookBlinkInterval);
+  lookBlinkInterval = null;
+  restoreLookTile();
+  state.gameState = 'playing';
+}
+
+window.addEventListener('keydown', (e) => {
+  if (state.gameState !== 'look') return;
+  if (e.key === 'o' || e.key === 'Escape') { exitLookMode(); return; }
+  const DIRS = { ArrowLeft:[-1,0], ArrowRight:[1,0], ArrowUp:[0,-1], ArrowDown:[0,1] };
+  const d = DIRS[e.key];
+  if (!d) return;
+  e.preventDefault();
+  restoreLookTile();
+  lookX = Math.max(0, Math.min(DISPLAY_WIDTH - 1, lookX + d[0]));
+  lookY = Math.max(0, Math.min(WORLD_ROWS - 1,    lookY + d[1]));
+  drawLookCursor(true);
+  logLookTile();
 });
 
 // ── Tick loop — 1 tick/second (§7.1) ─────────────────────────────────────────
