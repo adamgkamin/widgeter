@@ -116,7 +116,8 @@ function drawWorld() {
 
 function startPhaseIn() {
   clearScreen();
-  const TOTAL_TILES = DISPLAY_WIDTH * WORLD_ROWS; // 80 × 43 = 3440
+  const TOTAL_TILES    = DISPLAY_WIDTH * WORLD_ROWS;           // 80 × 43 = 3440
+  const TILES_PER_FRAME = Math.ceil(TOTAL_TILES / (1.3 * 60)); // ≈ 44 → ~1.3 s
   let index = 0;
 
   function step() {
@@ -124,11 +125,14 @@ function startPhaseIn() {
       drawWorld();
       return;
     }
-    // One tile per frame, left to right, top to bottom (§3.4)
-    const col = index % DISPLAY_WIDTH;
-    const row = Math.floor(index / DISPLAY_WIDTH);
-    display.draw(col, row, ' ', BRIGHT_WHITE, BG);
-    index++;
+    // Advance ~44 tiles per frame so the scan completes in ~1.3 s (§3.4)
+    const end = Math.min(index + TILES_PER_FRAME, TOTAL_TILES);
+    while (index < end) {
+      const col = index % DISPLAY_WIDTH;
+      const row = Math.floor(index / DISPLAY_WIDTH);
+      display.draw(col, row, ' ', BRIGHT_WHITE, BG);
+      index++;
+    }
     requestAnimationFrame(step);
   }
 
