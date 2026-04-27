@@ -268,7 +268,7 @@ function drawWorld() {
   // Command hint (§3.9)
   drawRow(HINT_ROW,
     "[arrows: move]  [space: interact]  [i: inventory]  [L: look]  [?: help]",
-    DIM_GRAY);
+    '#555555');
 }
 
 function startPhaseIn() {
