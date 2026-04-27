@@ -1306,6 +1306,7 @@ function showOfficeMenu() {
           carryRM: 0, carryWidgets: 0,
           target: { x: 0, y: 0 },
           craftTimer: 0,
+          paused: false,
         });
       }
       addLog(`${node.name} purchased.`, '#cc66cc');
@@ -1429,6 +1430,128 @@ function openStorageMenu() {
   window.addEventListener('keydown', storageKeyHandler);
 }
 
+function showWorkerManagement() {
+  state.gameState = 'menu';
+  const apprentices = state.workers.apprentices;
+  const n           = apprentices.length;
+  const carryMax    = 3 + state.skills.workerCarry;
+
+  const BOX_W  = 64;
+  const BOX_H  = 7 + 2 * n;
+  const BOX_X  = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
+  const BOX_Y  = Math.max(10, Math.floor((WORLD_ROWS - BOX_H) / 2));
+  const CONT_X = BOX_X + 2;
+  const CONT_W = BOX_W - 4; // 60
+  const WC     = '#555555';
+
+  function redraw() {
+    display.draw(BOX_X, BOX_Y, '+', WC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y, '+', WC, BG);
+    for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, BOX_Y, '-', WC, BG);
+    const botY = BOX_Y + BOX_H - 1;
+    display.draw(BOX_X, botY, '+', WC, BG); display.draw(BOX_X+BOX_W-1, botY, '+', WC, BG);
+    for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, botY, '-', WC, BG);
+    for (let y = 1; y < BOX_H-1; y++) {
+      display.draw(BOX_X, BOX_Y+y, '|', WC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y+y, '|', WC, BG);
+      for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, BOX_Y+y, ' ', BRIGHT_WHITE, BG);
+    }
+    const TITLE = '– WORKERS –';
+    const titleX = CONT_X + Math.floor((CONT_W - TITLE.length) / 2);
+    for (let i = 0; i < TITLE.length; i++) display.draw(titleX+i, BOX_Y+1, TITLE[i], '#66ccff', BG);
+    if (n === 0) {
+      const msg = 'No workers hired yet.';
+      for (let i = 0; i < msg.length; i++) display.draw(CONT_X+i, BOX_Y+3, msg[i], WC, BG);
+    } else {
+      for (let i = 0; i < n; i++) {
+        const w      = apprentices[i];
+        const stLabel = `Apprentice ${i+1}: `;
+        const stStr   = (w.paused ? 'PAUSED' : w.workerState.toUpperCase()).padEnd(9);
+        const stFg    = w.paused ? '#ff5555' : '#66cc66';
+        const carry   = `carry: ${w.carryRM}/${carryMax} RM`.padEnd(16);
+        const pos     = `pos: (${w.x}, ${w.y})`;
+        let col = CONT_X;
+        for (const ch of stLabel) { display.draw(col++, BOX_Y+3+i, ch, BRIGHT_WHITE, BG); }
+        for (const ch of stStr)   { display.draw(col++, BOX_Y+3+i, ch, stFg,          BG); }
+        for (const ch of ('    ' + carry + '   ' + pos)) { display.draw(col++, BOX_Y+3+i, ch, BRIGHT_WHITE, BG); }
+        // Toggle row
+        const mode = w.paused ? 'IDLE → AUTO' : 'AUTO → IDLE';
+        const tLine = `[${i+1}] Apprentice ${i+1}: ${mode}`;
+        const tFg   = w.paused ? '#ff5555' : '#66cc66';
+        for (let j = 0; j < tLine.length; j++) display.draw(CONT_X+j, BOX_Y+4+n+i, tLine[j], tFg, BG);
+      }
+    }
+    const ESC = 'ESC to close';
+    const escX = CONT_X + Math.floor((CONT_W - ESC.length) / 2);
+    for (let i = 0; i < ESC.length; i++) display.draw(escX+i, BOX_Y+BOX_H-2, ESC[i], WC, BG);
+  }
+
+  redraw();
+
+  function closeWorkers() {
+    window.removeEventListener('keydown', workerKeyHandler);
+    for (let y = BOX_Y; y < BOX_Y+BOX_H; y++)
+      for (let x = BOX_X; x < BOX_X+BOX_W; x++)
+        if (x >= 0 && x < DISPLAY_WIDTH && y >= 0 && y < WORLD_ROWS) markDirty(x, y);
+    renderDirty();
+    for (const w of state.workers.apprentices) display.draw(w.x, w.y, 'a', '#66ccff', BG);
+    display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
+    state.gameState = 'playing';
+  }
+
+  function workerKeyHandler(e) {
+    if (e.key === 'Escape') { closeWorkers(); return; }
+    const num = parseInt(e.key);
+    if (num >= 1 && num <= n) {
+      apprentices[num - 1].paused = !apprentices[num - 1].paused;
+      redraw();
+    }
+  }
+  window.addEventListener('keydown', workerKeyHandler);
+}
+
+function showOfficeDispatch() {
+  state.gameState = 'menu';
+  const WC    = '#555555';
+  const lines = ['1. Upgrades', '2. Manage Workers'];
+  const INNER = Math.max('– THE OFFICE –'.length, ...lines.map(l => l.length));
+  const BOX_W = INNER + 4;
+  const BOX_H = 7; // top + title + blank + 2 options + blank + bottom
+  const BOX_X = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
+  const BOX_Y = Math.max(10, Math.floor((WORLD_ROWS - BOX_H) / 2));
+  const CX    = BOX_X + 2;
+
+  display.draw(BOX_X, BOX_Y, '+', WC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y, '+', WC, BG);
+  for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, BOX_Y, '-', WC, BG);
+  const bY = BOX_Y + BOX_H - 1;
+  display.draw(BOX_X, bY, '+', WC, BG); display.draw(BOX_X+BOX_W-1, bY, '+', WC, BG);
+  for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, bY, '-', WC, BG);
+  for (let y = 1; y < BOX_H-1; y++) {
+    display.draw(BOX_X, BOX_Y+y, '|', WC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y+y, '|', WC, BG);
+    for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, BOX_Y+y, ' ', BRIGHT_WHITE, BG);
+  }
+  const TITLE = '– THE OFFICE –';
+  for (let i = 0; i < TITLE.length; i++) display.draw(CX+i, BOX_Y+1, TITLE[i], BRIGHT_CYAN, BG);
+  for (let i = 0; i < lines.length; i++)
+    for (let j = 0; j < lines[i].length; j++) display.draw(CX+j, BOX_Y+3+i, lines[i][j], BRIGHT_WHITE, BG);
+
+  function close(goPlay) {
+    window.removeEventListener('keydown', dispatchKeyHandler);
+    for (let y = BOX_Y; y < BOX_Y+BOX_H; y++)
+      for (let x = BOX_X; x < BOX_X+BOX_W; x++)
+        if (x >= 0 && x < DISPLAY_WIDTH && y >= 0 && y < WORLD_ROWS) markDirty(x, y);
+    renderDirty();
+    for (const w of state.workers.apprentices) display.draw(w.x, w.y, 'a', '#66ccff', BG);
+    display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
+    if (goPlay) state.gameState = 'playing';
+  }
+
+  function dispatchKeyHandler(e) {
+    if (e.key === 'Escape') { close(true); return; }
+    if (e.key === '1') { close(false); showOfficeMenu(); return; }
+    if (e.key === '2') { close(false); showWorkerManagement(); return; }
+  }
+  window.addEventListener('keydown', dispatchKeyHandler);
+}
+
 function handleInteract() {
   const rm = STATION_DEFS.find(s => s.label === 'RM');
   if (rm && isAdjacentToStation(rm)) { openRMShedMenu(); return; }
@@ -1437,7 +1560,10 @@ function handleInteract() {
   const mt = STATION_DEFS.find(s => s.label === 'MT');
   if (mt && isAdjacentToStation(mt)) { openMarketMenu(); return; }
   const of = STATION_DEFS.find(s => s.label === 'OF');
-  if (of && isAdjacentToStation(of)) { showOfficeMenu(); return; }
+  if (of && isAdjacentToStation(of)) {
+    state.officeUnlocked ? showOfficeDispatch() : showOfficeMenu();
+    return;
+  }
   const stStation = STATION_DEFS.find(s => s.label === 'ST');
   if (stStation && isAdjacentToStation(stStation)) { openStorageMenu(); return; }
 }
@@ -1562,6 +1688,8 @@ function tickApprentices() {
   const carryMax = 3 + state.skills.workerCarry;
 
   for (const w of state.workers.apprentices) {
+    if (w.paused) continue; // worker is paused — skip all logic, position unchanged
+
     markDirty(w.x, w.y); // erase from old position
 
     // Idle → fetching
