@@ -509,6 +509,7 @@ window.addEventListener('keydown', onAnyKey);
 // ── Arrow key movement (§3.5) ─────────────────────────────────────────────────
 
 window.addEventListener('keydown', (e) => {
+  if (state.gameState === 'crafting' && e.key === 'Escape') { cancelCrafting(); return; }
   if (state.gameState !== 'playing') return;
   if (e.key === 'o') { enterLookMode(); return; }
   if (e.key === ' ') { e.preventDefault(); handleInteract(); return; }
@@ -532,6 +533,12 @@ window.addEventListener('keydown', (e) => {
 let lookX = 0;
 let lookY = 0;
 let lookBlinkInterval = null;
+
+// ── Crafting state ────────────────────────────────────────────────────────────
+const CRAFT_TICKS = 3; // ticks per widget (§5.2)
+let craftQueue    = 0; // widgets still to make after the current one
+let craftProgress = 0; // ticks elapsed for current widget
+let craftTotal    = 0; // total widgets in this session (for completion log)
 
 function drawLookCursor(inverted) {
   const onPlayer = lookX === state.player.x && lookY === state.player.y;
@@ -731,22 +738,142 @@ function openRMShedMenu() {
   ]);
 }
 
+// WB label tile positions for pulse effect (middle row of WB station at x=34,y=8)
+const WB_LABEL_TILES = [[35, 9], [36, 9]];
+
+function pulseWB() {
+  WB_LABEL_TILES.forEach(([x, y]) => display.draw(x, y, tileMap[x][y].glyph, '#ffffff', BG));
+  setTimeout(() => {
+    WB_LABEL_TILES.forEach(([x, y]) => { markDirty(x, y); });
+    renderDirty();
+    display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
+  }, 200);
+}
+
+function startCrafting(n) {
+  state.player.inventory.rm--; // consume RM for first widget immediately
+  craftQueue    = n - 1;
+  craftProgress = 0;
+  craftTotal    = n;
+  state.gameState = 'crafting';
+  drawStatusBar();
+  addLog(`Crafting ${n} widget${n !== 1 ? 's' : ''}...`, BRIGHT_CYAN);
+}
+
+function cancelCrafting() {
+  // In-progress widget's RM is already consumed — forfeited
+  craftQueue = 0; craftProgress = 0;
+  WB_LABEL_TILES.forEach(([x, y]) => { markDirty(x, y); });
+  renderDirty();
+  display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
+  addLog('Crafting cancelled. Materials lost.', '#ff5555');
+  state.gameState = 'playing';
+}
+
+function openWorkbenchMenu() {
+  const rm          = state.player.inventory.rm;
+  const widgetSpace = state.player.inventoryCaps.widgets - state.player.inventory.widgets;
+  const maxCraft    = Math.min(rm, widgetSpace);
+  const canCraft1   = rm >= 1 && widgetSpace > 0;
+
+  showMenu('Workbench', [
+    {
+      label:   'Craft 1 (1 RM → 1 widget, 3s)',
+      enabled: canCraft1,
+      action:  () => startCrafting(1),
+    },
+    {
+      label:   `Craft max (${maxCraft})`,
+      enabled: maxCraft > 0,
+      action:  () => startCrafting(maxCraft),
+    },
+    { label: 'Cancel', enabled: true, action: () => {} },
+  ]);
+}
+
+function checkPhase2Trigger() {
+  if (state.lifetimeCreditsEarned >= 200 && state.phase === 1) {
+    state.phase = 2; // prevent re-triggering
+    addLog('Something stirs. The Office door swings open.', BRIGHT_MAGENTA);
+  }
+}
+
+function sellWidgets(n) {
+  const PRICE  = 8;
+  const earned = n * PRICE;
+  state.player.credits            += earned;
+  state.player.inventory.widgets  -= n;
+  state.lifetimeCreditsEarned     += earned;
+  addLog(`Sold ${n} widget${n !== 1 ? 's' : ''} for ${earned}cr.`, BRIGHT_CYAN);
+  drawStatusBar();
+  checkPhase2Trigger();
+}
+
+function openMarketMenu() {
+  const widgets = state.player.inventory.widgets;
+  const PRICE   = 8;
+
+  if (!state.marketOpen) {
+    addLog('The market is shuttered. The bell rings at dawn.', '#555555');
+    return;
+  }
+  if (widgets === 0) {
+    addLog('You have nothing to sell.', '#555555');
+    return;
+  }
+
+  showMenu('Market', [
+    {
+      label:   `Sell 1 widget (+${PRICE}cr)`,
+      enabled: true,
+      action:  () => sellWidgets(1),
+    },
+    {
+      label:   `Sell max (+${widgets * PRICE}cr)`,
+      enabled: true,
+      action:  () => sellWidgets(widgets),
+    },
+    { label: 'Cancel', enabled: true, action: () => {} },
+  ]);
+}
+
 function handleInteract() {
   const rm = STATION_DEFS.find(s => s.label === 'RM');
   if (rm && isAdjacentToStation(rm)) { openRMShedMenu(); return; }
+  const wb = STATION_DEFS.find(s => s.label === 'WB');
+  if (wb && isAdjacentToStation(wb)) { openWorkbenchMenu(); return; }
+  const mt = STATION_DEFS.find(s => s.label === 'MT');
+  if (mt && isAdjacentToStation(mt)) { openMarketMenu(); return; }
 }
 
 // ── Tick loop — 1 tick/second (§7.1) ─────────────────────────────────────────
 
 setInterval(() => {
-  if (state.gameState !== 'playing') return;
+  if (state.gameState !== 'playing' && state.gameState !== 'crafting') return;
+
   state.tick++;
   state.dayTick++;
-  if (state.dayTick >= 240) {
-    state.dayTick = 0;
-    state.day++;
-  }
+  if (state.dayTick >= 240) { state.dayTick = 0; state.day++; }
   state.marketOpen = state.dayTick < 180;
   drawTimeIndicator();
+
+  if (state.gameState === 'crafting') {
+    craftProgress++;
+    pulseWB();
+    if (craftProgress >= CRAFT_TICKS) {
+      craftProgress = 0;
+      state.player.inventory.widgets++;
+      drawStatusBar();
+      if (craftQueue > 0) {
+        craftQueue--;
+        state.player.inventory.rm--;
+        drawStatusBar();
+      } else {
+        addLog(`Crafting complete. ${craftTotal} widget${craftTotal !== 1 ? 's' : ''} ready.`, BRIGHT_CYAN);
+        state.gameState = 'playing';
+      }
+    }
+  }
+
   if (state.tick % 10 === 0) saveGame();
 }, 1000);
