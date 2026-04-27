@@ -116,18 +116,19 @@ function drawWorld() {
 
 function startPhaseIn() {
   clearScreen();
-  let col = 0;
+  const TOTAL_TILES = DISPLAY_WIDTH * WORLD_ROWS; // 80 × 43 = 3440
+  let index = 0;
 
   function step() {
-    if (col >= DISPLAY_WIDTH) {
+    if (index >= TOTAL_TILES) {
       drawWorld();
       return;
     }
-    // Reveal one column of the game-world area per frame (§3.4)
-    for (let row = 0; row < WORLD_ROWS; row++) {
-      display.draw(col, row, ' ', BRIGHT_WHITE, BG);
-    }
-    col++;
+    // One tile per frame, left to right, top to bottom (§3.4)
+    const col = index % DISPLAY_WIDTH;
+    const row = Math.floor(index / DISPLAY_WIDTH);
+    display.draw(col, row, ' ', BRIGHT_WHITE, BG);
+    index++;
     requestAnimationFrame(step);
   }
 
