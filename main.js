@@ -512,6 +512,7 @@ window.addEventListener('keydown', (e) => {
   if (state.gameState === 'crafting' && e.key === 'Escape') { cancelCrafting(); return; }
   if (state.gameState !== 'playing') return;
   if (e.key === 'o') { enterLookMode(); return; }
+  if (e.key === 'i') { showInventory(); return; }
   if (e.key === ' ') { e.preventDefault(); handleInteract(); return; }
   const DIRS = { ArrowLeft:[-1,0], ArrowRight:[1,0], ArrowUp:[0,-1], ArrowDown:[0,1] };
   const d = DIRS[e.key];
@@ -942,6 +943,76 @@ function handleInteract() {
   if (mt && isAdjacentToStation(mt)) { openMarketMenu(); return; }
   const of = STATION_DEFS.find(s => s.label === 'OF');
   if (of && isAdjacentToStation(of)) { showOfficeMenu(); return; }
+}
+
+// ── Inventory screen (§3.9) ──────────────────────────────────────────────────
+
+function showInventory() {
+  state.gameState = 'inventory';
+
+  const BOX_W  = 40;
+  const BOX_H  = 13;
+  const BOX_X  = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
+  const BOX_Y  = Math.floor((WORLD_ROWS  - BOX_H) / 2);
+  const CONT_X = BOX_X + 2;
+  const CONT_W = BOX_W - 4;
+  const WC     = '#555555';
+
+  // Frame + clear interior
+  display.draw(BOX_X, BOX_Y, '+', WC, BG);
+  display.draw(BOX_X + BOX_W - 1, BOX_Y, '+', WC, BG);
+  for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, BOX_Y, '-', WC, BG);
+  const botY = BOX_Y + BOX_H - 1;
+  display.draw(BOX_X, botY, '+', WC, BG);
+  display.draw(BOX_X + BOX_W - 1, botY, '+', WC, BG);
+  for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, botY, '-', WC, BG);
+  for (let y = 1; y < BOX_H - 1; y++) {
+    display.draw(BOX_X, BOX_Y + y, '|', WC, BG);
+    display.draw(BOX_X + BOX_W - 1, BOX_Y + y, '|', WC, BG);
+    for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, BOX_Y + y, ' ', BRIGHT_WHITE, BG);
+  }
+
+  // Title centered
+  const TITLE = '– INVENTORY –';
+  const titleX = CONT_X + Math.floor((CONT_W - TITLE.length) / 2);
+  for (let i = 0; i < TITLE.length; i++) display.draw(titleX + i, BOX_Y + 1, TITLE[i], BRIGHT_CYAN, BG);
+
+  // Contents
+  const inv = state.player.inventory;
+  const cap = state.player.inventoryCaps;
+  const rows = [
+    { text: `Raw Materials: ${inv.rm} / ${cap.rm}`,        fg: '#ff9933'    },
+    { text: `Widgets:       ${inv.widgets} / ${cap.widgets}`, fg: BRIGHT_WHITE },
+    null,
+    { text: `Credits: ${state.player.credits}`,            fg: '#ffd633'    },
+    null,
+    { text: `Lifetime earned: ${state.lifetimeCreditsEarned}cr`, fg: WC     },
+  ];
+  for (let i = 0; i < rows.length; i++) {
+    if (!rows[i]) continue;
+    const { text, fg } = rows[i];
+    for (let j = 0; j < text.length; j++) display.draw(CONT_X + j, BOX_Y + 3 + i, text[j], fg, BG);
+  }
+
+  // ESC hint centered
+  const ESC = 'ESC to close';
+  const escX = CONT_X + Math.floor((CONT_W - ESC.length) / 2);
+  for (let i = 0; i < ESC.length; i++) display.draw(escX + i, BOX_Y + BOX_H - 2, ESC[i], WC, BG);
+
+  function closeInventory() {
+    window.removeEventListener('keydown', invKeyHandler);
+    for (let y = BOX_Y; y < BOX_Y + BOX_H; y++)
+      for (let x = BOX_X; x < BOX_X + BOX_W; x++)
+        if (x >= 0 && x < DISPLAY_WIDTH && y >= 0 && y < WORLD_ROWS) markDirty(x, y);
+    renderDirty();
+    display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
+    state.gameState = 'playing';
+  }
+
+  function invKeyHandler(e) {
+    if (e.key === 'Escape' || e.key === 'i') closeInventory();
+  }
+  window.addEventListener('keydown', invKeyHandler);
 }
 
 // ── Tick loop — 1 tick/second (§7.1) ─────────────────────────────────────────
