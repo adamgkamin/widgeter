@@ -230,10 +230,15 @@ function drawWorld() {
   // Player @ at spawn point (§3.5)
   display.draw(playerX, playerY, '@', BRIGHT_WHITE, BG);
 
-  // Status bar placeholder (§3.7)
-  drawRow(STATUS_ROW,
-    "Credits: 0    Raw: 0    Widgets: 0/5    Day 1    [============]",
-    BRIGHT_WHITE);
+  // Status bar — colored segments (§3.7)
+  drawRow(STATUS_ROW, '', BRIGHT_WHITE); // clear row
+  const seg = (x, text, fg) => { for (let i = 0; i < text.length; i++) display.draw(x + i, STATUS_ROW, text[i], fg, BG); return x + text.length; };
+  let sx = 0;
+  sx = seg(sx, 'Credits: 10',              '#ffd633') + 4;
+  sx = seg(sx, 'Raw: 0',                   '#ff9933') + 4;
+  sx = seg(sx, 'Widgets: 0/5',             BRIGHT_WHITE) + 4;
+  sx = seg(sx, 'Day 1',                    BRIGHT_WHITE) + 4;
+       seg(sx, '[== market open 180s ==]', '#ffd633');
 
   // Event log (§3.8) — first line per §3.4, remaining rows empty
   drawRow(LOG_START_ROW,     "> The morning bell has rung.", BRIGHT_CYAN);
