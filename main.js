@@ -75,6 +75,11 @@ const state = {
   lastNarrativeTick: 0,
   nextAmbientDelay:  45, // first ambient fires after ~45s
   stepsWalked:       0,
+  stations: {
+    factory: { unlocked: false },
+    storage: { unlocked: false },
+  },
+  officeUnlocked: false,
 };
 
 // ── Save / load (§8) ─────────────────────────────────────────────────────────
@@ -98,6 +103,8 @@ function saveGame() {
     lastNarrativeTick:    state.lastNarrativeTick,
     nextAmbientDelay:     state.nextAmbientDelay,
     stepsWalked:          state.stepsWalked,
+    stations:             state.stations,
+    officeUnlocked:       state.officeUnlocked,
   };
   localStorage.setItem(SAVE_KEY, JSON.stringify(data));
 }
@@ -121,6 +128,8 @@ function loadGame() {
     state.lastNarrativeTick    = data.lastNarrativeTick ?? 0;
     state.nextAmbientDelay     = data.nextAmbientDelay  ?? 45;
     state.stepsWalked          = data.stepsWalked       ?? 0;
+    state.stations             = data.stations          ?? { factory: { unlocked: false }, storage: { unlocked: false } };
+    state.officeUnlocked       = data.officeUnlocked    ?? false;
   } catch (_) {
     // corrupt save — start fresh
   }
@@ -293,6 +302,14 @@ function buildTileMap() {
   for (let x = 15; x <= 62; x++) tileMap[x][28] = mk(':', pc, true);
   for (let y = 14; y <= 28; y++) tileMap[62][y] = mk(':', pc, true);
 
+  // Phase 2 paths — static when already unlocked (animated on first unlock)
+  if (state.phase >= 2) {
+    for (const [px, py] of [
+      [14,28],[13,28],[12,28],[11,28],[11,29],[11,30],[11,31], // to Factory
+      [24,29],[24,30],[24,31],                                  // to Storage
+    ]) tileMap[px][py] = mk(':', pc, true);
+  }
+
   // Trees — §4.5
   for (let y = 1; y < WORLD_ROWS - 1; y++) {
     for (let x = 1; x < DISPLAY_WIDTH - 1; x++) {
@@ -409,6 +426,14 @@ function buildTileMap() {
   for (let y = 1; y < WORLD_ROWS - 1; y++) {
     tileMap[0][y]               = mk('#', DIM_GRAY, false);
     tileMap[DISPLAY_WIDTH-1][y] = mk('#', DIM_GRAY, false);
+  }
+
+  // Apply phase 2 unlock colors before stamping stations
+  if (state.phase >= 2) {
+    const fc2 = STATION_DEFS.find(s => s.label === 'FC');
+    const st2 = STATION_DEFS.find(s => s.label === 'ST');
+    if (fc2) { fc2.wc = '#555555'; fc2.lc = '#ff9933'; }
+    if (st2) { st2.wc = '#555555'; st2.lc = '#66ccff'; }
   }
 
   // Stations — §3.5 (overwrites floor/trees in their footprint)
@@ -657,6 +682,13 @@ function resetState() {
   state.day = 1; state.tick = 0; state.dayTick = 0;
   state.marketOpen = true; state.phase = 1;
   state.lifetimeCreditsEarned = 0; state.logLines = []; state.bellFiredToday = false;
+  state.lastAmbientTick = 0; state.lastNarrativeTick = 0; state.nextAmbientDelay = 45; state.stepsWalked = 0;
+  state.stations = { factory: { unlocked: false }, storage: { unlocked: false } };
+  state.officeUnlocked = false;
+  const fcDef = STATION_DEFS.find(s => s.label === 'FC');
+  const stDef = STATION_DEFS.find(s => s.label === 'ST');
+  if (fcDef) { fcDef.wc = DIM_GRAY; fcDef.lc = DIM_GRAY; }
+  if (stDef) { stDef.wc = DIM_GRAY; stDef.lc = DIM_GRAY; }
 }
 
 function showNewGameConfirm() {
@@ -1053,10 +1085,57 @@ function openWorkbenchMenu() {
   ]);
 }
 
+function colorInStation(label, wc, lc) {
+  const s = STATION_DEFS.find(sd => sd.label === label);
+  if (!s) return;
+  s.wc = wc; s.lc = lc;
+  const tiles = [
+    [s.x,   s.y,   '+', wc, false], [s.x+1, s.y,   '-', wc, false],
+    [s.x+2, s.y,   '-', wc, false], [s.x+3, s.y,   '+', wc, false],
+    [s.x,   s.y+1, '|', wc, false], [s.x+1, s.y+1, s.label[0], lc, false],
+    [s.x+2, s.y+1, s.label[1], lc, false], [s.x+3, s.y+1, '|', wc, false],
+    [s.x,   s.y+2, '+', wc, false], [s.x+1, s.y+2, '.', wc, true],
+    [s.x+2, s.y+2, '-', wc, false], [s.x+3, s.y+2, '+', wc, false],
+  ];
+  for (const [tx, ty, g, fg, w] of tiles) {
+    tileMap[tx][ty] = { glyph: g, fg, bg: BG, walkable: w };
+    markDirty(tx, ty);
+  }
+  renderDirty();
+  display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
+}
+
+function animatePhase2Paths() {
+  const pc = '#3a3530';
+  const pathTiles = [
+    [14,28],[13,28],[12,28],[11,28],[11,29],[11,30],[11,31],
+    [24,29],[24,30],[24,31],
+  ];
+  let i = 0;
+  const iv = setInterval(() => {
+    if (i >= pathTiles.length) { clearInterval(iv); return; }
+    const [px, py] = pathTiles[i++];
+    tileMap[px][py] = { glyph: ':', fg: pc, bg: BG, walkable: true };
+    markDirty(px, py);
+    renderDirty();
+    display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
+  }, 2000);
+}
+
 function checkPhase2Trigger() {
   if (state.lifetimeCreditsEarned >= 100 && state.phase === 1) {
-    state.phase = 2; // prevent re-triggering
-    addLog('Something stirs. The Office door swings open.', BRIGHT_MAGENTA);
+    state.phase = 2;
+    state.officeUnlocked = true;
+    state.stations.factory.unlocked = true;
+    state.stations.storage.unlocked = true;
+    addLog('Something stirs. The Office door swings open.', '#cc66cc');
+    setTimeout(() => addLog('You can afford to hire help.', '#cc66cc'), 2000);
+    setTimeout(() => {
+      addLog('The Factory and Storage Warehouse are now available.', '#cc66cc');
+      colorInStation('FC', '#555555', '#ff9933');
+      colorInStation('ST', '#555555', '#66ccff');
+      setTimeout(animatePhase2Paths, 1000);
+    }, 4000);
   }
 }
 
@@ -1145,13 +1224,13 @@ function showOfficeMenu() {
     for (let i = 0; i < sub.length; i++) display.draw(CONT_X + i, BOX_Y + 3, sub[i], WC, BG);
 
     // Nodes (start at BOX_Y + 5)
-    const unlocked = state.lifetimeCreditsEarned >= 100;
+    const unlocked = state.officeUnlocked;
     for (let i = 0; i < OFFICE_NODES.length; i++) {
       const node    = OFFICE_NODES[i];
       const costStr = node.cost === 0 ? 'FREE' : `${node.cost}cr`;
       let fg, suffix;
       if (!unlocked) {
-        fg = WC; suffix = '[LOCKED — reach 100cr earned]';
+        fg = WC; suffix = '[LOCKED — reach Phase 2]';
       } else if (node.cost > 0 && state.player.credits < node.cost) {
         fg = '#ff5555'; suffix = `[Need ${node.cost - state.player.credits}cr more]`;
       } else {
@@ -1183,7 +1262,7 @@ function showOfficeMenu() {
     if (e.key === 'Escape') { closeOffice(); return; }
     const num = parseInt(e.key);
     if (num >= 1 && num <= OFFICE_NODES.length) {
-      if (state.lifetimeCreditsEarned < 100) return; // all nodes locked
+      if (!state.officeUnlocked) return; // all nodes locked
       const node = OFFICE_NODES[num - 1];
       if (node.cost > 0 && state.player.credits < node.cost) return; // can't afford
       state.player.credits -= node.cost;
