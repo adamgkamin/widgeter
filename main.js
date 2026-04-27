@@ -703,6 +703,14 @@ window.addEventListener('keydown', onAnyKey);
 
 window.addEventListener('keydown', (e) => {
   if (state.gameState === 'crafting' && e.key === 'Escape') { cancelCrafting(); return; }
+  if (state.gameState === 'crafting') {
+    const ARROW = { ArrowLeft: true, ArrowRight: true, ArrowUp: true, ArrowDown: true };
+    if (ARROW[e.key]) {
+      e.preventDefault();
+      addLog("You can't move — you're mid-craft. Press Esc to cancel.", '#ff5555');
+    }
+    return;
+  }
   if (state.gameState !== 'playing') return;
   if (e.key === 'o') { enterLookMode(); e.stopImmediatePropagation(); return; }
   if (e.key === 'i') { showInventory(); return; }
@@ -960,7 +968,7 @@ function cancelCrafting() {
   WB_LABEL_TILES.forEach(([x, y]) => { markDirty(x, y); });
   renderDirty();
   display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
-  addLog('Crafting cancelled. Materials lost.', '#ff5555');
+  addLog('Crafting cancelled. Current widget lost.', '#ff5555');
   state.gameState = 'playing';
 }
 
@@ -1144,53 +1152,92 @@ function showInventory() {
   state.gameState = 'inventory';
 
   const BOX_W  = 40;
-  const BOX_H  = 13;
+  const BOX_H  = 16;
   const BOX_X  = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
   const BOX_Y  = Math.floor((WORLD_ROWS  - BOX_H) / 2);
   const CONT_X = BOX_X + 2;
-  const CONT_W = BOX_W - 4;
+  const CONT_W = BOX_W - 4; // 36
   const WC     = '#555555';
 
-  // Frame + clear interior
-  display.draw(BOX_X, BOX_Y, '+', WC, BG);
-  display.draw(BOX_X + BOX_W - 1, BOX_Y, '+', WC, BG);
-  for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, BOX_Y, '-', WC, BG);
+  // Frame
+  display.draw(BOX_X, BOX_Y, '+', WC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y, '+', WC, BG);
+  for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, BOX_Y, '-', WC, BG);
   const botY = BOX_Y + BOX_H - 1;
-  display.draw(BOX_X, botY, '+', WC, BG);
-  display.draw(BOX_X + BOX_W - 1, botY, '+', WC, BG);
-  for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, botY, '-', WC, BG);
-  for (let y = 1; y < BOX_H - 1; y++) {
-    display.draw(BOX_X, BOX_Y + y, '|', WC, BG);
-    display.draw(BOX_X + BOX_W - 1, BOX_Y + y, '|', WC, BG);
-    for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, BOX_Y + y, ' ', BRIGHT_WHITE, BG);
+  display.draw(BOX_X, botY, '+', WC, BG); display.draw(BOX_X+BOX_W-1, botY, '+', WC, BG);
+  for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, botY, '-', WC, BG);
+  for (let y = 1; y < BOX_H-1; y++) {
+    display.draw(BOX_X, BOX_Y+y, '|', WC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y+y, '|', WC, BG);
+    for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, BOX_Y+y, ' ', BRIGHT_WHITE, BG);
   }
 
-  // Title centered
-  const TITLE = '– INVENTORY –';
-  const titleX = CONT_X + Math.floor((CONT_W - TITLE.length) / 2);
-  for (let i = 0; i < TITLE.length; i++) display.draw(titleX + i, BOX_Y + 1, TITLE[i], BRIGHT_CYAN, BG);
+  // Column layout (relative to CONT_X):
+  //  0–14  label (15 chars)
+  //    15  [ or space
+  // 16–25  bar fill or symbol fill (10 chars)
+  //    26  ] or space
+  // 27–33  count / value (7 chars, right-aligned)
 
-  // Contents
+  function drawBar(row, label, current, max, barFg, labelFg) {
+    const BAR_W  = 10;
+    const filled = max > 0 ? Math.min(Math.round(current / max * BAR_W), BAR_W) : 0;
+    const lbl    = label.padEnd(15);
+    const count  = `${current} / ${max}`.padStart(7);
+    for (let i = 0; i < 15; i++) display.draw(CONT_X+i, BOX_Y+row, lbl[i], labelFg, BG);
+    display.draw(CONT_X+15, BOX_Y+row, '[', WC, BG);
+    for (let i = 0; i < BAR_W; i++) {
+      const ch = i < filled ? '=' : ' ';
+      display.draw(CONT_X+16+i, BOX_Y+row, ch, i < filled ? barFg : WC, BG);
+    }
+    display.draw(CONT_X+26, BOX_Y+row, ']', WC, BG);
+    for (let i = 0; i < count.length; i++) display.draw(CONT_X+27+i, BOX_Y+row, count[i], labelFg, BG);
+  }
+
+  function drawSymRow(row, label, sym, symFg, value, valFg) {
+    const SYM_W = 10;
+    const syms  = Math.min(Math.floor(value / 10), SYM_W);
+    const lbl   = label.padEnd(15);
+    const val   = `${value}cr`.padStart(7);
+    for (let i = 0; i < 15; i++) display.draw(CONT_X+i, BOX_Y+row, lbl[i], WC, BG);
+    for (let i = 0; i < SYM_W; i++) {
+      display.draw(CONT_X+16+i, BOX_Y+row, i < syms ? sym : ' ', i < syms ? symFg : WC, BG);
+    }
+    for (let i = 0; i < val.length; i++) display.draw(CONT_X+27+i, BOX_Y+row, val[i], valFg, BG);
+  }
+
   const inv = state.player.inventory;
   const cap = state.player.inventoryCaps;
-  const rows = [
-    { text: `Raw Materials: ${inv.rm} / ${cap.rm}`,        fg: '#ff9933'    },
-    { text: `Widgets:       ${inv.widgets} / ${cap.widgets}`, fg: BRIGHT_WHITE },
-    null,
-    { text: `Credits: ${state.player.credits}`,            fg: '#ffd633'    },
-    null,
-    { text: `Lifetime earned: ${state.lifetimeCreditsEarned}cr`, fg: WC     },
-  ];
-  for (let i = 0; i < rows.length; i++) {
-    if (!rows[i]) continue;
-    const { text, fg } = rows[i];
-    for (let j = 0; j < text.length; j++) display.draw(CONT_X + j, BOX_Y + 3 + i, text[j], fg, BG);
-  }
 
-  // ESC hint centered
-  const ESC = 'ESC to close';
+  // Row 1 — title
+  const TITLE = '-- INVENTORY --';
+  const titleX = CONT_X + Math.floor((CONT_W - TITLE.length) / 2);
+  for (let i = 0; i < TITLE.length; i++) display.draw(titleX+i, BOX_Y+1, TITLE[i], BRIGHT_CYAN, BG);
+
+  // Rows 3–4 — fill bars
+  drawBar(3, 'Raw Materials', inv.rm,      cap.rm,      '#66cc66', '#ff9933');
+  drawBar(4, 'Widgets',       inv.widgets, cap.widgets, '#66cc66', BRIGHT_WHITE);
+
+  // Row 6 — divider
+  for (let i = 0; i < CONT_W; i++) display.draw(CONT_X+i, BOX_Y+6, '.', WC, BG);
+
+  // Rows 8–9 — credits and lifetime
+  drawSymRow(8, 'Credits',  '$', '#ffd633', state.player.credits,            '#ffd633');
+  drawSymRow(9, 'Lifetime', '~', WC,        state.lifetimeCreditsEarned,     WC);
+
+  // Row 11 — day / market status
+  const ms   = state.marketOpen ? 'OPEN' : 'CLOSED';
+  const mFg  = state.marketOpen ? BRIGHT_YELLOW : WC;
+  const mRem = state.marketOpen ? (180 - state.dayTick) : (240 - state.dayTick);
+  const pre  = `Day ${state.day}   Market: `;
+  const post = `   ${mRem}s left`;
+  let sx = CONT_X;
+  for (const ch of pre)  { display.draw(sx++, BOX_Y+11, ch, BRIGHT_WHITE, BG); }
+  for (const ch of ms)   { display.draw(sx++, BOX_Y+11, ch, mFg,          BG); }
+  for (const ch of post) { display.draw(sx++, BOX_Y+11, ch, BRIGHT_WHITE, BG); }
+
+  // Row 13 — ESC hint centered
+  const ESC = '[ ESC to close ]';
   const escX = CONT_X + Math.floor((CONT_W - ESC.length) / 2);
-  for (let i = 0; i < ESC.length; i++) display.draw(escX + i, BOX_Y + BOX_H - 2, ESC[i], WC, BG);
+  for (let i = 0; i < ESC.length; i++) display.draw(escX+i, BOX_Y+13, ESC[i], WC, BG);
 
   function closeInventory() {
     window.removeEventListener('keydown', invKeyHandler);
@@ -1224,6 +1271,11 @@ setInterval(() => {
   drawTimeIndicator();
 
   if (state.gameState === 'crafting') {
+    const widgetNum = craftTotal - craftQueue;
+    const secsLeft  = CRAFT_TICKS - craftProgress;
+    drawRow(LOG_END_ROW,
+      `> Crafting widget ${widgetNum} of ${craftTotal} — ${secsLeft}s remaining...`,
+      '#ff9933');
     craftProgress++;
     pulseWB();
     if (craftProgress >= CRAFT_TICKS) {
@@ -1231,11 +1283,13 @@ setInterval(() => {
       state.player.inventory.widgets++;
       drawStatusBar();
       if (craftQueue > 0) {
+        const stillLeft = craftQueue;
         craftQueue--;
         state.player.inventory.rm--;
+        addLog(`Widget complete. ${stillLeft} remaining.`, '#66cc66');
         drawStatusBar();
       } else {
-        addLog(`Crafting complete. ${craftTotal} widget${craftTotal !== 1 ? 's' : ''} ready.`, BRIGHT_CYAN);
+        addLog(`Done. ${craftTotal} widget${craftTotal !== 1 ? 's' : ''} crafted.`, '#66cc66');
         state.gameState = 'playing';
       }
     }
