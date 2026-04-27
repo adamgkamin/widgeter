@@ -3,21 +3,41 @@
     ".": {
       "default": "Scuffed boards. A bent nail.",
       "variants": [
-        "Worn floorboards. Dust settled in the grooves.",
-        "The boards creak underfoot.",
-        "A grease stain from some old work.",
-        "Floorboards, smooth from years of passage.",
-        "Something small and unidentifiable has been swept to one side."
+        "Scuffed boards.",
+        "A bent nail, half-buried.",
+        "Sawdust, old.",
+        "A faint chalk line.",
+        "A coin-shaped stain.",
+        "Boot prints, going somewhere.",
+        "Splinters, swept aside.",
+        "A pressed flower, dried flat.",
+        "Two planks, unevenly joined.",
+        "A dark stain that isn't paint.",
+        "Grit underfoot.",
+        "A scrape mark, deep.",
+        "Chalk numbers, half-erased.",
+        "Something sticky, origin unclear.",
+        "A square of sunlight, moving slowly."
       ]
     },
     "T": {
       "default": "A tree. Its leaves are still.",
       "variants": [
-        "A gnarled tree. Moss gathers at the base.",
-        "An oak, or something like it. Old.",
-        "The branches cross overhead. No fruit.",
-        "A tree with a hollow at the base, just large enough for a hand.",
-        "Leaves overhead. Light comes through in patches."
+        "An old oak. Initials carved into it, worn too smooth to read.",
+        "A young birch, its bark peeling in long curls.",
+        "A dead pine. A crow watches from the highest branch.",
+        "An apple tree, fruitless this season.",
+        "A tree with a small shrine at its base. The offerings are long rotten.",
+        "A tree with a frayed rope swing. No one has used it in years.",
+        "A maple. Sap drips into a tin can someone left.",
+        "A tree split by lightning, still standing.",
+        "A pine sapling, planted recently by someone optimistic.",
+        "A gnarled tree growing at an unsettling angle.",
+        "A tree whose roots have cracked the path nearby.",
+        "An elm, tall and indifferent.",
+        "A fig tree, dry.",
+        "A tree with a nail in it and nothing else.",
+        "A willow. It makes the light softer here."
       ]
     },
     ":": {
@@ -27,7 +47,12 @@
         "Footprints going in both directions.",
         "A well-trodden route. Someone has paced it many times.",
         "The path narrows slightly here.",
-        "Stones pressed into the dirt to keep it dry."
+        "Stones pressed into the dirt to keep it dry.",
+        "The path bends here, for no visible reason.",
+        "A worn groove where a cart wheel has passed, repeatedly.",
+        "Worn flat by years of the same footsteps.",
+        "The ground is damp here. The path holds water.",
+        "A muddy stretch. The prints here overlap."
       ]
     },
     "#": {
@@ -35,12 +60,78 @@
       "variants": [
         "The outer wall. Solid.",
         "A boundary. Beyond it, the wider world.",
-        "Rough stone. Cold to the touch."
+        "Rough stone. Cold to the touch.",
+        "The wall here is older than the rest.",
+        "A crack runs top to bottom. No concern, probably.",
+        "Lichen has taken hold. Green in the mortar.",
+        "Someone has scratched a mark here. It isn't decorative.",
+        "The wall holds the cold long after dawn."
       ]
     },
     "@": {
-      "default": "That's you."
+      "default": "That's you. You look tired."
+    },
+    "+": {
+      "default": "A corner of the building frame."
+    },
+    "-": {
+      "default": "A wall plank, horizontal."
+    },
+    "|": {
+      "default": "A wall plank, vertical."
     },
     "unknown": "Nothing remarkable."
+  },
+  "stations": {
+    "RM": {
+      "door": "The door to the raw materials shed stands open. Inside, stacked bundles of unprocessed material.",
+      "wall": "The shed wall smells faintly of resin and old work. The boards are weathered but solid.",
+      "label": "The raw materials shed. You buy stock here each morning before the price adjusts."
+    },
+    "WB": {
+      "door": "The workbench entrance. The door is low — you have to duck.",
+      "wall": "The workbench walls are worn smooth where hands have steadied against them over many years.",
+      "label": "Your workbench. One widget at a time. It's slow, but it's yours."
+    },
+    "MT": {
+      "door": "The market entrance. A bell above the door rings when it's open.",
+      "wall": "The market facade. A price list is nailed next to the door. The numbers have been crossed out and rewritten many times.",
+      "label": "The market. The buyers come at dawn and leave at dusk. What they want changes."
+    },
+    "OF": {
+      "door": "The Office door. Most of what's inside is locked down.",
+      "wall": "The Office frame, plain gray. It's waiting for something.",
+      "label": "The Office. A skill tree you haven't unlocked yet. The corkboard inside is full of crossed-out plans."
+    },
+    "FC": {
+      "wall": "A large building, shuttered. The sign above the entrance has faded to illegibility.",
+      "label": "The factory floor. Empty now. The machinery is covered in cloth."
+    },
+    "ST": {
+      "wall": "A warehouse. The padlock on the door is heavy and new. Someone was expecting to use it.",
+      "label": "Storage. Enough room for a much larger operation than the one you currently run."
+    },
+    "BK": {
+      "wall": "A stone building, solid. The lights are off and have been for some time.",
+      "label": "The bank. Loans and interest. You'll need this eventually."
+    },
+    "DV": {
+      "wall": "A terminal of some kind. The screen is dark. The keyboard has too many keys.",
+      "label": "Derivatives terminal. You don't know what this is yet."
+    }
+  },
+  "tiles": {
+    "28,6": "A loose nail sticks up at an odd angle. Someone has bent it down partway, then given up.",
+    "52,20": "The ground here is worn in a circle, as if something heavy was once dragged in a loop. Nobody remembers what.",
+    "7,36": "A child's drawing scratched into the wood with a tool. A house, a tree, a stick figure. The figure is waving.",
+    "72,5": "A single boot print in dried mud, pointing away from everything. Size eleven, maybe twelve.",
+    "45,38": "Three words written in chalk on the ground, faded almost to nothing. You can make out the first: 'Remember'."
+  },
+  "locked": {
+    "factory": "A large building with dark windows. Whatever ran here ran hard. The smell of old machine oil hasn't left.",
+    "storage": "A warehouse you don't have keys for yet. The padlock is new. Someone anticipated filling this.",
+    "bank": "A stone building. The hours are posted on the door but the times have been scratched out.",
+    "derivatives": "A terminal behind a locked panel. The screen is dark. You press a key. Nothing. You try again. Still nothing.",
+    "office_nodes": "A corkboard inside the Office, behind a door that won't open. The notes are in your own handwriting, somehow."
   }
 }
