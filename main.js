@@ -145,7 +145,7 @@ function getTileAt(x, y) {
                 || (x >= 33 && x <= 38 && y >= 7  && y <= 11)
                 || (x >= 60 && x <= 65 && y >= 22 && y <= 26)
                 || (x >= 22 && x <= 27 && y >= 16 && y <= 20);
-  if (!reserved && (x * 7 + y * 13 + 42) % 100 < 8) return { ch: 'T', fg: '#2d5a2d' };
+  if (!reserved && ((x * 1664525 + y * 1013904223) >>> 16) % 100 < 8) return { ch: 'T', fg: '#2d5a2d' };
 
   return { ch: '.', fg: '#1a1a1a' };
 }
@@ -201,7 +201,7 @@ function drawWorld() {
                     || (x >= 60 && x <= 65 && y >= 22 && y <= 26)  // Market
                     || (x >= 22 && x <= 27 && y >= 16 && y <= 20); // Office
       if (reserved) continue;
-      if ((x * 7 + y * 13 + 42) % 100 < 8) display.draw(x, y, 'T', '#2d5a2d', BG);
+      if (((x * 1664525 + y * 1013904223) >>> 16) % 100 < 8) display.draw(x, y, 'T', '#2d5a2d', BG);
     }
   }
 
