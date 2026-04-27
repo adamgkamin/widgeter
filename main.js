@@ -292,7 +292,7 @@ function buildTileMap() {
                     || (x >= 60 && x <= 65 && y >= 22 && y <= 26)
                     || (x >= 22 && x <= 27 && y >= 16 && y <= 20);
       if (!reserved && ((x * 1664525 + y * 1013904223) >>> 16) % 100 < 8)
-        tileMap[x][y] = mk('T', '#2d5a2d', true);
+        tileMap[x][y] = mk('Y', '#2d5a2d', true);
     }
   }
 
@@ -306,7 +306,7 @@ function buildTileMap() {
     for (let y = z.y1; y <= z.y2; y++) {
       for (let x = z.x1; x <= z.x2; x++) {
         const g = tileMap[x][y].glyph;
-        if (g === ':' || g === 'T') continue; // skip paths and trees
+        if (g === ':' || g === 'Y') continue; // skip paths and trees
         if (((x * 1664525 + y * 1013904223) >>> 16) % 100 < 60)
           tileMap[x][y] = mk('"', '#1a3a1a', true);
       }
@@ -355,7 +355,7 @@ function buildTileMap() {
     for (let x = 42; x <= 54; x++) {
       if (x <= 0 || x >= DISPLAY_WIDTH - 1 || y <= 0 || y >= WORLD_ROWS - 1) continue;
       if (isPathTile(x, y) || isStationTile(x, y)) continue;
-      if (tileMap[x][y].glyph === 'T') continue;
+      if (tileMap[x][y].glyph === 'Y') continue;
       const isFlower = ((x * 1664525 + y * 1013904223) >>> 16) % 100 < 15;
       if (isFlower) {
         const fi = (x * 31 + y * 17) % 3;
@@ -377,7 +377,7 @@ function buildTileMap() {
     for (let x = 55; x <= 63; x++) {
       if (x <= 0 || x >= DISPLAY_WIDTH - 1 || y <= 0 || y >= WORLD_ROWS - 1) continue;
       if (isPathTile(x, y) || isStationTile(x, y)) continue;
-      if (tileMap[x][y].glyph === 'T') continue;
+      if (tileMap[x][y].glyph === 'Y') continue;
       const h = ((x * 1664525 + y * 1013904223) >>> 16) % 100;
       if (h < 80) {
         tileMap[x][y] = mk('.', '#1a1a1a', true);
@@ -922,7 +922,7 @@ function showMenu(title, options) {
         if (x >= 0 && x < DISPLAY_WIDTH && y >= 0 && y < WORLD_ROWS) markDirty(x, y);
     renderDirty();
     display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
-    state.gameState = 'playing';
+    if (state.gameState === 'menu') state.gameState = 'playing'; // don't override if action changed state (e.g. crafting)
   }
 
   function menuKeyHandler(e) {
@@ -1332,11 +1332,8 @@ setInterval(() => {
   drawTimeIndicator();
 
   if (state.gameState === 'crafting') {
-    const widgetNum = craftTotal - craftQueue;
-    const secsLeft  = CRAFT_TICKS - craftProgress;
-    drawRow(LOG_END_ROW,
-      `> Crafting widget ${widgetNum} of ${craftTotal} — ${secsLeft}s remaining...`,
-      '#ff9933');
+    const secsLeft = CRAFT_TICKS - craftProgress;
+    drawRow(LOG_END_ROW, `> Crafting — ${secsLeft}s remaining`, '#ff9933');
     craftProgress++;
     pulseWB();
     if (craftProgress >= CRAFT_TICKS) {
