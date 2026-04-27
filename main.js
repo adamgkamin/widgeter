@@ -105,6 +105,22 @@ let blinkInterval = setInterval(() => {
 
 // ── §3.4 Phase-in transition ──────────────────────────────────────────────────
 
+// Draw a 4×3 station house: +--+ / |XY| / +.-+ (door at bottom-left+1) (§3.6)
+function drawStation(x, y, label, wallColor, labelColor) {
+  display.draw(x,   y,   '+', wallColor,  BG);
+  display.draw(x+1, y,   '-', wallColor,  BG);
+  display.draw(x+2, y,   '-', wallColor,  BG);
+  display.draw(x+3, y,   '+', wallColor,  BG);
+  display.draw(x,   y+1, '|', wallColor,  BG);
+  display.draw(x+1, y+1, label[0], labelColor, BG);
+  display.draw(x+2, y+1, label[1], labelColor, BG);
+  display.draw(x+3, y+1, '|', wallColor,  BG);
+  display.draw(x,   y+2, '+', wallColor,  BG);
+  display.draw(x+1, y+2, '.', wallColor,  BG);
+  display.draw(x+2, y+2, '-', wallColor,  BG);
+  display.draw(x+3, y+2, '+', wallColor,  BG);
+}
+
 function drawWorld() {
   // Floor tiles — interior cells (§4.2)
   for (let y = 1; y < WORLD_ROWS - 1; y++) {
@@ -148,6 +164,12 @@ function drawWorld() {
     display.draw(0,                 y, '#', DIM_GRAY, BG);
     display.draw(DISPLAY_WIDTH - 1, y, '#', DIM_GRAY, BG);
   }
+
+  // Unlocked stations — theme colors (§3.5, §4.2)
+  drawStation( 9,  2, 'RM', '#ff9933', '#ff9933'); // Raw Materials shed
+  drawStation(34,  8, 'WB', '#ff9933', '#ff9933'); // Workbench
+  drawStation(61, 23, 'MT', '#ffd633', '#ffd633'); // Market
+  drawStation(23, 17, 'OF', '#555555', '#ffffff'); // Office (dim walls, bright label)
 
   // Player @ centered in game area (§3.5)
   display.draw(
