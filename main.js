@@ -80,6 +80,14 @@ const state = {
     storage: { unlocked: false },
   },
   officeUnlocked: false,
+  skills: {
+    apprentice:   0,
+    courier:      0,
+    workerCarry:  0,
+    workerSpeed:  0,
+    courierCarry: 0,
+    courierSpeed: 0,
+  },
 };
 
 // ── Save / load (§8) ─────────────────────────────────────────────────────────
@@ -105,6 +113,7 @@ function saveGame() {
     stepsWalked:          state.stepsWalked,
     stations:             state.stations,
     officeUnlocked:       state.officeUnlocked,
+    skills:               state.skills,
   };
   localStorage.setItem(SAVE_KEY, JSON.stringify(data));
 }
@@ -130,6 +139,7 @@ function loadGame() {
     state.stepsWalked          = data.stepsWalked       ?? 0;
     state.stations             = data.stations          ?? { factory: { unlocked: false }, storage: { unlocked: false } };
     state.officeUnlocked       = data.officeUnlocked    ?? false;
+    state.skills               = data.skills            ?? { apprentice: 0, courier: 0, workerCarry: 0, workerSpeed: 0, courierCarry: 0, courierSpeed: 0 };
   } catch (_) {
     // corrupt save — start fresh
   }
@@ -685,6 +695,7 @@ function resetState() {
   state.lastAmbientTick = 0; state.lastNarrativeTick = 0; state.nextAmbientDelay = 45; state.stepsWalked = 0;
   state.stations = { factory: { unlocked: false }, storage: { unlocked: false } };
   state.officeUnlocked = false;
+  state.skills = { apprentice: 0, courier: 0, workerCarry: 0, workerSpeed: 0, courierCarry: 0, courierSpeed: 0 };
   const fcDef = STATION_DEFS.find(s => s.label === 'FC');
   const stDef = STATION_DEFS.find(s => s.label === 'ST');
   if (fcDef) { fcDef.wc = DIM_GRAY; fcDef.lc = DIM_GRAY; }
@@ -1181,11 +1192,12 @@ function openMarketMenu() {
 // ── Office skill tree (§5.3) ──────────────────────────────────────────────────
 
 const OFFICE_NODES = [
-  { num: 1, name: 'Hire Apprentice',    cost: 50, key: 'apprentice' },
-  { num: 2, name: 'Build Factory',      cost: 0,  key: 'factory'    },
-  { num: 3, name: 'Hire Courier Robot', cost: 30, key: 'courier'    },
-  { num: 4, name: 'Worker Carry +1',    cost: 40, key: 'carry'      },
-  { num: 5, name: 'Worker Speed +0.25', cost: 60, key: 'speed'      },
+  { num: 1, name: 'Hire Apprentice',    cost:  50, key: 'apprentice',   max: 1  },
+  { num: 2, name: 'Hire Courier Robot', cost:  30, key: 'courier',      max: 1  },
+  { num: 3, name: 'Worker Carry +1',    cost:  40, key: 'workerCarry',  max: 12 },
+  { num: 4, name: 'Worker Speed +0.25', cost:  60, key: 'workerSpeed',  max: 6  },
+  { num: 5, name: 'Courier Carry +5',   cost:  80, key: 'courierCarry', max: 8  },
+  { num: 6, name: 'Courier Speed +0.5', cost: 100, key: 'courierSpeed', max: 4  },
 ];
 
 function showOfficeMenu() {
@@ -1226,17 +1238,22 @@ function showOfficeMenu() {
     // Nodes (start at BOX_Y + 5)
     const unlocked = state.officeUnlocked;
     for (let i = 0; i < OFFICE_NODES.length; i++) {
-      const node    = OFFICE_NODES[i];
-      const costStr = node.cost === 0 ? 'FREE' : `${node.cost}cr`;
+      const node  = OFFICE_NODES[i];
+      const level = state.skills[node.key] || 0;
+      const costStr = `${node.cost}cr`.padEnd(7);
+      let label = node.name;
+      if (node.max > 1 && level > 0) label += `  (level ${level})`;
       let fg, suffix;
       if (!unlocked) {
         fg = WC; suffix = '[LOCKED — reach Phase 2]';
-      } else if (node.cost > 0 && state.player.credits < node.cost) {
+      } else if (level >= node.max) {
+        fg = WC; suffix = node.max === 1 ? '[Purchased]' : '[Max level]';
+      } else if (state.player.credits < node.cost) {
         fg = '#ff5555'; suffix = `[Need ${node.cost - state.player.credits}cr more]`;
       } else {
         fg = '#66cc66'; suffix = '[Available]';
       }
-      const line = `${node.num}. ${node.name.padEnd(22)} ${costStr.padEnd(6)} ${suffix}`;
+      const line = `${node.num}. ${label.padEnd(26)} ${costStr} ${suffix}`;
       for (let j = 0; j < line.length; j++) display.draw(CONT_X + j, BOX_Y + 5 + i, line[j], fg, BG);
     }
 
@@ -1262,13 +1279,16 @@ function showOfficeMenu() {
     if (e.key === 'Escape') { closeOffice(); return; }
     const num = parseInt(e.key);
     if (num >= 1 && num <= OFFICE_NODES.length) {
-      if (!state.officeUnlocked) return; // all nodes locked
-      const node = OFFICE_NODES[num - 1];
-      if (node.cost > 0 && state.player.credits < node.cost) return; // can't afford
+      if (!state.officeUnlocked) return;
+      const node  = OFFICE_NODES[num - 1];
+      const level = state.skills[node.key] || 0;
+      if (level >= node.max) return; // already purchased / maxed
+      if (state.player.credits < node.cost) return;
       state.player.credits -= node.cost;
-      addLog(`${node.name} purchased.`, BRIGHT_MAGENTA);
+      state.skills[node.key] = level + 1;
+      addLog(`${node.name} purchased.`, '#cc66cc');
       drawStatusBar();
-      redraw(); // refresh to reflect new credit total
+      redraw();
     }
   }
   window.addEventListener('keydown', officeKeyHandler);
