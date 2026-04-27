@@ -89,6 +89,12 @@ clearScreen();
 drawArt();
 drawPrompt(true);
 
+// Right-aligned credits in bottom-right corner of title screen
+const CREDIT  = "Created by Adam A.";
+const VERSION = "Ver: Preview";
+for (let i = 0; i < CREDIT.length;  i++) display.draw(79 - CREDIT.length  + i, 48, CREDIT[i],  '#555555', BG);
+for (let i = 0; i < VERSION.length; i++) display.draw(79 - VERSION.length + i, 49, VERSION[i], '#555555', BG);
+
 let gameState = 'title'; // 'title' | 'transitioning' | 'intro' | 'playing'
 
 let promptVisible = true;
