@@ -52,6 +52,24 @@ function wordWrap(text, maxWidth) {
   return lines;
 }
 
+// ── Game state (§8) ───────────────────────────────────────────────────────────
+
+const state = {
+  gameState: 'title', // 'title' | 'transitioning' | 'intro' | 'playing'
+  player: {
+    x: 15,
+    y: 14,
+    credits: 10,
+    inventory: { rm: 0, widgets: 0 },
+    inventoryCaps: { rm: 5, widgets: 5 },
+  },
+  day: 1,
+  tick: 0,
+  phase: 1,
+  lifetimeCreditsEarned: 0,
+  logLines: [], // max 5 entries: {text, color}
+};
+
 // ── §3.3 Title screen ─────────────────────────────────────────────────────────
 
 const TITLE_ART = [
@@ -95,24 +113,24 @@ const VERSION = "Ver: Preview";
 for (let i = 0; i < CREDIT.length;  i++) display.draw(79 - CREDIT.length  + i, 48, CREDIT[i],  '#555555', BG);
 for (let i = 0; i < VERSION.length; i++) display.draw(79 - VERSION.length + i, 49, VERSION[i], '#555555', BG);
 
-let gameState = 'title'; // 'title' | 'transitioning' | 'intro' | 'playing'
-let playerX = 15;
-let playerY = 14;
+let promptVisible = true;
+let blinkInterval = setInterval(() => {
+  promptVisible = !promptVisible;
+  drawPrompt(promptVisible);
+}, 500);
 
 // ── Event log (§3.8) ──────────────────────────────────────────────────────────
 
-const logLines = []; // max 5 entries: {text, color}
-
 function addLog(message, color) {
-  logLines.push({ text: message, color });
-  if (logLines.length > 5) logLines.shift();
+  state.logLines.push({ text: message, color });
+  if (state.logLines.length > 5) state.logLines.shift();
   renderLog();
 }
 
 function renderLog() {
   for (let i = 0; i < 5; i++) {
-    const row = LOG_START_ROW + i;
-    const entry = logLines[logLines.length - 5 + i]; // oldest first, newest at bottom
+    const row   = LOG_START_ROW + i;
+    const entry = state.logLines[state.logLines.length - 5 + i];
     if (entry) {
       drawRow(row, '> ' + entry.text, entry.color);
     } else {
@@ -120,12 +138,6 @@ function renderLog() {
     }
   }
 }
-
-let promptVisible = true;
-let blinkInterval = setInterval(() => {
-  promptVisible = !promptVisible;
-  drawPrompt(promptVisible);
-}, 500);
 
 // ── §3.4 Phase-in transition ──────────────────────────────────────────────────
 
@@ -201,27 +213,25 @@ function drawWorld() {
     }
   }
 
-  // Path network — § 4.4
+  // Path network — §4.4
   const PATH_COLOR = '#3a3530';
-  for (let y = 3;  y <= 28; y++) display.draw(15, y, ':', PATH_COLOR, BG); // vertical west
-  for (let x = 15; x <= 62; x++) display.draw(x, 14, ':', PATH_COLOR, BG); // horizontal north
-  for (let x = 15; x <= 62; x++) display.draw(x, 28, ':', PATH_COLOR, BG); // horizontal south
-  for (let y = 14; y <= 28; y++) display.draw(62, y, ':', PATH_COLOR, BG); // vertical east
+  for (let y = 3;  y <= 28; y++) display.draw(15, y, ':', PATH_COLOR, BG);
+  for (let x = 15; x <= 62; x++) display.draw(x, 14, ':', PATH_COLOR, BG);
+  for (let x = 15; x <= 62; x++) display.draw(x, 28, ':', PATH_COLOR, BG);
+  for (let y = 14; y <= 28; y++) display.draw(62, y, ':', PATH_COLOR, BG);
 
   // Trees — deterministic placement, ~8% density (§4.5)
   for (let y = 1; y < WORLD_ROWS - 1; y++) {
     for (let x = 1; x < DISPLAY_WIDTH - 1; x++) {
-      // Skip path tiles
       const onPath = (x === 15 && y >= 3 && y <= 28)
                   || (y === 14 && x >= 15 && x <= 62)
                   || (y === 28 && x >= 15 && x <= 62)
                   || (x === 62 && y >= 14 && y <= 28);
       if (onPath) continue;
-      // Skip station reserved areas
-      const reserved = (x >= 8  && x <= 13 && y >= 1  && y <= 5)   // RM shed
-                    || (x >= 33 && x <= 38 && y >= 7  && y <= 11)  // Workbench
-                    || (x >= 60 && x <= 65 && y >= 22 && y <= 26)  // Market
-                    || (x >= 22 && x <= 27 && y >= 16 && y <= 20); // Office
+      const reserved = (x >= 8  && x <= 13 && y >= 1  && y <= 5)
+                    || (x >= 33 && x <= 38 && y >= 7  && y <= 11)
+                    || (x >= 60 && x <= 65 && y >= 22 && y <= 26)
+                    || (x >= 22 && x <= 27 && y >= 16 && y <= 20);
       if (reserved) continue;
       if (((x * 1664525 + y * 1013904223) >>> 16) % 100 < 8) display.draw(x, y, 'T', '#2d5a2d', BG);
     }
@@ -238,22 +248,22 @@ function drawWorld() {
   }
 
   // Locked stations — all DIM_GRAY (§3.5, §4.2)
-  drawStation(10, 30, 'FC', DIM_GRAY, DIM_GRAY); // Factory
-  drawStation(23, 32, 'ST', DIM_GRAY, DIM_GRAY); // Storage
-  drawStation(61,  4, 'BK', DIM_GRAY, DIM_GRAY); // Bank
-  drawStation(56, 16, 'DV', DIM_GRAY, DIM_GRAY); // Derivatives Terminal
+  drawStation(10, 30, 'FC', DIM_GRAY, DIM_GRAY);
+  drawStation(23, 32, 'ST', DIM_GRAY, DIM_GRAY);
+  drawStation(61,  4, 'BK', DIM_GRAY, DIM_GRAY);
+  drawStation(56, 16, 'DV', DIM_GRAY, DIM_GRAY);
 
   // Unlocked stations — theme colors (§3.5, §4.2)
-  drawStation( 9,  2, 'RM', '#ff9933', '#ff9933'); // Raw Materials shed
-  drawStation(34,  8, 'WB', '#ff9933', '#ff9933'); // Workbench
-  drawStation(61, 23, 'MT', '#ffd633', '#ffd633'); // Market
-  drawStation(23, 17, 'OF', '#555555', '#ffffff'); // Office (dim walls, bright label)
+  drawStation( 9,  2, 'RM', '#ff6600', '#ff6600');
+  drawStation(34,  8, 'WB', '#cc3300', '#cc3300');
+  drawStation(61, 23, 'MT', '#ffd633', '#ffd633');
+  drawStation(23, 17, 'OF', '#aaaaaa', '#ffffff');
 
   // Player @ at spawn point (§3.5)
-  display.draw(playerX, playerY, '@', BRIGHT_WHITE, BG);
+  display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
 
   // Status bar — colored segments (§3.7)
-  drawRow(STATUS_ROW, '', BRIGHT_WHITE); // clear row
+  drawRow(STATUS_ROW, '', BRIGHT_WHITE);
   const seg = (x, text, fg) => { for (let i = 0; i < text.length; i++) display.draw(x + i, STATUS_ROW, text[i], fg, BG); return x + text.length; };
   let sx = 0;
   sx = seg(sx, 'Credits: 10',              '#ffd633') + 4;
@@ -285,13 +295,12 @@ function startPhaseIn() {
   let index = 0;
 
   function step() {
-    if (gameState !== 'transitioning') return;
+    if (state.gameState !== 'transitioning') return;
     if (index >= TOTAL_TILES) {
       drawWorld();
       showIntroScreen();
       return;
     }
-    // Advance ~44 tiles per frame so the scan completes in ~1.3 s (§3.4)
     const end = Math.min(index + TILES_PER_FRAME, TOTAL_TILES);
     while (index < end) {
       const col = index % DISPLAY_WIDTH;
@@ -315,16 +324,15 @@ const INTRO_PARAS = [
 ];
 
 function showIntroScreen() {
-  gameState = 'intro';
+  state.gameState = 'intro';
 
   const BOX_W   = 60;
-  const INNER_W = BOX_W - 2; // 58
-  const BOX_X   = Math.floor((DISPLAY_WIDTH - BOX_W) / 2); // 10
+  const INNER_W = BOX_W - 2;
+  const BOX_X   = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
 
   const TITLE_TEXT  = "-- WIDGETER --";
   const PROMPT_TEXT = "[ press any key to begin ]";
 
-  // Build content row list: null = blank line, otherwise {text, fg, center?}
   const wrapped = INTRO_PARAS.map(p => wordWrap(p, INNER_W));
   const rows = [];
   rows.push(null);
@@ -338,14 +346,13 @@ function showIntroScreen() {
   const PROMPT_IDX = rows.length;
   rows.push({ text: PROMPT_TEXT, fg: BRIGHT_CYAN, center: true });
 
-  const BOX_H = rows.length + 2; // +2 for top/bottom borders
+  const BOX_H = rows.length + 2;
   const BOX_Y = Math.floor((DISPLAY_HEIGHT - BOX_H) / 2);
 
-  // Draw one content row (side borders + interior)
   function drawContentRow(i, fg_override) {
     const y   = BOX_Y + 1 + i;
     const row = rows[i];
-    display.draw(BOX_X,           y, '|', DIM_GRAY, BG);
+    display.draw(BOX_X,             y, '|', DIM_GRAY, BG);
     display.draw(BOX_X + BOX_W - 1, y, '|', DIM_GRAY, BG);
     if (row === null || fg_override === BG) {
       for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, y, ' ', BRIGHT_WHITE, BG);
@@ -363,30 +370,25 @@ function showIntroScreen() {
   }
 
   // Draw box frame
-  display.draw(BOX_X,           BOX_Y, '+', DIM_GRAY, BG);
+  display.draw(BOX_X,             BOX_Y, '+', DIM_GRAY, BG);
   display.draw(BOX_X + BOX_W - 1, BOX_Y, '+', DIM_GRAY, BG);
   for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, BOX_Y, '-', DIM_GRAY, BG);
   const botY = BOX_Y + BOX_H - 1;
-  display.draw(BOX_X,           botY, '+', DIM_GRAY, BG);
+  display.draw(BOX_X,             botY, '+', DIM_GRAY, BG);
   display.draw(BOX_X + BOX_W - 1, botY, '+', DIM_GRAY, BG);
   for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, botY, '-', DIM_GRAY, BG);
 
-  // Fill all interior rows blank, then reveal title immediately
   for (let i = 0; i < rows.length; i++) drawContentRow(i, BG);
-  drawContentRow(1); // title
+  drawContentRow(1);
 
-  // Compute where each paragraph sits in rows[]
-  // rows: [null, title, null, ...para0..., null, ...para1..., null, ...para2..., null, ...para3..., null, prompt]
   const paraRanges = [];
   let ri = 3;
   for (let i = 0; i < wrapped.length; i++) {
-    const blankIdx = i > 0 ? ri++ : null; // blank separator row (skip it in ri)
+    const blankIdx = i > 0 ? ri++ : null;
     paraRanges.push({ blankIdx, start: ri, end: ri + wrapped[i].length });
     ri += wrapped[i].length;
   }
-  // ri is now the index of the trailing null before the prompt
 
-  // Cancellable timers for dismissal at any point
   const timers = [];
   let introBlinkInterval = null;
 
@@ -398,20 +400,18 @@ function showIntroScreen() {
   }
 
   function onIntroKey() {
-    if (gameState !== 'intro') return;
+    if (state.gameState !== 'intro') return;
     cancel();
     window.removeEventListener('keydown', onIntroKey);
     dismissIntro();
   }
   window.addEventListener('keydown', onIntroKey);
 
-  // Paragraph reveal — 400 ms pause between each
   function revealPara(i) {
-    if (gameState !== 'intro') return;
+    if (state.gameState !== 'intro') return;
     const { blankIdx, start, end } = paraRanges[i];
     if (blankIdx !== null) drawContentRow(blankIdx);
     for (let r = start; r < end; r++) drawContentRow(r);
-
     if (i < INTRO_PARAS.length - 1) {
       timers.push(setTimeout(() => revealPara(i + 1), 400));
     } else {
@@ -420,13 +420,12 @@ function showIntroScreen() {
   }
 
   function showPrompt() {
-    if (gameState !== 'intro') return;
-    drawContentRow(PROMPT_IDX - 1); // trailing blank before prompt
-    drawContentRow(PROMPT_IDX);     // prompt
-
+    if (state.gameState !== 'intro') return;
+    drawContentRow(PROMPT_IDX - 1);
+    drawContentRow(PROMPT_IDX);
     let pv = true;
     introBlinkInterval = setInterval(() => {
-      if (gameState !== 'intro') { clearInterval(introBlinkInterval); return; }
+      if (state.gameState !== 'intro') { clearInterval(introBlinkInterval); return; }
       pv = !pv;
       drawContentRow(PROMPT_IDX, pv ? BRIGHT_CYAN : BG);
     }, 500);
@@ -436,8 +435,7 @@ function showIntroScreen() {
 }
 
 function dismissIntro() {
-  gameState = 'playing';
-  // Clear interior of game world, then redraw world content
+  state.gameState = 'playing';
   for (let y = 1; y < WORLD_ROWS - 1; y++) {
     for (let x = 1; x < DISPLAY_WIDTH - 1; x++) {
       display.draw(x, y, ' ', BRIGHT_WHITE, BG);
@@ -452,7 +450,7 @@ function dismissIntro() {
 function onAnyKey() {
   clearInterval(blinkInterval);
   window.removeEventListener('keydown', onAnyKey);
-  gameState = 'transitioning';
+  state.gameState = 'transitioning';
   startPhaseIn();
 }
 
@@ -461,17 +459,17 @@ window.addEventListener('keydown', onAnyKey);
 // ── Arrow key movement (§3.5) ─────────────────────────────────────────────────
 
 window.addEventListener('keydown', (e) => {
-  if (gameState !== 'playing') return;
+  if (state.gameState !== 'playing') return;
   const DIRS = { ArrowLeft:[-1,0], ArrowRight:[1,0], ArrowUp:[0,-1], ArrowDown:[0,1] };
   const d = DIRS[e.key];
   if (!d) return;
-  e.preventDefault(); // stop arrow keys scrolling the page
-  const nx = playerX + d[0];
-  const ny = playerY + d[1];
+  e.preventDefault();
+  const nx = state.player.x + d[0];
+  const ny = state.player.y + d[1];
   if (isBlocked(nx, ny)) return;
-  const { ch, fg } = getTileAt(playerX, playerY);
-  display.draw(playerX, playerY, ch, fg, BG);
-  playerX = nx;
-  playerY = ny;
-  display.draw(playerX, playerY, '@', BRIGHT_WHITE, BG);
+  const { ch, fg } = getTileAt(state.player.x, state.player.y);
+  display.draw(state.player.x, state.player.y, ch, fg, BG);
+  state.player.x = nx;
+  state.player.y = ny;
+  display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
 });
