@@ -118,6 +118,12 @@ function drawWorld() {
 
 function startPhaseIn() {
   clearScreen();
+  // Pre-fill game area with a barely-visible dot so the scan erases visibly (§3.4)
+  for (let y = 0; y < WORLD_ROWS; y++) {
+    for (let x = 0; x < DISPLAY_WIDTH; x++) {
+      display.draw(x, y, '·', '#222222', BG);
+    }
+  }
   const TOTAL_TILES    = DISPLAY_WIDTH * WORLD_ROWS;           // 80 × 43 = 3440
   const TILES_PER_FRAME = Math.ceil(TOTAL_TILES / (1.3 * 60)); // ≈ 44 → ~1.3 s
   let index = 0;
