@@ -65,7 +65,7 @@ const state = {
   },
   day: 1,
   tick: 0,
-  dayTick: 0,      // 0–239; resets each day
+  dayTick: 0,       // 0–239; resets each day
   marketOpen: true, // true for dayTick 0–179, false for 180–239
   phase: 1,
   lifetimeCreditsEarned: 0,
@@ -74,12 +74,12 @@ const state = {
 
 // ── Save / load (§8) ─────────────────────────────────────────────────────────
 
-const SAVE_KEY      = 'widgeter.save.v1';
+const SAVE_KEY       = 'widgeter.save.v1';
 const SCHEMA_VERSION = 1;
 
 function saveGame() {
   const data = {
-    schemaVersion: SCHEMA_VERSION,
+    schemaVersion:        SCHEMA_VERSION,
     player:               state.player,
     day:                  state.day,
     tick:                 state.tick,
@@ -97,21 +97,21 @@ function loadGame() {
     const raw = localStorage.getItem(SAVE_KEY);
     if (!raw) return;
     const data = JSON.parse(raw);
-    if (data.schemaVersion !== SCHEMA_VERSION) return; // mismatch → start fresh
+    if (data.schemaVersion !== SCHEMA_VERSION) return;
     state.player               = data.player;
     state.day                  = data.day;
     state.tick                 = data.tick;
-    state.dayTick              = data.dayTick  ?? 0;
+    state.dayTick              = data.dayTick   ?? 0;
     state.marketOpen           = data.marketOpen ?? true;
     state.phase                = data.phase;
     state.lifetimeCreditsEarned = data.lifetimeCreditsEarned;
     state.logLines             = data.logLines || [];
   } catch (_) {
-    // corrupt save — ignore, start fresh
+    // corrupt save — start fresh
   }
 }
 
-loadGame(); // restore save on startup if present
+loadGame();
 
 // ── §3.3 Title screen ─────────────────────────────────────────────────────────
 
@@ -124,11 +124,11 @@ const TITLE_ART = [
 ];
 const PROMPT = "[ press any key to start ]";
 
-const ART_MAX_W  = Math.max(...TITLE_ART.map(l => l.length));
-const ART_X      = Math.floor((DISPLAY_WIDTH - ART_MAX_W) / 2);
-const ART_Y      = Math.floor((DISPLAY_HEIGHT - (TITLE_ART.length + 2 + 1)) / 2);
-const PROMPT_X   = Math.floor((DISPLAY_WIDTH - PROMPT.length) / 2);
-const PROMPT_Y   = ART_Y + TITLE_ART.length + 2;
+const ART_MAX_W = Math.max(...TITLE_ART.map(l => l.length));
+const ART_X     = Math.floor((DISPLAY_WIDTH - ART_MAX_W) / 2);
+const ART_Y     = Math.floor((DISPLAY_HEIGHT - (TITLE_ART.length + 2 + 1)) / 2);
+const PROMPT_X  = Math.floor((DISPLAY_WIDTH - PROMPT.length) / 2);
+const PROMPT_Y  = ART_Y + TITLE_ART.length + 2;
 
 function drawArt() {
   for (let row = 0; row < TITLE_ART.length; row++) {
@@ -150,7 +150,6 @@ clearScreen();
 drawArt();
 drawPrompt(true);
 
-// Right-aligned credits in bottom-right corner of title screen
 const CREDIT  = "Created by Adam A.";
 const VERSION = "Ver: Preview";
 for (let i = 0; i < CREDIT.length;  i++) display.draw(79 - CREDIT.length  + i, 48, CREDIT[i],  '#555555', BG);
@@ -183,8 +182,8 @@ function renderLog() {
 }
 
 // Time indicator — redrawn every tick (§3.7, §7.2)
-const TIMER_X   = 50; // x position where the timer segment starts on the status bar
-const TIMER_MAX = 26; // max char width to clear before redrawing
+const TIMER_X   = 50;
+const TIMER_MAX = 26;
 
 function drawTimeIndicator() {
   const open      = state.marketOpen;
@@ -196,137 +195,116 @@ function drawTimeIndicator() {
   for (let i = 0; i < text.length; i++) display.draw(TIMER_X + i, STATUS_ROW, text[i], fg, BG);
 }
 
-// ── §3.4 Phase-in transition ──────────────────────────────────────────────────
+// ── Tile map (§4.2) ───────────────────────────────────────────────────────────
 
 // Station definitions — single source of truth for layout and colors
 const STATION_DEFS = [
-  { x: 10, y: 30, label: 'FC', wc: DIM_GRAY,   lc: DIM_GRAY   },
-  { x: 23, y: 32, label: 'ST', wc: DIM_GRAY,   lc: DIM_GRAY   },
-  { x: 61, y:  4, label: 'BK', wc: DIM_GRAY,   lc: DIM_GRAY   },
-  { x: 56, y: 16, label: 'DV', wc: DIM_GRAY,   lc: DIM_GRAY   },
-  { x:  9, y:  2, label: 'RM', wc: '#ff6600',  lc: '#ff6600'  },
-  { x: 34, y:  8, label: 'WB', wc: '#cc3300',  lc: '#cc3300'  },
-  { x: 61, y: 23, label: 'MT', wc: '#ffd633',  lc: '#ffd633'  },
-  { x: 23, y: 17, label: 'OF', wc: '#aaaaaa',  lc: '#ffffff'  },
+  { x: 10, y: 30, label: 'FC', wc: DIM_GRAY,  lc: DIM_GRAY  },
+  { x: 23, y: 32, label: 'ST', wc: DIM_GRAY,  lc: DIM_GRAY  },
+  { x: 61, y:  4, label: 'BK', wc: DIM_GRAY,  lc: DIM_GRAY  },
+  { x: 56, y: 16, label: 'DV', wc: DIM_GRAY,  lc: DIM_GRAY  },
+  { x:  9, y:  2, label: 'RM', wc: '#ff6600', lc: '#ff6600' },
+  { x: 34, y:  8, label: 'WB', wc: '#cc3300', lc: '#cc3300' },
+  { x: 61, y: 23, label: 'MT', wc: '#ffd633', lc: '#ffd633' },
+  { x: 23, y: 17, label: 'OF', wc: '#aaaaaa', lc: '#ffffff' },
 ];
 
-// Return the map tile {ch, fg} at (x, y), ignoring the player
-function getTileAt(x, y) {
-  if (x === 0 || x === DISPLAY_WIDTH - 1 || y === 0 || y === WORLD_ROWS - 1)
-    return { ch: '#', fg: DIM_GRAY };
+let tileMap = []; // tileMap[x][y] = { glyph, fg, bg, walkable }
 
-  for (const s of STATION_DEFS) {
-    if (x < s.x || x > s.x + 3 || y < s.y || y > s.y + 2) continue;
-    if (y === s.y)
-      return { ch: (x === s.x || x === s.x + 3) ? '+' : '-', fg: s.wc };
-    if (y === s.y + 2)
-      return { ch: x === s.x + 1 ? '.' : (x === s.x || x === s.x + 3 ? '+' : '-'), fg: s.wc };
-    // middle row
-    if (x === s.x || x === s.x + 3) return { ch: '|', fg: s.wc };
-    return { ch: s.label[x - s.x - 1], fg: s.lc };
-  }
+function buildTileMap() {
+  const mk = (glyph, fg, walkable) => ({ glyph, fg, bg: BG, walkable });
 
-  const onPath = (x === 15 && y >= 3 && y <= 28)
-              || (y === 14 && x >= 15 && x <= 62)
-              || (y === 28 && x >= 15 && x <= 62)
-              || (x === 62 && y >= 14 && y <= 28);
-  if (onPath) return { ch: ':', fg: '#3a3530' };
-
-  const reserved = (x >= 8  && x <= 13 && y >= 1  && y <= 5)
-                || (x >= 33 && x <= 38 && y >= 7  && y <= 11)
-                || (x >= 60 && x <= 65 && y >= 22 && y <= 26)
-                || (x >= 22 && x <= 27 && y >= 16 && y <= 20);
-  if (!reserved && ((x * 1664525 + y * 1013904223) >>> 16) % 100 < 8) return { ch: 'T', fg: '#2d5a2d' };
-
-  return { ch: '.', fg: '#1a1a1a' };
-}
-
-function isBlocked(x, y) {
-  const { ch } = getTileAt(x, y);
-  return ch === '#' || ch === '+' || ch === '-' || ch === '|';
-}
-
-// Draw a 4×3 station house: +--+ / |XY| / +.-+ (door at bottom-left+1) (§3.6)
-function drawStation(x, y, label, wallColor, labelColor) {
-  display.draw(x,   y,   '+', wallColor,  BG);
-  display.draw(x+1, y,   '-', wallColor,  BG);
-  display.draw(x+2, y,   '-', wallColor,  BG);
-  display.draw(x+3, y,   '+', wallColor,  BG);
-  display.draw(x,   y+1, '|', wallColor,  BG);
-  display.draw(x+1, y+1, label[0], labelColor, BG);
-  display.draw(x+2, y+1, label[1], labelColor, BG);
-  display.draw(x+3, y+1, '|', wallColor,  BG);
-  display.draw(x,   y+2, '+', wallColor,  BG);
-  display.draw(x+1, y+2, '.', wallColor,  BG);
-  display.draw(x+2, y+2, '-', wallColor,  BG);
-  display.draw(x+3, y+2, '+', wallColor,  BG);
-}
-
-function drawWorld() {
-  // Floor tiles — interior cells (§4.2)
-  for (let y = 1; y < WORLD_ROWS - 1; y++) {
-    for (let x = 1; x < DISPLAY_WIDTH - 1; x++) {
-      display.draw(x, y, '.', '#1a1a1a', BG);
+  // Initialise every cell as a floor tile
+  for (let x = 0; x < DISPLAY_WIDTH; x++) {
+    tileMap[x] = [];
+    for (let y = 0; y < WORLD_ROWS; y++) {
+      tileMap[x][y] = mk('.', '#1a1a1a', true);
     }
   }
 
   // Path network — §4.4
-  const PATH_COLOR = '#3a3530';
-  for (let y = 3;  y <= 28; y++) display.draw(15, y, ':', PATH_COLOR, BG);
-  for (let x = 15; x <= 62; x++) display.draw(x, 14, ':', PATH_COLOR, BG);
-  for (let x = 15; x <= 62; x++) display.draw(x, 28, ':', PATH_COLOR, BG);
-  for (let y = 14; y <= 28; y++) display.draw(62, y, ':', PATH_COLOR, BG);
+  const pc = '#3a3530';
+  for (let y = 3;  y <= 28; y++) tileMap[15][y] = mk(':', pc, true);
+  for (let x = 15; x <= 62; x++) tileMap[x][14] = mk(':', pc, true);
+  for (let x = 15; x <= 62; x++) tileMap[x][28] = mk(':', pc, true);
+  for (let y = 14; y <= 28; y++) tileMap[62][y] = mk(':', pc, true);
 
-  // Trees — deterministic placement, ~8% density (§4.5)
+  // Trees — §4.5
   for (let y = 1; y < WORLD_ROWS - 1; y++) {
     for (let x = 1; x < DISPLAY_WIDTH - 1; x++) {
-      const onPath = (x === 15 && y >= 3 && y <= 28)
-                  || (y === 14 && x >= 15 && x <= 62)
-                  || (y === 28 && x >= 15 && x <= 62)
-                  || (x === 62 && y >= 14 && y <= 28);
+      const onPath = (x === 15 && y >= 3 && y <= 28) || (y === 14 && x >= 15 && x <= 62)
+                  || (y === 28 && x >= 15 && x <= 62) || (x === 62 && y >= 14 && y <= 28);
       if (onPath) continue;
       const reserved = (x >= 8  && x <= 13 && y >= 1  && y <= 5)
                     || (x >= 33 && x <= 38 && y >= 7  && y <= 11)
                     || (x >= 60 && x <= 65 && y >= 22 && y <= 26)
                     || (x >= 22 && x <= 27 && y >= 16 && y <= 20);
-      if (reserved) continue;
-      if (((x * 1664525 + y * 1013904223) >>> 16) % 100 < 8) display.draw(x, y, 'T', '#2d5a2d', BG);
+      if (!reserved && ((x * 1664525 + y * 1013904223) >>> 16) % 100 < 8)
+        tileMap[x][y] = mk('T', '#2d5a2d', true);
     }
   }
 
-  // Outer border: row 0, row 42, col 0, col 79 (§4.1)
+  // Border — §4.1 (overwrites edge floor)
   for (let x = 0; x < DISPLAY_WIDTH; x++) {
-    display.draw(x, 0,             '#', DIM_GRAY, BG);
-    display.draw(x, WORLD_ROWS - 1, '#', DIM_GRAY, BG);
+    tileMap[x][0]            = mk('#', DIM_GRAY, false);
+    tileMap[x][WORLD_ROWS-1] = mk('#', DIM_GRAY, false);
   }
   for (let y = 1; y < WORLD_ROWS - 1; y++) {
-    display.draw(0,                 y, '#', DIM_GRAY, BG);
-    display.draw(DISPLAY_WIDTH - 1, y, '#', DIM_GRAY, BG);
+    tileMap[0][y]               = mk('#', DIM_GRAY, false);
+    tileMap[DISPLAY_WIDTH-1][y] = mk('#', DIM_GRAY, false);
   }
 
-  // Locked stations — all DIM_GRAY (§3.5, §4.2)
-  drawStation(10, 30, 'FC', DIM_GRAY, DIM_GRAY);
-  drawStation(23, 32, 'ST', DIM_GRAY, DIM_GRAY);
-  drawStation(61,  4, 'BK', DIM_GRAY, DIM_GRAY);
-  drawStation(56, 16, 'DV', DIM_GRAY, DIM_GRAY);
+  // Stations — §3.5 (overwrites floor/trees in their footprint)
+  for (const s of STATION_DEFS) {
+    tileMap[s.x  ][s.y]   = mk('+',        s.wc, false);
+    tileMap[s.x+1][s.y]   = mk('-',        s.wc, false);
+    tileMap[s.x+2][s.y]   = mk('-',        s.wc, false);
+    tileMap[s.x+3][s.y]   = mk('+',        s.wc, false);
+    tileMap[s.x  ][s.y+1] = mk('|',        s.wc, false);
+    tileMap[s.x+1][s.y+1] = mk(s.label[0], s.lc, false);
+    tileMap[s.x+2][s.y+1] = mk(s.label[1], s.lc, false);
+    tileMap[s.x+3][s.y+1] = mk('|',        s.wc, false);
+    tileMap[s.x  ][s.y+2] = mk('+',        s.wc, false);
+    tileMap[s.x+1][s.y+2] = mk('.',        s.wc, true);  // door — walkable
+    tileMap[s.x+2][s.y+2] = mk('-',        s.wc, false);
+    tileMap[s.x+3][s.y+2] = mk('+',        s.wc, false);
+  }
+}
 
-  // Unlocked stations — theme colors (§3.5, §4.2)
-  drawStation( 9,  2, 'RM', '#ff6600', '#ff6600');
-  drawStation(34,  8, 'WB', '#cc3300', '#cc3300');
-  drawStation(61, 23, 'MT', '#ffd633', '#ffd633');
-  drawStation(23, 17, 'OF', '#aaaaaa', '#ffffff');
+// Read map tile under the player (for tile restoration on move)
+function getTileAt(x, y) {
+  const t = tileMap[x][y];
+  return { ch: t.glyph, fg: t.fg };
+}
 
-  // Player @ at spawn point (§3.5)
+function isBlocked(x, y) {
+  return !tileMap[x][y].walkable;
+}
+
+// ── §3.4 Phase-in transition ──────────────────────────────────────────────────
+
+function drawWorld() {
+  buildTileMap();
+
+  // Render every map tile from the tileMap
+  for (let y = 0; y < WORLD_ROWS; y++) {
+    for (let x = 0; x < DISPLAY_WIDTH; x++) {
+      const t = tileMap[x][y];
+      display.draw(x, y, t.glyph, t.fg, t.bg);
+    }
+  }
+
+  // Player @ (§3.5)
   display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
 
   // Status bar — colored segments (§3.7)
   drawRow(STATUS_ROW, '', BRIGHT_WHITE);
   const seg = (x, text, fg) => { for (let i = 0; i < text.length; i++) display.draw(x + i, STATUS_ROW, text[i], fg, BG); return x + text.length; };
   let sx = 0;
-  sx = seg(sx, 'Credits: 10',              '#ffd633') + 4;
-  sx = seg(sx, 'Raw: 0',                   '#ff9933') + 4;
-  sx = seg(sx, 'Widgets: 0/5',             BRIGHT_WHITE) + 4;
-  sx = seg(sx, 'Day 1',                    BRIGHT_WHITE) + 4;
+  sx = seg(sx, 'Credits: 10', '#ffd633') + 4;
+  sx = seg(sx, 'Raw: 0',      '#ff9933') + 4;
+  sx = seg(sx, 'Widgets: 0/5', BRIGHT_WHITE) + 4;
+  sx = seg(sx, 'Day 1',        BRIGHT_WHITE) + 4;
   drawTimeIndicator();
 
   // Event log (§3.8)
@@ -340,15 +318,13 @@ function drawWorld() {
 
 function startPhaseIn() {
   clearScreen();
-  // Pre-fill game area with a barely-visible dot so the scan erases visibly (§3.4)
   for (let y = 0; y < WORLD_ROWS; y++) {
     for (let x = 0; x < DISPLAY_WIDTH; x++) {
       display.draw(x, y, '·', '#222222', BG);
     }
   }
   const TOTAL_TILES     = DISPLAY_WIDTH * WORLD_ROWS;
-  const TILES_PER_FRAME = Math.ceil(TOTAL_TILES / (1.3 * 60)); // ≈ 44 → ~1.3 s
-
+  const TILES_PER_FRAME = Math.ceil(TOTAL_TILES / (1.3 * 60));
   let index = 0;
 
   function step() {
@@ -360,9 +336,7 @@ function startPhaseIn() {
     }
     const end = Math.min(index + TILES_PER_FRAME, TOTAL_TILES);
     while (index < end) {
-      const col = index % DISPLAY_WIDTH;
-      const row = Math.floor(index / DISPLAY_WIDTH);
-      display.draw(col, row, ' ', BRIGHT_WHITE, BG);
+      display.draw(index % DISPLAY_WIDTH, Math.floor(index / DISPLAY_WIDTH), ' ', BRIGHT_WHITE, BG);
       index++;
     }
     requestAnimationFrame(step);
@@ -426,7 +400,6 @@ function showIntroScreen() {
     }
   }
 
-  // Draw box frame
   display.draw(BOX_X,             BOX_Y, '+', DIM_GRAY, BG);
   display.draw(BOX_X + BOX_W - 1, BOX_Y, '+', DIM_GRAY, BG);
   for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, BOX_Y, '-', DIM_GRAY, BG);
@@ -523,7 +496,7 @@ window.addEventListener('keydown', (e) => {
   e.preventDefault();
   const nx = state.player.x + d[0];
   const ny = state.player.y + d[1];
-  if (isBlocked(nx, ny)) return;
+  if (!tileMap[nx][ny].walkable) return; // collision via tileMap lookup
   const { ch, fg } = getTileAt(state.player.x, state.player.y);
   display.draw(state.player.x, state.player.y, ch, fg, BG);
   state.player.x = nx;
