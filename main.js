@@ -237,6 +237,8 @@ const STATION_DEFS = [
 
 let tileMap   = []; // tileMap[x][y] = { glyph, fg, bg, walkable }
 const dirtyTiles = new Set(); // "x,y" strings of tiles that need redrawing
+let shimmerTiles = []; // pond water tile coords for shimmer animation (§4.2)
+const shimmerActive = new Set(); // "x,y" keys currently at bright shimmer color
 
 function markDirty(x, y) { dirtyTiles.add(`${x},${y}`); }
 
@@ -303,6 +305,37 @@ function buildTileMap() {
         if (g === ':' || g === 'T') continue; // skip paths and trees
         if (((x * 1664525 + y * 1013904223) >>> 16) % 100 < 60)
           tileMap[x][y] = mk('"', '#1a3a1a', true);
+      }
+    }
+  }
+
+  // Pond — §4.2
+  const POND_CX = 22, POND_CY = 25, POND_RX = 4, POND_RY = 3;
+  const isPathTile = (x, y) =>
+    (x === 15 && y >= 3 && y <= 28) ||
+    (y === 14 && x >= 15 && x <= 62) ||
+    (y === 28 && x >= 15 && x <= 62) ||
+    (x === 62 && y >= 14 && y <= 28);
+  const isStationTile = (x, y) =>
+    STATION_DEFS.some(s => x >= s.x && x <= s.x + 3 && y >= s.y && y <= s.y + 2);
+
+  shimmerTiles = [];
+  for (let y = POND_CY - POND_RY - 1; y <= POND_CY + POND_RY + 1; y++) {
+    for (let x = POND_CX - POND_RX - 1; x <= POND_CX + POND_RX + 1; x++) {
+      if (x <= 0 || x >= DISPLAY_WIDTH - 1 || y <= 0 || y >= WORLD_ROWS - 1) continue;
+      if (isPathTile(x, y) || isStationTile(x, y)) continue;
+      const dx = (x - POND_CX) / POND_RX;
+      const dy = (y - POND_CY) / POND_RY;
+      if (dx * dx + dy * dy < 1) {
+        tileMap[x][y] = mk('~', '#1a4a6a', false);
+        shimmerTiles.push({ x, y });
+      } else {
+        // Bank: 1-tile ring outside ellipse (expanded radii 5, 4)
+        const bx = (x - POND_CX) / (POND_RX + 1);
+        const by = (y - POND_CY) / (POND_RY + 1);
+        if (bx * bx + by * by < 1) {
+          tileMap[x][y] = mk(',', '#2a2a1a', true);
+        }
       }
     }
   }
@@ -1067,6 +1100,26 @@ setInterval(() => {
         state.gameState = 'playing';
       }
     }
+  }
+
+  // Pond shimmer — §4.2
+  if (state.tick % 8 === 0 && shimmerTiles.length >= 2) {
+    for (const key of shimmerActive) {
+      const [sx, sy] = key.split(',').map(Number);
+      tileMap[sx][sy].fg = '#1a4a6a';
+      markDirty(sx, sy);
+    }
+    shimmerActive.clear();
+    const indices = new Set();
+    while (indices.size < 2) indices.add(Math.floor(Math.random() * shimmerTiles.length));
+    for (const i of indices) {
+      const { x: sx, y: sy } = shimmerTiles[i];
+      tileMap[sx][sy].fg = '#1a6a8a';
+      shimmerActive.add(`${sx},${sy}`);
+      markDirty(sx, sy);
+    }
+    renderDirty();
+    display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
   }
 
   if (state.tick % 10 === 0) saveGame();
