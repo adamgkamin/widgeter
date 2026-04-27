@@ -340,6 +340,23 @@ function buildTileMap() {
     }
   }
 
+  // Wildflower meadow — §4.2
+  const FLOWER_COLORS = ['#ccaa00', '#cc4444', '#8a3a8a'];
+  for (let y = 8; y <= 16; y++) {
+    for (let x = 42; x <= 54; x++) {
+      if (x <= 0 || x >= DISPLAY_WIDTH - 1 || y <= 0 || y >= WORLD_ROWS - 1) continue;
+      if (isPathTile(x, y) || isStationTile(x, y)) continue;
+      if (tileMap[x][y].glyph === 'T') continue;
+      const isFlower = ((x * 1664525 + y * 1013904223) >>> 16) % 100 < 15;
+      if (isFlower) {
+        const fc = FLOWER_COLORS[(x * 31 + y * 17) % 3];
+        tileMap[x][y] = mk('*', fc, true);
+      } else {
+        tileMap[x][y] = mk("'", '#2a3a1a', true);
+      }
+    }
+  }
+
   // Border — §4.1 (overwrites edge floor)
   for (let x = 0; x < DISPLAY_WIDTH; x++) {
     tileMap[x][0]            = mk('#', DIM_GRAY, false);
