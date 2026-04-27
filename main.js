@@ -120,6 +120,25 @@ function drawWorld() {
   for (let x = 15; x <= 62; x++) display.draw(x, 28, ':', PATH_COLOR, BG); // horizontal south
   for (let y = 14; y <= 28; y++) display.draw(62, y, ':', PATH_COLOR, BG); // vertical east
 
+  // Trees — deterministic placement, ~8% density (§4.5)
+  for (let y = 1; y < WORLD_ROWS - 1; y++) {
+    for (let x = 1; x < DISPLAY_WIDTH - 1; x++) {
+      // Skip path tiles
+      const onPath = (x === 15 && y >= 3 && y <= 28)
+                  || (y === 14 && x >= 15 && x <= 62)
+                  || (y === 28 && x >= 15 && x <= 62)
+                  || (x === 62 && y >= 14 && y <= 28);
+      if (onPath) continue;
+      // Skip station reserved areas
+      const reserved = (x >= 8  && x <= 13 && y >= 1  && y <= 5)   // RM shed
+                    || (x >= 33 && x <= 38 && y >= 7  && y <= 11)  // Workbench
+                    || (x >= 60 && x <= 65 && y >= 22 && y <= 26)  // Market
+                    || (x >= 22 && x <= 27 && y >= 16 && y <= 20); // Office
+      if (reserved) continue;
+      if ((x * 7 + y * 13 + 42) % 100 < 8) display.draw(x, y, 'T', '#2d5a2d', BG);
+    }
+  }
+
   // Outer border: row 0, row 42, col 0, col 79 (§4.1)
   for (let x = 0; x < DISPLAY_WIDTH; x++) {
     display.draw(x, 0,             '#', DIM_GRAY, BG);
