@@ -113,10 +113,10 @@ const STATION_DEFS = [
   { x: 23, y: 32, label: 'ST', wc: DIM_GRAY,   lc: DIM_GRAY   },
   { x: 61, y:  4, label: 'BK', wc: DIM_GRAY,   lc: DIM_GRAY   },
   { x: 56, y: 16, label: 'DV', wc: DIM_GRAY,   lc: DIM_GRAY   },
-  { x:  9, y:  2, label: 'RM', wc: '#ff9933',  lc: '#ff9933'  },
-  { x: 34, y:  8, label: 'WB', wc: '#ff9933',  lc: '#ff9933'  },
+  { x:  9, y:  2, label: 'RM', wc: '#ff6600',  lc: '#ff6600'  },
+  { x: 34, y:  8, label: 'WB', wc: '#cc3300',  lc: '#cc3300'  },
   { x: 61, y: 23, label: 'MT', wc: '#ffd633',  lc: '#ffd633'  },
-  { x: 23, y: 17, label: 'OF', wc: '#555555',  lc: '#ffffff'  },
+  { x: 23, y: 17, label: 'OF', wc: '#aaaaaa',  lc: '#ffffff'  },
 ];
 
 // Return the map tile {ch, fg} at (x, y), ignoring the player
