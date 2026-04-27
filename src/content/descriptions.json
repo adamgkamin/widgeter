@@ -69,7 +69,33 @@
       ]
     },
     "@": {
-      "default": "That's you. You look tired."
+      "default": "That's you. You look tired but determined."
+    },
+    "~": {
+      "variants": [
+        "Still water. Something moves just below the surface.",
+        "The pond catches the light.",
+        "Cold and dark. You can see the bottom, mostly.",
+        "A dragonfly lands briefly, then vanishes."
+      ]
+    },
+    "*": {
+      "variants": [
+        "A small yellow flower. It doesn't know how hard things are.",
+        "A red wildflower growing where it wasn't planted.",
+        "Purple flowers in a loose cluster. They smell faintly of something."
+      ]
+    },
+    "\"": {
+      "variants": [
+        "Tall grass, rustling.",
+        "The grass is over your knees here.",
+        "Something small moved through here recently.",
+        "Grass gone to seed."
+      ]
+    },
+    "&": {
+      "default": "A fallen log, moss-covered. It's been here longer than the path."
     },
     "+": {
       "default": "A corner of the building frame."

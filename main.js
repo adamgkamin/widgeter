@@ -346,6 +346,11 @@ function buildTileMap() {
 
   // Wildflower meadow — §4.2
   const FLOWER_COLORS = ['#ccaa00', '#cc4444', '#8a3a8a'];
+  const FLOWER_DESCS  = [
+    "A small yellow flower. It doesn't know how hard things are.",
+    'A red wildflower growing where it wasn\'t planted.',
+    'Purple flowers in a loose cluster. They smell faintly of something.',
+  ];
   for (let y = 8; y <= 16; y++) {
     for (let x = 42; x <= 54; x++) {
       if (x <= 0 || x >= DISPLAY_WIDTH - 1 || y <= 0 || y >= WORLD_ROWS - 1) continue;
@@ -353,8 +358,9 @@ function buildTileMap() {
       if (tileMap[x][y].glyph === 'T') continue;
       const isFlower = ((x * 1664525 + y * 1013904223) >>> 16) % 100 < 15;
       if (isFlower) {
-        const fc = FLOWER_COLORS[(x * 31 + y * 17) % 3];
-        tileMap[x][y] = mk('*', fc, true);
+        const fi = (x * 31 + y * 17) % 3;
+        tileMap[x][y] = mk('*', FLOWER_COLORS[fi], true);
+        tileMap[x][y].description = FLOWER_DESCS[fi];
       } else {
         tileMap[x][y] = mk("'", '#2a3a1a', true);
       }
@@ -394,6 +400,28 @@ function buildTileMap() {
   }
 
   // Stations — §3.5 (overwrites floor/trees in their footprint)
+  const STATION_DESCS = {
+    RM: {
+      wall: 'The raw materials shed. Walk to the door and press space to buy materials.',
+      door: 'The entrance to the materials shed. The door hangs slightly open.',
+    },
+    WB: {
+      wall: 'The workbench shed. This is where widgets are made.',
+      door: 'The workbench entrance. A bell hangs above it, unrung.',
+    },
+    MT: {
+      wall: 'The market. Open at dawn, closed at dusk. Widgets become credits here.',
+      door: 'The market entrance. The hours are posted but the sign is faded.',
+    },
+    OF: {
+      wall: 'The Office. Upgrades and skills are available here.',
+      door: 'The Office door. It opens easier than it looks.',
+    },
+    FC: { wall: 'A large building with dark windows. Whatever ran here ran hard. The smell of old machine oil hasn\'t left.' },
+    ST: { wall: 'A warehouse, padlocked. Through the slats you can see empty pallets and a hand truck.' },
+    BK: { wall: "Through the dusty window, you see a polished counter and a sign: 'NO INTEREST WITHOUT DEPOSIT.' The door is locked." },
+    DV: { wall: "A glass-fronted building with screens displaying numbers you don't yet understand. The door is locked. A small plaque reads: 'AUTHORIZED PERSONNEL ONLY.'" },
+  };
   for (const s of STATION_DEFS) {
     tileMap[s.x  ][s.y]   = mk('+',        s.wc, false);
     tileMap[s.x+1][s.y]   = mk('-',        s.wc, false);
@@ -407,6 +435,17 @@ function buildTileMap() {
     tileMap[s.x+1][s.y+2] = mk('.',        s.wc, true);  // door — walkable
     tileMap[s.x+2][s.y+2] = mk('-',        s.wc, false);
     tileMap[s.x+3][s.y+2] = mk('+',        s.wc, false);
+    const sd = STATION_DESCS[s.label];
+    if (sd) {
+      const wallD = sd.wall;
+      const doorD = sd.door || sd.wall;
+      for (const [wx, wy] of [
+        [s.x,   s.y],   [s.x+1, s.y],   [s.x+2, s.y],   [s.x+3, s.y],
+        [s.x,   s.y+1], [s.x+1, s.y+1], [s.x+2, s.y+1], [s.x+3, s.y+1],
+        [s.x,   s.y+2],                  [s.x+2, s.y+2], [s.x+3, s.y+2],
+      ]) tileMap[wx][wy].description = wallD;
+      tileMap[s.x+1][s.y+2].description = doorD;
+    }
   }
 }
 
@@ -433,7 +472,7 @@ function drawWorld() {
 
   // Command hint (§3.9)
   drawRow(HINT_ROW,
-    "[arrows: move]  [space: interact]  [i: inventory]  [o: look]  [?: help]",
+    "[arrows: move]  [space: interact]  [i: inventory]  [o: look]  [p: ponder]",
     '#555555');
 }
 
@@ -616,7 +655,7 @@ function showNewGameConfirm() {
   const BOX_W = INNER_W + 4;
   const BOX_H = 8;
   const BOX_X = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
-  const BOX_Y = Math.floor((DISPLAY_HEIGHT - BOX_H) / 2);
+  const BOX_Y = Math.max(28, Math.floor((DISPLAY_HEIGHT - BOX_H) / 2));
   const CX = BOX_X + 2;
   display.draw(BOX_X, BOX_Y, '+', WC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y, '+', WC, BG);
   for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, BOX_Y, '-', WC, BG);
@@ -656,7 +695,7 @@ function showContinueMenu() {
   const BOX_W = INNER_W + 4;
   const BOX_H = 7;
   const BOX_X = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
-  const BOX_Y = Math.floor((DISPLAY_HEIGHT - BOX_H) / 2);
+  const BOX_Y = Math.max(28, Math.floor((DISPLAY_HEIGHT - BOX_H) / 2));
   const CX = BOX_X + 2;
   display.draw(BOX_X, BOX_Y, '+', WC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y, '+', WC, BG);
   for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, BOX_Y, '-', WC, BG);
@@ -714,6 +753,7 @@ window.addEventListener('keydown', (e) => {
   if (state.gameState !== 'playing') return;
   if (e.key === 'o') { enterLookMode(); e.stopImmediatePropagation(); return; }
   if (e.key === 'i') { showInventory(); return; }
+  if (e.key === 'p') { handlePonder(); return; }
   if (e.key === ' ') { e.preventDefault(); handleInteract(); return; }
   const DIRS = { ArrowLeft:[-1,0], ArrowRight:[1,0], ArrowUp:[0,-1], ArrowDown:[0,1] };
   const d = DIRS[e.key];
@@ -757,9 +797,11 @@ function restoreLookTile() {
     display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
 }
 
-// Priority: tiles["x,y"] → glyphs[g].variants[hash] → glyphs[g].default → fallback (§6.1, §6.2)
+// Priority: tileMap[x][y].description → tiles["x,y"] → glyphs[g].variants[hash] → glyphs[g].default → fallback (§6.1, §6.2, §6.5)
 function getDescription(x, y, glyph) {
   if (!descriptions) return 'Nothing remarkable.';
+  const td0 = tileMap[x]?.[y]?.description;
+  if (td0) return td0;
   const td = descriptions.tiles && descriptions.tiles[`${x},${y}`];
   if (td) return td;
   const gd = descriptions.glyphs && descriptions.glyphs[glyph];
@@ -840,7 +882,7 @@ function showMenu(title, options) {
   const BOX_W  = INNER_W + 4;           // 2 borders + 2 padding
   const BOX_H  = options.length + 6;    // top + title + blank + options + blank + esc + bottom
   const BOX_X  = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
-  const BOX_Y  = Math.floor((WORLD_ROWS  - BOX_H) / 2);
+  const BOX_Y  = Math.max(10, Math.floor((WORLD_ROWS  - BOX_H) / 2));
   const CONT_X = BOX_X + 2;             // content left edge
   const WC     = '#555555';
 
@@ -1055,7 +1097,7 @@ function showOfficeMenu() {
   const BOX_W  = 68;
   const BOX_H  = 20;
   const BOX_X  = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
-  const BOX_Y  = Math.floor((WORLD_ROWS  - BOX_H) / 2);
+  const BOX_Y  = Math.max(10, Math.floor((WORLD_ROWS  - BOX_H) / 2));
   const CONT_X = BOX_X + 2;
   const CONT_W = BOX_W - 4; // 64 chars
   const WC     = '#555555';
@@ -1135,6 +1177,25 @@ function showOfficeMenu() {
   window.addEventListener('keydown', officeKeyHandler);
 }
 
+function handlePonder() {
+  const inv = state.player.inventory;
+  let hint;
+  if (state.lifetimeCreditsEarned === 0) {
+    hint = 'The shed to the north sells raw materials. The workbench turns them into something.';
+  } else if (inv.rm > 0 && inv.widgets === 0) {
+    hint = "Those materials won't shape themselves. The workbench is waiting.";
+  } else if (inv.widgets > 0 && state.marketOpen) {
+    hint = 'The market is open. Someone out there wants what you\'ve made.';
+  } else if (inv.widgets > 0 && !state.marketOpen) {
+    hint = 'The market is dark. Wait for dawn, or use the time wisely.';
+  } else if (state.lifetimeCreditsEarned >= 100 && state.phase === 1) {
+    hint = "You're finding a rhythm. The Office door looks less dusty than it did.";
+  } else {
+    hint = 'Keep working. The numbers will move.';
+  }
+  addLog(hint, '#66ccff');
+}
+
 function handleInteract() {
   const rm = STATION_DEFS.find(s => s.label === 'RM');
   if (rm && isAdjacentToStation(rm)) { openRMShedMenu(); return; }
@@ -1154,7 +1215,7 @@ function showInventory() {
   const BOX_W  = 40;
   const BOX_H  = 16;
   const BOX_X  = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
-  const BOX_Y  = Math.floor((WORLD_ROWS  - BOX_H) / 2);
+  const BOX_Y  = Math.max(10, Math.floor((WORLD_ROWS  - BOX_H) / 2));
   const CONT_X = BOX_X + 2;
   const CONT_W = BOX_W - 4; // 36
   const WC     = '#555555';
