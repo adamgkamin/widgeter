@@ -81,6 +81,7 @@ const state = {
   },
   officeUnlocked: false,
   storage: { widgets: 0, rm: 0, widgetCap: 50, rmCap: 50 },
+  workers: { apprentices: [] },
   skills: {
     apprentice:   0,
     courier:      0,
@@ -115,6 +116,7 @@ function saveGame() {
     stations:             state.stations,
     officeUnlocked:       state.officeUnlocked,
     storage:              state.storage,
+    workers:              state.workers,
     skills:               state.skills,
   };
   localStorage.setItem(SAVE_KEY, JSON.stringify(data));
@@ -142,6 +144,7 @@ function loadGame() {
     state.stations             = data.stations          ?? { factory: { unlocked: false }, storage: { unlocked: false } };
     state.officeUnlocked       = data.officeUnlocked    ?? false;
     state.storage              = data.storage           ?? { widgets: 0, rm: 0, widgetCap: 50, rmCap: 50 };
+    state.workers              = data.workers           ?? { apprentices: [] };
     state.skills               = data.skills            ?? { apprentice: 0, courier: 0, workerCarry: 0, workerSpeed: 0, courierCarry: 0, courierSpeed: 0 };
   } catch (_) {
     // corrupt save — start fresh
@@ -514,6 +517,10 @@ function drawWorld() {
   // Player @ (§3.5)
   display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
 
+  // Apprentice workers (§5.3)
+  for (const w of state.workers.apprentices)
+    display.draw(w.x, w.y, 'a', '#66ccff', BG);
+
   // Status bar (§3.7)
   drawStatusBar();
 
@@ -699,6 +706,7 @@ function resetState() {
   state.stations = { factory: { unlocked: false }, storage: { unlocked: false } };
   state.officeUnlocked = false;
   state.storage = { widgets: 0, rm: 0, widgetCap: 50, rmCap: 50 };
+  state.workers = { apprentices: [] };
   state.skills = { apprentice: 0, courier: 0, workerCarry: 0, workerSpeed: 0, courierCarry: 0, courierSpeed: 0 };
   const fcDef = STATION_DEFS.find(s => s.label === 'FC');
   const stDef = STATION_DEFS.find(s => s.label === 'ST');
@@ -1196,7 +1204,7 @@ function openMarketMenu() {
 // ── Office skill tree (§5.3) ──────────────────────────────────────────────────
 
 const OFFICE_NODES = [
-  { num: 1, name: 'Hire Apprentice',    cost:  50, key: 'apprentice',   max: 1  },
+  { num: 1, name: 'Hire Apprentice',    cost:  50, key: 'apprentice',   max: 3  },
   { num: 2, name: 'Hire Courier Robot', cost:  30, key: 'courier',      max: 1  },
   { num: 3, name: 'Worker Carry +1',    cost:  40, key: 'workerCarry',  max: 12 },
   { num: 4, name: 'Worker Speed +0.25', cost:  60, key: 'workerSpeed',  max: 6  },
@@ -1290,6 +1298,16 @@ function showOfficeMenu() {
       if (state.player.credits < node.cost) return;
       state.player.credits -= node.cost;
       state.skills[node.key] = level + 1;
+      if (node.key === 'apprentice') {
+        const ofDef = STATION_DEFS.find(s => s.label === 'OF');
+        state.workers.apprentices.push({
+          x: ofDef.x + 1, y: ofDef.y + 2,
+          workerState: 'idle',
+          carryRM: 0, carryWidgets: 0,
+          target: { x: 0, y: 0 },
+          craftTimer: 0,
+        });
+      }
       addLog(`${node.name} purchased.`, '#cc66cc');
       drawStatusBar();
       redraw();
@@ -1533,6 +1551,85 @@ function showInventory() {
   window.addEventListener('keydown', invKeyHandler);
 }
 
+// ── Apprentice worker logic (§5.3) ───────────────────────────────────────────
+
+function tickApprentices() {
+  const rmDef  = STATION_DEFS.find(s => s.label === 'RM');
+  const wbDef  = STATION_DEFS.find(s => s.label === 'WB');
+  const rmDoor = { x: rmDef.x + 1, y: rmDef.y + 2 };  // (10, 4)
+  const wbDoor = { x: wbDef.x + 1, y: wbDef.y + 2 };  // (35, 10)
+  const speed    = Math.max(1, Math.round(1 + state.skills.workerSpeed * 0.25));
+  const carryMax = 3 + state.skills.workerCarry;
+
+  for (const w of state.workers.apprentices) {
+    markDirty(w.x, w.y); // erase from old position
+
+    // Idle → fetching
+    if (w.workerState === 'idle') {
+      w.target = { ...rmDoor };
+      w.workerState = 'fetching';
+    }
+
+    // Movement
+    if (w.workerState === 'fetching' || w.workerState === 'returning') {
+      for (let step = 0; step < speed; step++) {
+        const dx = w.target.x - w.x;
+        const dy = w.target.y - w.y;
+        if (dx === 0 && dy === 0) break;
+        if (Math.abs(dx) >= Math.abs(dy)) {
+          w.x += dx > 0 ? 1 : -1;
+        } else {
+          w.y += dy > 0 ? 1 : -1;
+        }
+      }
+
+      // Arrived at RM shed?
+      if (w.workerState === 'fetching' &&
+          Math.abs(w.x - rmDoor.x) <= 1 && Math.abs(w.y - rmDoor.y) <= 1) {
+        const space = carryMax - w.carryRM;
+        let bought = 0;
+        while (bought < space && state.player.credits >= 3) {
+          state.player.credits -= 3;
+          w.carryRM++;
+          bought++;
+        }
+        if (bought > 0) drawStatusBar();
+        w.target = { ...wbDoor };
+        w.workerState = 'returning';
+      }
+
+      // Arrived at workbench?
+      if (w.workerState === 'returning' &&
+          Math.abs(w.x - wbDoor.x) <= 1 && Math.abs(w.y - wbDoor.y) <= 1) {
+        if (w.carryRM > 0) {
+          w.workerState = 'crafting';
+          w.craftTimer = 3;
+        } else {
+          w.workerState = 'idle';
+        }
+      }
+    }
+
+    // Crafting
+    if (w.workerState === 'crafting') {
+      w.craftTimer--;
+      if (w.craftTimer <= 0) {
+        const storageCap = state.stations.storage.unlocked
+          ? state.storage.widgetCap : 20;
+        if (state.storage.widgets < storageCap) state.storage.widgets++;
+        w.carryRM--;
+        if (w.carryRM > 0) {
+          w.craftTimer = 3;
+        } else {
+          w.workerState = 'idle';
+        }
+      }
+    }
+
+    markDirty(w.x, w.y); // mark new position
+  }
+}
+
 // ── Tick loop — 1 tick/second (§7.1) ─────────────────────────────────────────
 
 setInterval(() => {
@@ -1568,6 +1665,15 @@ setInterval(() => {
         state.gameState = 'playing';
       }
     }
+  }
+
+  // Apprentice workers — §5.3
+  if (state.workers.apprentices.length > 0) {
+    tickApprentices();
+    renderDirty();
+    for (const w of state.workers.apprentices)
+      display.draw(w.x, w.y, 'a', '#66ccff', BG);
+    display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
   }
 
   // Ambient flavor events — §13
