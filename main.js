@@ -71,6 +71,10 @@ const state = {
   lifetimeCreditsEarned: 0,
   logLines: [], // max 5 entries: {text, color}
   bellFiredToday: false,
+  lastAmbientTick:   0,
+  lastNarrativeTick: 0,
+  nextAmbientDelay:  45, // first ambient fires after ~45s
+  stepsWalked:       0,
 };
 
 // ── Save / load (§8) ─────────────────────────────────────────────────────────
@@ -90,6 +94,10 @@ function saveGame() {
     lifetimeCreditsEarned: state.lifetimeCreditsEarned,
     logLines:             state.logLines,
     bellFiredToday:       state.bellFiredToday,
+    lastAmbientTick:      state.lastAmbientTick,
+    lastNarrativeTick:    state.lastNarrativeTick,
+    nextAmbientDelay:     state.nextAmbientDelay,
+    stepsWalked:          state.stepsWalked,
   };
   localStorage.setItem(SAVE_KEY, JSON.stringify(data));
 }
@@ -108,7 +116,11 @@ function loadGame() {
     state.phase                = data.phase;
     state.lifetimeCreditsEarned = data.lifetimeCreditsEarned;
     state.logLines             = data.logLines || [];
-    state.bellFiredToday       = data.bellFiredToday ?? false;
+    state.bellFiredToday       = data.bellFiredToday    ?? false;
+    state.lastAmbientTick      = data.lastAmbientTick   ?? 0;
+    state.lastNarrativeTick    = data.lastNarrativeTick ?? 0;
+    state.nextAmbientDelay     = data.nextAmbientDelay  ?? 45;
+    state.stepsWalked          = data.stepsWalked       ?? 0;
   } catch (_) {
     // corrupt save — start fresh
   }
@@ -768,6 +780,12 @@ window.addEventListener('keydown', (e) => {
   markDirty(state.player.x, state.player.y);
   renderDirty();
   display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
+  state.stepsWalked++;
+  state.lastNarrativeTick = state.tick;
+  if (state.stepsWalked === 1000)
+    addLog('Your boots have worn a groove in the path.', '#cc66cc');
+  if (state.stepsWalked === 5000)
+    addLog('You wonder when you last looked at the sky.', '#cc66cc');
 });
 
 // ── Look Mode (§3.10) ─────────────────────────────────────────────────────────
@@ -1351,6 +1369,31 @@ setInterval(() => {
         state.gameState = 'playing';
       }
     }
+  }
+
+  // Ambient flavor events — §13
+  if (state.tick - state.lastAmbientTick  > state.nextAmbientDelay &&
+      state.tick - state.lastNarrativeTick > 15) {
+    const AMBIENT = [
+      'A leaf falls.',
+      'You hear the bell of a distant cart.',
+      'A bird lands on the workbench roof and flies away.',
+      'The wind picks up briefly, then settles.',
+      'Somewhere, a dog barks.',
+      'A cloud passes over the sun.',
+      'Your boots crunch on a small stone.',
+      'The smell of rain, faint.',
+      'A voice carries from far away — unintelligible.',
+      'You feel the weight of the day.',
+      'Something rustles in the tall grass.',
+      'The pond catches the light for a moment.',
+      'A bee drifts past, unhurried.',
+      'The shadows shift slightly.',
+      'You notice how quiet it is.',
+    ];
+    addLog(AMBIENT[Math.floor(Math.random() * AMBIENT.length)], '#555555');
+    state.lastAmbientTick  = state.tick;
+    state.nextAmbientDelay = 30 + Math.floor(Math.random() * 91); // 30–120
   }
 
   // Pond shimmer — §4.2
