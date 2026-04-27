@@ -837,6 +837,102 @@ function openMarketMenu() {
   ]);
 }
 
+// ── Office skill tree (§5.3) ──────────────────────────────────────────────────
+
+const OFFICE_NODES = [
+  { num: 1, name: 'Hire Apprentice',    cost: 50, key: 'apprentice' },
+  { num: 2, name: 'Build Factory',      cost: 0,  key: 'factory'    },
+  { num: 3, name: 'Hire Courier Robot', cost: 30, key: 'courier'    },
+  { num: 4, name: 'Worker Carry +1',    cost: 40, key: 'carry'      },
+  { num: 5, name: 'Worker Speed +0.25', cost: 60, key: 'speed'      },
+];
+
+function showOfficeMenu() {
+  state.gameState = 'menu';
+
+  const BOX_W  = 68;
+  const BOX_H  = 20;
+  const BOX_X  = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
+  const BOX_Y  = Math.floor((WORLD_ROWS  - BOX_H) / 2);
+  const CONT_X = BOX_X + 2;
+  const CONT_W = BOX_W - 4; // 64 chars
+  const WC     = '#555555';
+
+  function redraw() {
+    // Frame + clear
+    display.draw(BOX_X, BOX_Y, '+', WC, BG);
+    display.draw(BOX_X + BOX_W - 1, BOX_Y, '+', WC, BG);
+    for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, BOX_Y, '-', WC, BG);
+    const botY = BOX_Y + BOX_H - 1;
+    display.draw(BOX_X, botY, '+', WC, BG);
+    display.draw(BOX_X + BOX_W - 1, botY, '+', WC, BG);
+    for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, botY, '-', WC, BG);
+    for (let y = 1; y < BOX_H - 1; y++) {
+      display.draw(BOX_X, BOX_Y + y, '|', WC, BG);
+      display.draw(BOX_X + BOX_W - 1, BOX_Y + y, '|', WC, BG);
+      for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, BOX_Y + y, ' ', BRIGHT_WHITE, BG);
+    }
+
+    // Title centered
+    const TITLE = '– THE OFFICE –';
+    const titleX = CONT_X + Math.floor((CONT_W - TITLE.length) / 2);
+    for (let i = 0; i < TITLE.length; i++) display.draw(titleX + i, BOX_Y + 2, TITLE[i], BRIGHT_CYAN, BG);
+
+    // Subtitle
+    const sub = 'Upgrades are purchased with credits.';
+    for (let i = 0; i < sub.length; i++) display.draw(CONT_X + i, BOX_Y + 3, sub[i], WC, BG);
+
+    // Nodes (start at BOX_Y + 5)
+    const unlocked = state.lifetimeCreditsEarned >= 200;
+    for (let i = 0; i < OFFICE_NODES.length; i++) {
+      const node    = OFFICE_NODES[i];
+      const costStr = node.cost === 0 ? 'FREE' : `${node.cost}cr`;
+      let fg, suffix;
+      if (!unlocked) {
+        fg = WC; suffix = '[LOCKED — reach 200cr earned]';
+      } else if (node.cost > 0 && state.player.credits < node.cost) {
+        fg = '#ff5555'; suffix = `[Need ${node.cost - state.player.credits}cr more]`;
+      } else {
+        fg = '#66cc66'; suffix = '[Available]';
+      }
+      const line = `${node.num}. ${node.name.padEnd(22)} ${costStr.padEnd(6)} ${suffix}`;
+      for (let j = 0; j < line.length; j++) display.draw(CONT_X + j, BOX_Y + 5 + i, line[j], fg, BG);
+    }
+
+    // ESC hint centered at second-to-last row
+    const ESC = 'ESC to close';
+    const escX = CONT_X + Math.floor((CONT_W - ESC.length) / 2);
+    for (let i = 0; i < ESC.length; i++) display.draw(escX + i, BOX_Y + BOX_H - 2, ESC[i], WC, BG);
+  }
+
+  redraw();
+
+  function closeOffice() {
+    window.removeEventListener('keydown', officeKeyHandler);
+    for (let y = BOX_Y; y < BOX_Y + BOX_H; y++)
+      for (let x = BOX_X; x < BOX_X + BOX_W; x++)
+        if (x >= 0 && x < DISPLAY_WIDTH && y >= 0 && y < WORLD_ROWS) markDirty(x, y);
+    renderDirty();
+    display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
+    state.gameState = 'playing';
+  }
+
+  function officeKeyHandler(e) {
+    if (e.key === 'Escape') { closeOffice(); return; }
+    const num = parseInt(e.key);
+    if (num >= 1 && num <= OFFICE_NODES.length) {
+      if (state.lifetimeCreditsEarned < 200) return; // all nodes locked
+      const node = OFFICE_NODES[num - 1];
+      if (node.cost > 0 && state.player.credits < node.cost) return; // can't afford
+      state.player.credits -= node.cost;
+      addLog(`${node.name} purchased.`, BRIGHT_MAGENTA);
+      drawStatusBar();
+      redraw(); // refresh to reflect new credit total
+    }
+  }
+  window.addEventListener('keydown', officeKeyHandler);
+}
+
 function handleInteract() {
   const rm = STATION_DEFS.find(s => s.label === 'RM');
   if (rm && isAdjacentToStation(rm)) { openRMShedMenu(); return; }
@@ -844,6 +940,8 @@ function handleInteract() {
   if (wb && isAdjacentToStation(wb)) { openWorkbenchMenu(); return; }
   const mt = STATION_DEFS.find(s => s.label === 'MT');
   if (mt && isAdjacentToStation(mt)) { openMarketMenu(); return; }
+  const of = STATION_DEFS.find(s => s.label === 'OF');
+  if (of && isAdjacentToStation(of)) { showOfficeMenu(); return; }
 }
 
 // ── Tick loop — 1 tick/second (§7.1) ─────────────────────────────────────────
