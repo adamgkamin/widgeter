@@ -96,6 +96,8 @@ for (let i = 0; i < CREDIT.length;  i++) display.draw(79 - CREDIT.length  + i, 4
 for (let i = 0; i < VERSION.length; i++) display.draw(79 - VERSION.length + i, 49, VERSION[i], '#555555', BG);
 
 let gameState = 'title'; // 'title' | 'transitioning' | 'intro' | 'playing'
+let playerX = 15;
+let playerY = 14;
 
 let promptVisible = true;
 let blinkInterval = setInterval(() => {
@@ -177,12 +179,8 @@ function drawWorld() {
   drawStation(61, 23, 'MT', '#ffd633', '#ffd633'); // Market
   drawStation(23, 17, 'OF', '#555555', '#ffffff'); // Office (dim walls, bright label)
 
-  // Player @ centered in game area (§3.5)
-  display.draw(
-    Math.floor(DISPLAY_WIDTH / 2),
-    Math.floor(WORLD_ROWS / 2),
-    '@', BRIGHT_WHITE, BG
-  );
+  // Player @ at spawn point (§3.5)
+  display.draw(playerX, playerY, '@', BRIGHT_WHITE, BG);
 
   // Status bar placeholder (§3.7)
   drawRow(STATUS_ROW,
