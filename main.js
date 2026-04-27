@@ -106,6 +106,13 @@ let blinkInterval = setInterval(() => {
 // ── §3.4 Phase-in transition ──────────────────────────────────────────────────
 
 function drawWorld() {
+  // Floor tiles — interior cells (§4.2)
+  for (let y = 1; y < WORLD_ROWS - 1; y++) {
+    for (let x = 1; x < DISPLAY_WIDTH - 1; x++) {
+      display.draw(x, y, '.', '#1a1a1a', BG);
+    }
+  }
+
   // Outer border: row 0, row 42, col 0, col 79 (§4.1)
   for (let x = 0; x < DISPLAY_WIDTH; x++) {
     display.draw(x, 0,             '#', DIM_GRAY, BG);
