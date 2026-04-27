@@ -1036,7 +1036,7 @@ function openWorkbenchMenu() {
 }
 
 function checkPhase2Trigger() {
-  if (state.lifetimeCreditsEarned >= 200 && state.phase === 1) {
+  if (state.lifetimeCreditsEarned >= 100 && state.phase === 1) {
     state.phase = 2; // prevent re-triggering
     addLog('Something stirs. The Office door swings open.', BRIGHT_MAGENTA);
   }
@@ -1127,13 +1127,13 @@ function showOfficeMenu() {
     for (let i = 0; i < sub.length; i++) display.draw(CONT_X + i, BOX_Y + 3, sub[i], WC, BG);
 
     // Nodes (start at BOX_Y + 5)
-    const unlocked = state.lifetimeCreditsEarned >= 200;
+    const unlocked = state.lifetimeCreditsEarned >= 100;
     for (let i = 0; i < OFFICE_NODES.length; i++) {
       const node    = OFFICE_NODES[i];
       const costStr = node.cost === 0 ? 'FREE' : `${node.cost}cr`;
       let fg, suffix;
       if (!unlocked) {
-        fg = WC; suffix = '[LOCKED — reach 200cr earned]';
+        fg = WC; suffix = '[LOCKED — reach 100cr earned]';
       } else if (node.cost > 0 && state.player.credits < node.cost) {
         fg = '#ff5555'; suffix = `[Need ${node.cost - state.player.credits}cr more]`;
       } else {
@@ -1165,7 +1165,7 @@ function showOfficeMenu() {
     if (e.key === 'Escape') { closeOffice(); return; }
     const num = parseInt(e.key);
     if (num >= 1 && num <= OFFICE_NODES.length) {
-      if (state.lifetimeCreditsEarned < 200) return; // all nodes locked
+      if (state.lifetimeCreditsEarned < 100) return; // all nodes locked
       const node = OFFICE_NODES[num - 1];
       if (node.cost > 0 && state.player.credits < node.cost) return; // can't afford
       state.player.credits -= node.cost;
