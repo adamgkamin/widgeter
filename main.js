@@ -165,6 +165,12 @@ function drawWorld() {
     display.draw(DISPLAY_WIDTH - 1, y, '#', DIM_GRAY, BG);
   }
 
+  // Locked stations — all DIM_GRAY (§3.5, §4.2)
+  drawStation(10, 30, 'FC', DIM_GRAY, DIM_GRAY); // Factory
+  drawStation(23, 32, 'ST', DIM_GRAY, DIM_GRAY); // Storage
+  drawStation(61,  4, 'BK', DIM_GRAY, DIM_GRAY); // Bank
+  drawStation(56, 16, 'DV', DIM_GRAY, DIM_GRAY); // Derivatives Terminal
+
   // Unlocked stations — theme colors (§3.5, §4.2)
   drawStation( 9,  2, 'RM', '#ff9933', '#ff9933'); // Raw Materials shed
   drawStation(34,  8, 'WB', '#ff9933', '#ff9933'); // Workbench
