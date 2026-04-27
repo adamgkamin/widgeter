@@ -70,6 +70,7 @@ const state = {
   phase: 1,
   lifetimeCreditsEarned: 0,
   logLines: [], // max 5 entries: {text, color}
+  bellFiredToday: false,
 };
 
 // ── Save / load (§8) ─────────────────────────────────────────────────────────
@@ -88,6 +89,7 @@ function saveGame() {
     phase:                state.phase,
     lifetimeCreditsEarned: state.lifetimeCreditsEarned,
     logLines:             state.logLines,
+    bellFiredToday:       state.bellFiredToday,
   };
   localStorage.setItem(SAVE_KEY, JSON.stringify(data));
 }
@@ -106,11 +108,13 @@ function loadGame() {
     state.phase                = data.phase;
     state.lifetimeCreditsEarned = data.lifetimeCreditsEarned;
     state.logLines             = data.logLines || [];
+    state.bellFiredToday       = data.bellFiredToday ?? false;
   } catch (_) {
     // corrupt save — start fresh
   }
 }
 
+const hasSave = !!localStorage.getItem(SAVE_KEY);
 loadGame();
 
 // ── Descriptions (§6.1) ───────────────────────────────────────────────────────
@@ -588,17 +592,109 @@ function dismissIntro() {
       display.draw(x, y, ' ', BRIGHT_WHITE, BG);
     }
   }
-  addLog('The morning bell has rung.', BRIGHT_CYAN);
+  if (!state.bellFiredToday) {
+    state.bellFiredToday = true;
+    addLog('The morning bell has rung.', BRIGHT_CYAN);
+  }
   drawWorld();
 }
 
-// ── Keypress: title → phase-in (§3.3) ────────────────────────────────────────
+// ── Keypress: title → phase-in / continue (§3.3) ────────────────────────────
+
+function resetState() {
+  state.player = { x: 15, y: 14, credits: 10, inventory: { rm: 0, widgets: 0 }, inventoryCaps: { rm: 5, widgets: 5 } };
+  state.day = 1; state.tick = 0; state.dayTick = 0;
+  state.marketOpen = true; state.phase = 1;
+  state.lifetimeCreditsEarned = 0; state.logLines = []; state.bellFiredToday = false;
+}
+
+function showNewGameConfirm() {
+  clearScreen(); drawArt();
+  state.gameState = 'title_menu';
+  const WC = '#555555';
+  const INNER_W = 23; // "Your save will be lost."
+  const BOX_W = INNER_W + 4;
+  const BOX_H = 8;
+  const BOX_X = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
+  const BOX_Y = Math.floor((DISPLAY_HEIGHT - BOX_H) / 2);
+  const CX = BOX_X + 2;
+  display.draw(BOX_X, BOX_Y, '+', WC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y, '+', WC, BG);
+  for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, BOX_Y, '-', WC, BG);
+  const bY = BOX_Y + BOX_H - 1;
+  display.draw(BOX_X, bY, '+', WC, BG); display.draw(BOX_X+BOX_W-1, bY, '+', WC, BG);
+  for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, bY, '-', WC, BG);
+  for (let y = 1; y < BOX_H-1; y++) {
+    display.draw(BOX_X, BOX_Y+y, '|', WC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y+y, '|', WC, BG);
+    for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, BOX_Y+y, ' ', BRIGHT_WHITE, BG);
+  }
+  const t1 = 'Are you sure?'; const t2 = 'Your save will be lost.';
+  const o1 = '1. Yes, start over'; const o2 = '2. Cancel';
+  for (let i = 0; i < t1.length; i++) display.draw(CX+i, BOX_Y+1, t1[i], BRIGHT_YELLOW, BG);
+  for (let i = 0; i < t2.length; i++) display.draw(CX+i, BOX_Y+2, t2[i], BRIGHT_WHITE, BG);
+  for (let i = 0; i < o1.length; i++) display.draw(CX+i, BOX_Y+4, o1[i], BRIGHT_WHITE, BG);
+  for (let i = 0; i < o2.length; i++) display.draw(CX+i, BOX_Y+5, o2[i], BRIGHT_WHITE, BG);
+  function ngKeyHandler(e) {
+    if (e.key === '1') {
+      window.removeEventListener('keydown', ngKeyHandler);
+      resetState();
+      localStorage.removeItem(SAVE_KEY);
+      state.gameState = 'transitioning';
+      startPhaseIn();
+    } else if (e.key === '2') {
+      window.removeEventListener('keydown', ngKeyHandler);
+      showContinueMenu();
+    }
+  }
+  window.addEventListener('keydown', ngKeyHandler);
+}
+
+function showContinueMenu() {
+  clearScreen(); drawArt();
+  state.gameState = 'title_menu';
+  const WC = '#555555';
+  const INNER_W = 14; // "-- WIDGETER --"
+  const BOX_W = INNER_W + 4;
+  const BOX_H = 7;
+  const BOX_X = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
+  const BOX_Y = Math.floor((DISPLAY_HEIGHT - BOX_H) / 2);
+  const CX = BOX_X + 2;
+  display.draw(BOX_X, BOX_Y, '+', WC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y, '+', WC, BG);
+  for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, BOX_Y, '-', WC, BG);
+  const bY = BOX_Y + BOX_H - 1;
+  display.draw(BOX_X, bY, '+', WC, BG); display.draw(BOX_X+BOX_W-1, bY, '+', WC, BG);
+  for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, bY, '-', WC, BG);
+  for (let y = 1; y < BOX_H-1; y++) {
+    display.draw(BOX_X, BOX_Y+y, '|', WC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y+y, '|', WC, BG);
+    for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, BOX_Y+y, ' ', BRIGHT_WHITE, BG);
+  }
+  const title = '-- WIDGETER --';
+  for (let i = 0; i < title.length; i++) display.draw(CX+i, BOX_Y+1, title[i], BRIGHT_CYAN, BG);
+  const o1 = '1. Continue'; const o2 = '2. New Game';
+  for (let i = 0; i < o1.length; i++) display.draw(CX+i, BOX_Y+3, o1[i], BRIGHT_WHITE, BG);
+  for (let i = 0; i < o2.length; i++) display.draw(CX+i, BOX_Y+4, o2[i], BRIGHT_WHITE, BG);
+  function cmKeyHandler(e) {
+    if (e.key === '1') {
+      window.removeEventListener('keydown', cmKeyHandler);
+      state.gameState = 'playing';
+      clearScreen();
+      drawWorld();
+    } else if (e.key === '2') {
+      window.removeEventListener('keydown', cmKeyHandler);
+      showNewGameConfirm();
+    }
+  }
+  window.addEventListener('keydown', cmKeyHandler);
+}
 
 function onAnyKey() {
   clearInterval(blinkInterval);
   window.removeEventListener('keydown', onAnyKey);
-  state.gameState = 'transitioning';
-  startPhaseIn();
+  if (hasSave) {
+    showContinueMenu();
+  } else {
+    state.gameState = 'transitioning';
+    startPhaseIn();
+  }
 }
 
 window.addEventListener('keydown', onAnyKey);
@@ -608,7 +704,7 @@ window.addEventListener('keydown', onAnyKey);
 window.addEventListener('keydown', (e) => {
   if (state.gameState === 'crafting' && e.key === 'Escape') { cancelCrafting(); return; }
   if (state.gameState !== 'playing') return;
-  if (e.key === 'o') { enterLookMode(); return; }
+  if (e.key === 'o') { enterLookMode(); e.stopImmediatePropagation(); return; }
   if (e.key === 'i') { showInventory(); return; }
   if (e.key === ' ') { e.preventDefault(); handleInteract(); return; }
   const DIRS = { ArrowLeft:[-1,0], ArrowRight:[1,0], ArrowUp:[0,-1], ArrowDown:[0,1] };
@@ -1119,8 +1215,12 @@ setInterval(() => {
 
   state.tick++;
   state.dayTick++;
-  if (state.dayTick >= 240) { state.dayTick = 0; state.day++; }
+  if (state.dayTick >= 240) { state.dayTick = 0; state.day++; state.bellFiredToday = false; }
   state.marketOpen = state.dayTick < 180;
+  if (state.dayTick === 0 && !state.bellFiredToday) {
+    state.bellFiredToday = true;
+    addLog('The morning bell has rung.', BRIGHT_CYAN);
+  }
   drawTimeIndicator();
 
   if (state.gameState === 'crafting') {
