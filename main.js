@@ -70,6 +70,43 @@ const state = {
   logLines: [], // max 5 entries: {text, color}
 };
 
+// ── Save / load (§8) ─────────────────────────────────────────────────────────
+
+const SAVE_KEY      = 'widgeter.save.v1';
+const SCHEMA_VERSION = 1;
+
+function saveGame() {
+  const data = {
+    schemaVersion: SCHEMA_VERSION,
+    player:               state.player,
+    day:                  state.day,
+    tick:                 state.tick,
+    phase:                state.phase,
+    lifetimeCreditsEarned: state.lifetimeCreditsEarned,
+    logLines:             state.logLines,
+  };
+  localStorage.setItem(SAVE_KEY, JSON.stringify(data));
+}
+
+function loadGame() {
+  try {
+    const raw = localStorage.getItem(SAVE_KEY);
+    if (!raw) return;
+    const data = JSON.parse(raw);
+    if (data.schemaVersion !== SCHEMA_VERSION) return; // mismatch → start fresh
+    state.player               = data.player;
+    state.day                  = data.day;
+    state.tick                 = data.tick;
+    state.phase                = data.phase;
+    state.lifetimeCreditsEarned = data.lifetimeCreditsEarned;
+    state.logLines             = data.logLines || [];
+  } catch (_) {
+    // corrupt save — ignore, start fresh
+  }
+}
+
+loadGame(); // restore save on startup if present
+
 // ── §3.3 Title screen ─────────────────────────────────────────────────────────
 
 const TITLE_ART = [
@@ -473,3 +510,11 @@ window.addEventListener('keydown', (e) => {
   state.player.y = ny;
   display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
 });
+
+// ── Tick loop — 1 tick/second (§7.1) ─────────────────────────────────────────
+
+setInterval(() => {
+  if (state.gameState !== 'playing') return;
+  state.tick++;
+  if (state.tick % 10 === 0) saveGame();
+}, 1000);
