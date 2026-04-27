@@ -1,7 +1,7 @@
 import {
   DISPLAY_WIDTH, DISPLAY_HEIGHT, WORLD_ROWS,
   STATUS_ROW, LOG_START_ROW, LOG_END_ROW, HINT_ROW,
-  BG, BRIGHT_WHITE, BRIGHT_YELLOW, BRIGHT_CYAN, DIM_GRAY,
+  BG, BRIGHT_WHITE, BRIGHT_YELLOW, BRIGHT_CYAN, BRIGHT_MAGENTA, DIM_GRAY,
 } from './constants.js';
 
 // ── Display init ──────────────────────────────────────────────────────────────
@@ -65,6 +65,8 @@ const state = {
   },
   day: 1,
   tick: 0,
+  dayTick: 0,      // 0–239; resets each day
+  marketOpen: true, // true for dayTick 0–179, false for 180–239
   phase: 1,
   lifetimeCreditsEarned: 0,
   logLines: [], // max 5 entries: {text, color}
@@ -81,6 +83,8 @@ function saveGame() {
     player:               state.player,
     day:                  state.day,
     tick:                 state.tick,
+    dayTick:              state.dayTick,
+    marketOpen:           state.marketOpen,
     phase:                state.phase,
     lifetimeCreditsEarned: state.lifetimeCreditsEarned,
     logLines:             state.logLines,
@@ -97,6 +101,8 @@ function loadGame() {
     state.player               = data.player;
     state.day                  = data.day;
     state.tick                 = data.tick;
+    state.dayTick              = data.dayTick  ?? 0;
+    state.marketOpen           = data.marketOpen ?? true;
     state.phase                = data.phase;
     state.lifetimeCreditsEarned = data.lifetimeCreditsEarned;
     state.logLines             = data.logLines || [];
@@ -174,6 +180,20 @@ function renderLog() {
       drawRow(row, '>', DIM_GRAY);
     }
   }
+}
+
+// Time indicator — redrawn every tick (§3.7, §7.2)
+const TIMER_X   = 50; // x position where the timer segment starts on the status bar
+const TIMER_MAX = 26; // max char width to clear before redrawing
+
+function drawTimeIndicator() {
+  const open      = state.marketOpen;
+  const remaining = open ? (180 - state.dayTick) : (240 - state.dayTick);
+  const label     = open ? 'market open' : 'night';
+  const text      = `[== ${label} ${remaining}s ==]`;
+  const fg        = open ? BRIGHT_YELLOW : BRIGHT_MAGENTA;
+  for (let i = 0; i < TIMER_MAX; i++) display.draw(TIMER_X + i, STATUS_ROW, ' ', BRIGHT_WHITE, BG);
+  for (let i = 0; i < text.length; i++) display.draw(TIMER_X + i, STATUS_ROW, text[i], fg, BG);
 }
 
 // ── §3.4 Phase-in transition ──────────────────────────────────────────────────
@@ -307,14 +327,14 @@ function drawWorld() {
   sx = seg(sx, 'Raw: 0',                   '#ff9933') + 4;
   sx = seg(sx, 'Widgets: 0/5',             BRIGHT_WHITE) + 4;
   sx = seg(sx, 'Day 1',                    BRIGHT_WHITE) + 4;
-       seg(sx, '[== market open 180s ==]', '#ffd633');
+  drawTimeIndicator();
 
   // Event log (§3.8)
   renderLog();
 
   // Command hint (§3.9)
   drawRow(HINT_ROW,
-    "[arrows: move]  [space: interact]  [i: inventory]  [L: look]  [?: help]",
+    "[arrows: move]  [space: interact]  [i: inventory]  [o: look]  [?: help]",
     '#555555');
 }
 
@@ -516,5 +536,12 @@ window.addEventListener('keydown', (e) => {
 setInterval(() => {
   if (state.gameState !== 'playing') return;
   state.tick++;
+  state.dayTick++;
+  if (state.dayTick >= 240) {
+    state.dayTick = 0;
+    state.day++;
+  }
+  state.marketOpen = state.dayTick < 180;
+  drawTimeIndicator();
   if (state.tick % 10 === 0) saveGame();
 }, 1000);
