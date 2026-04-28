@@ -77,6 +77,9 @@ const state = {
     credits: 10,
     inventory: { rm: 0, widgets: 0 },
     inventoryCaps: { rm: 5, widgets: 5 },
+    color:        '#f0f0f0',  // current outfit hex
+    colorName:    'DEFAULT',  // current outfit name
+    ownedOutfits: [],         // e.g. ['crimson', 'cobalt']
   },
   day: 1,
   tick: 0,
@@ -92,7 +95,8 @@ const state = {
   stepsWalked:       0,
   stations: {
     launch_facility: { unlocked: false },
-    storage: { unlocked: false },
+    storage:         { unlocked: false },
+    general_store:   { unlocked: false },
   },
   rocketWidgets:       0,
   rocketFull:          false,
@@ -227,6 +231,9 @@ function loadGame() {
     const data = JSON.parse(raw);
     if (data.schemaVersion !== SCHEMA_VERSION) return;
     state.player               = data.player;
+    state.player.color         = state.player.color         ?? '#f0f0f0';
+    state.player.colorName     = state.player.colorName     ?? 'DEFAULT';
+    state.player.ownedOutfits  = state.player.ownedOutfits  ?? [];
     state.day                  = data.day;
     state.tick                 = data.tick;
     state.dayTick              = data.dayTick   ?? 0;
@@ -239,8 +246,9 @@ function loadGame() {
     state.lastNarrativeTick    = data.lastNarrativeTick ?? 0;
     state.nextAmbientDelay     = data.nextAmbientDelay  ?? 45;
     state.stepsWalked          = data.stepsWalked       ?? 0;
-    state.stations             = data.stations          ?? { launch_facility: { unlocked: false }, storage: { unlocked: false } };
+    state.stations             = data.stations          ?? { launch_facility: { unlocked: false }, storage: { unlocked: false }, general_store: { unlocked: false } };
     state.stations.launch_facility = state.stations.launch_facility ?? { unlocked: false };
+    state.stations.general_store   = state.stations.general_store   ?? { unlocked: false };
     // Migration: rename old stations.derivatives → stations.terminal
     if (state.stations.derivatives && !state.stations.terminal) {
       state.stations.terminal = state.stations.derivatives;
@@ -474,6 +482,7 @@ const STATION_DEFS = [
   { x: 23, y: 32, label: 'ST', wc: DIM_GRAY,  lc: DIM_GRAY  },
   { x: 61, y:  4, label: 'BK', wc: DIM_GRAY,  lc: DIM_GRAY  },
   { x: 56, y: 16, label: 'TR', wc: DIM_GRAY,  lc: DIM_GRAY  },
+  { x:  8, y: 35, label: 'GS', wc: DIM_GRAY,  lc: DIM_GRAY  },
   { x:  9, y:  2, label: 'RM', wc: '#ff6600', lc: '#ff6600' },
   { x: 34, y:  8, label: 'WB', wc: '#cc3300', lc: '#cc3300' },
   { x: 61, y: 23, label: 'MT', wc: '#ffd633', lc: '#ffd633' },
@@ -645,6 +654,10 @@ function buildTileMap() {
   if (state.phase >= 2) {
     const st2 = STATION_DEFS.find(s => s.label === 'ST');
     if (st2) { st2.wc = '#66ccff'; st2.lc = '#aaddff'; }
+    if (state.stations.general_store?.unlocked) {
+      const gs2 = STATION_DEFS.find(s => s.label === 'GS');
+      if (gs2) { gs2.wc = '#aa66ff'; gs2.lc = '#cc99ff'; }
+    }
   }
   if (state.phase >= 3) {
     const bk3 = STATION_DEFS.find(s => s.label === 'BK');
@@ -683,6 +696,9 @@ function buildTileMap() {
     LF: state.phase >= 5
       ? { wall: 'A reinforced wall. Built to withstand something significant.', door: 'The entrance to the Launch Facility. The air smells of fuel and ambition.' }
       : { wall: 'A large structure, shrouded in canvas. Something tall is underneath. The canvas smells of grease and oxidizer.' },
+    GS: state.stations.general_store?.unlocked
+      ? { wall: 'The shop front. A few items are visible through the window.', door: 'The General Store entrance. A small bell above the door is silent for now.' }
+      : { wall: "A small shop, shuttered. A sign in the window reads: 'OPENING SOON.' The display inside is covered with a cloth." },
   };
   for (const s of STATION_DEFS) {
     if (s.wide) continue; // custom stamp handled separately
@@ -730,7 +746,7 @@ function drawWorld() {
   renderDirty();
 
   // Player @ (§3.5)
-  display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
+  display.draw(state.player.x, state.player.y, '@', state.player.color || BRIGHT_WHITE, BG);
 
   // Apprentice workers (§5.3)
   for (const w of state.workers.apprentices)
@@ -934,12 +950,14 @@ function dismissIntro() {
 // ── Keypress: title → phase-in / continue (§3.3) ────────────────────────────
 
 function resetState() {
-  state.player = { x: 15, y: 14, credits: 10, inventory: { rm: 0, widgets: 0 }, inventoryCaps: { rm: 5, widgets: 5 } };
+  state.player = { x: 15, y: 14, credits: 10, inventory: { rm: 0, widgets: 0 }, inventoryCaps: { rm: 5, widgets: 5 }, color: '#f0f0f0', colorName: 'DEFAULT', ownedOutfits: [] };
   state.day = 1; state.tick = 0; state.dayTick = 0;
   state.marketOpen = true; state.phase = 1;
   state.lifetimeCreditsEarned = 0; state.logLines = []; state.bellFiredToday = false;
   state.lastAmbientTick = 0; state.lastNarrativeTick = 0; state.nextAmbientDelay = 45; state.stepsWalked = 0;
-  state.stations = { launch_facility: { unlocked: false }, storage: { unlocked: false } };
+  state.stations = { launch_facility: { unlocked: false }, storage: { unlocked: false }, general_store: { unlocked: false } };
+  const gsDef = STATION_DEFS.find(s => s.label === 'GS');
+  if (gsDef) { gsDef.wc = DIM_GRAY; gsDef.lc = DIM_GRAY; }
   state.rocketWidgets      = 0;
   state.rocketFull         = false;
   state.courierDestination = 'market';
@@ -1111,7 +1129,7 @@ window.addEventListener('keydown', (e) => {
   state.player.y = ny;
   markDirty(state.player.x, state.player.y);
   renderDirty();
-  display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
+  display.draw(state.player.x, state.player.y, '@', state.player.color || BRIGHT_WHITE, BG);
   if (destTile.glyph === '~') state.stats.pondStepsWalked = (state.stats.pondStepsWalked || 0) + 1;
   state.stepsWalked++;
   state.lastNarrativeTick = state.tick;
@@ -1138,7 +1156,7 @@ let craftingRemote  = false;
 function drawLookCursor(inverted) {
   const onPlayer = lookX === state.player.x && lookY === state.player.y;
   const glyph  = onPlayer ? '@'          : tileMap[lookX][lookY].glyph;
-  const tileFg = onPlayer ? BRIGHT_WHITE : tileMap[lookX][lookY].fg;
+  const tileFg = onPlayer ? (state.player.color || BRIGHT_WHITE) : tileMap[lookX][lookY].fg;
   const tileBg = tileMap[lookX][lookY].bg;
   display.draw(lookX, lookY, glyph, inverted ? tileBg : tileFg, inverted ? tileFg : tileBg);
 }
@@ -1147,12 +1165,19 @@ function restoreLookTile() {
   markDirty(lookX, lookY);
   renderDirty();
   if (lookX === state.player.x && lookY === state.player.y)
-    display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
+    display.draw(state.player.x, state.player.y, '@', state.player.color || BRIGHT_WHITE, BG);
 }
 
 // Priority: tileMap[x][y].description → tiles["x,y"] → glyphs[g].variants[hash] → glyphs[g].default → fallback (§6.1, §6.2, §6.5)
 function getDescription(x, y, glyph) {
   if (!descriptions) return 'Nothing remarkable.';
+  // Dynamic @ description reflects current outfit
+  if (glyph === '@' && x === state.player.x && y === state.player.y) {
+    if (state.player.colorName && state.player.colorName !== 'DEFAULT') {
+      return `That's you. You look tired, but sharp in ${state.player.colorName.toLowerCase()}.`;
+    }
+    return "That's you. You look tired.";
+  }
   const td0 = tileMap[x]?.[y]?.description;
   if (td0) return td0;
   const td = descriptions.tiles && descriptions.tiles[`${x},${y}`];
@@ -1275,7 +1300,7 @@ function showMenu(title, options) {
       for (let x = BOX_X; x < BOX_X + BOX_W; x++)
         if (x >= 0 && x < DISPLAY_WIDTH && y >= 0 && y < WORLD_ROWS) markDirty(x, y);
     renderDirty();
-    display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
+    display.draw(state.player.x, state.player.y, '@', state.player.color || BRIGHT_WHITE, BG);
     if (state.gameState === 'menu') state.gameState = 'playing'; // don't override if action changed state (e.g. crafting)
   }
 
@@ -1462,7 +1487,7 @@ function openRMShedMenu() {
       for (let x = BOX_X; x < BOX_X + BOX_W; x++)
         if (x >= 0 && x < DISPLAY_WIDTH && y >= 0 && y < WORLD_ROWS) markDirty(x, y);
     renderDirty();
-    display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
+    display.draw(state.player.x, state.player.y, '@', state.player.color || BRIGHT_WHITE, BG);
     for (const w of state.workers.apprentices) display.draw(w.x, w.y, 'a', '#66ccff', BG);
     for (const c of state.workers.couriers)    display.draw(c.x, c.y, 'c', '#cc66cc', BG);
     state.gameState = 'playing';
@@ -1514,7 +1539,7 @@ function pulseWB() {
   setTimeout(() => {
     WB_LABEL_TILES.forEach(([x, y]) => { markDirty(x, y); });
     renderDirty();
-    display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
+    display.draw(state.player.x, state.player.y, '@', state.player.color || BRIGHT_WHITE, BG);
   }, 200);
 }
 
@@ -1537,7 +1562,7 @@ function cancelCrafting() {
     WB_LABEL_TILES.forEach(([x, y]) => { markDirty(x, y); });
     renderDirty();
   }
-  display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
+  display.draw(state.player.x, state.player.y, '@', state.player.color || BRIGHT_WHITE, BG);
   addLog('Crafting cancelled. Current widget lost.', '#ff5555');
   craftingRemote = false;
   state.gameState = 'playing';
@@ -1754,7 +1779,7 @@ function openWorkbenchMenu(isRemote = false) {
       for (let x = BOX_X; x < BOX_X + BOX_W; x++)
         if (x >= 0 && x < DISPLAY_WIDTH && y >= 0 && y < WORLD_ROWS) markDirty(x, y);
     renderDirty();
-    display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
+    display.draw(state.player.x, state.player.y, '@', state.player.color || BRIGHT_WHITE, BG);
     for (const w of state.workers.apprentices) display.draw(w.x, w.y, 'a', '#66ccff', BG);
     for (const c of state.workers.couriers)    display.draw(c.x, c.y, 'c', '#cc66cc', BG);
   }
@@ -1816,7 +1841,7 @@ function colorInStation(label, wc, lc, dc) {
     markDirty(tx, ty);
   }
   renderDirty();
-  display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
+  display.draw(state.player.x, state.player.y, '@', state.player.color || BRIGHT_WHITE, BG);
   for (const w of state.workers.apprentices) display.draw(w.x, w.y, 'a', '#66ccff', BG);
   for (const c of state.workers.couriers)    display.draw(c.x, c.y, 'c', '#cc66cc', BG);
 }
@@ -1825,13 +1850,18 @@ function checkPhase2Trigger() {
   if (state.lifetimeCreditsEarned >= 100 && state.phase === 1) {
     state.phase = 2;
     state.officeUnlocked = true;
-    state.stations.storage.unlocked = true;
+    state.stations.storage.unlocked       = true;
+    state.stations.general_store.unlocked = true;
     addLog('Something stirs. The Office door swings open.', '#cc66cc');
     setTimeout(() => addLog('You can afford to hire help.', '#cc66cc'), 2000);
     setTimeout(() => {
       addLog('The Storage Warehouse is now available.', '#cc66cc');
       colorInStation('ST', '#66ccff', '#aaddff');
     }, 4000);
+    setTimeout(() => {
+      addLog('A light is on in the shop at the south-west corner. Someone is open for business.', '#aa66ff');
+      colorInStation('GS', '#aa66ff', '#cc99ff');
+    }, 7000);
   }
 }
 
@@ -1983,7 +2013,7 @@ function drawDemandChart(title, rows, subtitle) {
       for (let x = BOX_X; x < BOX_X + BOX_W; x++)
         if (y < WORLD_ROWS) markDirty(x, y);
     renderDirty();
-    display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
+    display.draw(state.player.x, state.player.y, '@', state.player.color || BRIGHT_WHITE, BG);
     state.gameState = 'playing';
   }
   function chartKeyHandler(e) { if (e.key === 'Escape') close(); }
@@ -2193,7 +2223,7 @@ function openMarketMenu() {
       for (let x = BOX_X; x < BOX_X + BOX_W; x++)
         if (x >= 0 && x < DISPLAY_WIDTH && y >= 0 && y < WORLD_ROWS) markDirty(x, y);
     renderDirty();
-    display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
+    display.draw(state.player.x, state.player.y, '@', state.player.color || BRIGHT_WHITE, BG);
     for (const w of state.workers.apprentices) display.draw(w.x, w.y, 'a', '#66ccff', BG);
     for (const c of state.workers.couriers)    display.draw(c.x, c.y, 'c', '#cc66cc', BG);
     state.gameState = 'playing';
@@ -2662,7 +2692,7 @@ function showOfficeMenu() {
       for (let x = BOX_X; x < BOX_X + BOX_W; x++)
         if (x >= 0 && x < DISPLAY_WIDTH && y >= 0 && y < WORLD_ROWS) markDirty(x, y);
     renderDirty();
-    display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
+    display.draw(state.player.x, state.player.y, '@', state.player.color || BRIGHT_WHITE, BG);
     for (const w of state.workers.apprentices) display.draw(w.x, w.y, 'a', '#66ccff', BG);
     for (const c of state.workers.couriers)    display.draw(c.x, c.y, 'c', '#cc66cc', BG);
     state.gameState = 'playing';
@@ -2805,6 +2835,9 @@ function handlePonder() {
     hint = "You're finding a rhythm. The Office door looks less dusty than it did.";
   } else if (state.player.credits >= 500 && !(state.skills.endurance?.pips) && !(state.skills.aquatics?.purchased) && !(state.skills.interfacing?.pips)) {
     hint = 'You wonder if there\'s more to you than widgets.';
+  } else if (state.phase >= 2 && state.player.color === '#f0f0f0' && state.player.credits >= 100) {
+    hint = 'The shop on the south-west corner has its light on.';
+    wrapLog(hint, '#aa66ff'); return;
   } else if (state.skills.aquatics?.purchased && (state.stats.pondStepsWalked || 0) === 0) {
     hint = 'The pond looks different now.';
   } else if ((state.skills.interfacing?.pips || 0) >= 3) {
@@ -2813,6 +2846,245 @@ function handlePonder() {
     hint = 'Keep working. The numbers will move.';
   }
   wrapLog(hint, '#66ccff');
+}
+
+// Outfit definitions — ten purchasable colors for the player @ glyph
+const OUTFITS = [
+  { key: 'crimson', name: 'CRIMSON', color: '#cc2233' },
+  { key: 'cobalt',  name: 'COBALT',  color: '#2255cc' },
+  { key: 'amber',   name: 'AMBER',   color: '#cc7700' },
+  { key: 'forest',  name: 'FOREST',  color: '#226622' },
+  { key: 'rose',    name: 'ROSE',    color: '#cc5588' },
+  { key: 'slate',   name: 'SLATE',   color: '#667788' },
+  { key: 'gold',    name: 'GOLD',    color: '#ccaa00' },
+  { key: 'teal',    name: 'TEAL',    color: '#229988' },
+  { key: 'ivory',   name: 'IVORY',   color: '#ddddcc' },
+  { key: 'violet',  name: 'VIOLET',  color: '#8844cc' },
+];
+
+function openGeneralStoreMenu() {
+  if (!state.stations.general_store?.unlocked) return;
+  state.gameState = 'menu';
+
+  const TC    = '#aa66ff';
+  const DC    = '#333333';
+  const LC    = '#ffffff';
+  const AC    = '#cc99ff'; // accent (label text)
+  const BOX_W = 54;
+  const IW    = 52;
+  const AW    = 14;
+  const IPW   = 37;
+  const BOX_H = 22;
+  const BOX_X = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
+  const BOX_Y = Math.max(1, Math.floor((WORLD_ROWS - BOX_H) / 2));
+  const RPX   = BOX_X + 1 + AW + 1;
+
+  const GS_ART = [
+    '  +--------+  ',
+    ' /  GENERAL\\ ',
+    '/    STORE  \\ ',
+    '  |--------|  ',
+    '  | [~~~~] |  ',
+    '  | [~~~~] |  ',
+    '  | [~~~~] |  ',
+    '  |--------|  ',
+    '  +--------+  ',
+    '              ',
+  ];
+
+  function drawArtRow(r, ay) {
+    const s = GS_ART[r];
+    for (let i = 0; i < AW; i++) {
+      const ch = s[i] || ' ';
+      let fg = TC;
+      // "GENERAL" row 1 positions 4-10
+      if (r === 1 && i >= 4 && i <= 10) fg = AC;
+      // "STORE" row 2 positions 5-9
+      if (r === 2 && i >= 5 && i <= 9) fg = AC;
+      // ~~~~ shimmer in rows 4-6 at positions 5-8
+      if (r >= 4 && r <= 6 && i >= 5 && i <= 8) {
+        const outfitIdx = (state.tick + (r - 4)) % OUTFITS.length;
+        fg = OUTFITS[outfitIdx].color;
+      }
+      display.draw(BOX_X + 1 + i, ay, ch, fg, BG);
+    }
+  }
+
+  function border(ay) {
+    display.draw(BOX_X, ay, '║', TC, BG);
+    display.draw(BOX_X + BOX_W - 1, ay, '║', TC, BG);
+  }
+
+  function irow(ay, text, fg) {
+    border(ay);
+    const p = menuPad(text, IW);
+    for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, p[i] || ' ', fg, BG);
+  }
+
+  function crow(ay, r) {
+    border(ay);
+    drawArtRow(r, ay);
+    display.draw(BOX_X + 1 + AW, ay, '│', DC, BG);
+    for (let i = 0; i < IPW; i++) display.draw(RPX + i, ay, ' ', BRIGHT_WHITE, BG);
+  }
+
+  function drp(ay, text, fg) {
+    const p = menuPad(text, IPW);
+    for (let i = 0; i < IPW; i++) display.draw(RPX + i, ay, p[i] || ' ', fg, BG);
+  }
+
+  function drawOutfitCell(cx, ay, outfit, idx) {
+    // 23-char cell: "X)  [@ NAME_padded_13 M ]"
+    const letter   = 'abcdefghij'[idx];
+    const owned    = state.player.ownedOutfits.includes(outfit.key);
+    const equipped = state.player.colorName === outfit.name;
+    const canAfford = state.player.credits >= 100;
+
+    let marker = ' ', markerFg = BRIGHT_WHITE;
+    let bracketFg = canAfford ? TC : DC;
+    if (equipped) { marker = '»'; markerFg = LC; bracketFg = LC; }
+    else if (owned) { marker = '✓'; markerFg = '#66cc66'; bracketFg = TC; }
+
+    const nameFg  = equipped ? LC : (owned ? '#aaaaaa' : (canAfford ? '#aaaaaa' : '#555555'));
+    const name13  = outfit.name.padEnd(13);
+
+    display.draw(cx,    ay, letter, equipped ? LC : '#555555', BG);
+    display.draw(cx+1,  ay, ')',    '#555555', BG);
+    display.draw(cx+2,  ay, ' ',   BRIGHT_WHITE, BG);
+    display.draw(cx+3,  ay, '[',   bracketFg, BG);
+    display.draw(cx+4,  ay, '@',   outfit.color, BG);
+    display.draw(cx+5,  ay, ' ',   BRIGHT_WHITE, BG);
+    for (let i = 0; i < 13; i++) display.draw(cx+6+i, ay, name13[i], nameFg, BG);
+    display.draw(cx+19, ay, ' ',   BRIGHT_WHITE, BG);
+    display.draw(cx+20, ay, marker, markerFg, BG);
+    display.draw(cx+21, ay, ' ',   BRIGHT_WHITE, BG);
+    display.draw(cx+22, ay, ']',   bracketFg, BG);
+    return cx + 23;
+  }
+
+  function redraw() {
+    // Clear interior
+    for (let r = 1; r < BOX_H - 1; r++)
+      for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, BOX_Y + r, ' ', BRIGHT_WHITE, BG);
+
+    // Row 0: ╔═╗
+    display.draw(BOX_X, BOX_Y, '╔', TC, BG); display.draw(BOX_X + BOX_W - 1, BOX_Y, '╗', TC, BG);
+    for (let i = 1; i < BOX_W - 1; i++) display.draw(BOX_X + i, BOX_Y, '═', TC, BG);
+
+    // Row 1: header
+    { const ay = BOX_Y + 1;
+      border(ay);
+      const title = 'GENERAL STORE', hint = 'press esc to exit';
+      for (let i = 0; i < IW; i++) {
+        const ch = i < title.length ? title[i] : (i >= IW - hint.length ? hint[i-(IW-hint.length)] : ' ');
+        const fg = i < title.length ? LC : (i >= IW - hint.length ? DC : BRIGHT_WHITE);
+        display.draw(BOX_X + 1 + i, ay, ch, fg, BG);
+      }
+    }
+
+    // Row 2: ═ separator
+    { const ay = BOX_Y + 2; border(ay);
+      for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '═', DC, BG); }
+
+    // Rows 3-12: art + divider + info
+    for (let r = 0; r < 10; r++) crow(BOX_Y + 3 + r, r);
+
+    // Right pane content
+    drp(BOX_Y + 4, 'CLOTHING SHOP', TC);
+    drp(BOX_Y + 5, 'Change your look.', '#555555');
+    drp(BOX_Y + 7, 'Each item: 100cr', '#555555');
+    drp(BOX_Y + 9, 'Current look:', '#555555');
+    { const ay = BOX_Y + 10;
+      const cn = (state.player.colorName === 'DEFAULT') ? 'default white' : state.player.colorName.toLowerCase();
+      drp(ay, `@ ${cn}`, '#555555');
+      display.draw(RPX, ay, '@', state.player.color || BRIGHT_WHITE, BG);
+    }
+
+    // Row 13: ─ separator
+    { const ay = BOX_Y + 13; border(ay);
+      for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '─', DC, BG); }
+
+    // Rows 14-18: 2-column clothing grid (5 rows × 2 outfits)
+    for (let row = 0; row < 5; row++) {
+      const ay = BOX_Y + 14 + row;
+      border(ay);
+      // 2 spaces left + cell(23) + 2 spaces gap + cell(23) + 2 spaces right = 52
+      let cx = BOX_X + 1 + 2;
+      cx = drawOutfitCell(cx, ay, OUTFITS[row * 2],     row * 2);
+      cx += 2; // gap
+      cx = drawOutfitCell(cx, ay, OUTFITS[row * 2 + 1], row * 2 + 1);
+      // fill right padding
+      while (cx < BOX_X + 1 + IW) display.draw(cx++, ay, ' ', BRIGHT_WHITE, BG);
+    }
+
+    // Row 19: ═ separator
+    { const ay = BOX_Y + 19; border(ay);
+      for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '═', DC, BG); }
+
+    // Row 20: footer
+    { const ay = BOX_Y + 20; border(ay);
+      const txt = 'a–j: buy or equip outfit.  ESC to exit.';
+      const centered = menuPad(txt.length < IW ? ' '.repeat(Math.floor((IW - txt.length) / 2)) + txt : txt, IW);
+      for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, centered[i] || ' ', '#555555', BG); }
+
+    // Row 21: ╚═╝
+    display.draw(BOX_X, BOX_Y + 21, '╚', TC, BG); display.draw(BOX_X + BOX_W - 1, BOX_Y + 21, '╝', TC, BG);
+    for (let i = 1; i < BOX_W - 1; i++) display.draw(BOX_X + i, BOX_Y + 21, '═', TC, BG);
+  }
+
+  gsMenuRedrawFn = redraw;
+  redraw();
+
+  function closeGS() {
+    gsMenuRedrawFn = null;
+    window.removeEventListener('keydown', gsKeyHandler);
+    for (let y = BOX_Y; y < BOX_Y + BOX_H; y++)
+      for (let x = BOX_X; x < BOX_X + BOX_W; x++)
+        if (x >= 0 && x < DISPLAY_WIDTH && y >= 0 && y < WORLD_ROWS) markDirty(x, y);
+    renderDirty();
+    display.draw(state.player.x, state.player.y, '@', state.player.color || BRIGHT_WHITE, BG);
+    state.gameState = 'playing';
+  }
+
+  function gsKeyHandler(e) {
+    if (e.key === 'Escape') { closeGS(); return; }
+    const letterIdx = 'abcdefghij'.indexOf(e.key);
+    if (letterIdx < 0) return;
+    const outfit = OUTFITS[letterIdx];
+    if (!outfit) return;
+
+    const owned    = state.player.ownedOutfits.includes(outfit.key);
+    const equipped = state.player.colorName === outfit.name;
+
+    if (equipped) {
+      addLog("You're already wearing that.", '#555555');
+      return;
+    }
+    if (owned) {
+      state.player.color     = outfit.color;
+      state.player.colorName = outfit.name;
+      markDirty(state.player.x, state.player.y);
+      renderDirty();
+      display.draw(state.player.x, state.player.y, '@', state.player.color, BG);
+      addLog(`You change into something ${outfit.name.toLowerCase()}.`, outfit.color);
+      redraw(); return;
+    }
+    if (state.player.credits < 100) {
+      addLog("You can't afford that.", '#ff5555');
+      return;
+    }
+    state.player.credits -= 100;
+    state.player.ownedOutfits.push(outfit.key);
+    state.player.color     = outfit.color;
+    state.player.colorName = outfit.name;
+    markDirty(state.player.x, state.player.y);
+    renderDirty();
+    display.draw(state.player.x, state.player.y, '@', state.player.color, BG);
+    addLog(`You purchase and put on the ${outfit.name.toLowerCase()} outfit.`, outfit.color);
+    drawStatusBar();
+    redraw();
+  }
+  window.addEventListener('keydown', gsKeyHandler);
 }
 
 function openStorageMenu() {
@@ -2979,7 +3251,7 @@ function openStorageMenu() {
       for (let x = BOX_X; x < BOX_X + BOX_W; x++)
         if (x >= 0 && x < DISPLAY_WIDTH && y >= 0 && y < WORLD_ROWS) markDirty(x, y);
     renderDirty();
-    display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
+    display.draw(state.player.x, state.player.y, '@', state.player.color || BRIGHT_WHITE, BG);
     state.gameState = 'playing';
   }
 
@@ -3076,7 +3348,7 @@ function showWorkerManagement() {
         if (x >= 0 && x < DISPLAY_WIDTH && y >= 0 && y < WORLD_ROWS) markDirty(x, y);
     renderDirty();
     for (const w of state.workers.apprentices) display.draw(w.x, w.y, 'a', '#66ccff', BG);
-    display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
+    display.draw(state.player.x, state.player.y, '@', state.player.color || BRIGHT_WHITE, BG);
     state.gameState = 'playing';
   }
 
@@ -3123,7 +3395,7 @@ function showOfficeDispatch() {
         if (x >= 0 && x < DISPLAY_WIDTH && y >= 0 && y < WORLD_ROWS) markDirty(x, y);
     renderDirty();
     for (const w of state.workers.apprentices) display.draw(w.x, w.y, 'a', '#66ccff', BG);
-    display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
+    display.draw(state.player.x, state.player.y, '@', state.player.color || BRIGHT_WHITE, BG);
     if (goPlay) state.gameState = 'playing';
   }
 
@@ -3175,7 +3447,7 @@ function showNumericPrompt(title, maxVal, onConfirm, onCancel) {
         if (y < WORLD_ROWS) { markDirty(x, y); }
         else { display.draw(x, y, ' ', BRIGHT_WHITE, BG); }
     renderDirty();
-    display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
+    display.draw(state.player.x, state.player.y, '@', state.player.color || BRIGHT_WHITE, BG);
   }
 
   function promptHandler(e) {
@@ -3367,7 +3639,7 @@ function openBankMenu() {
       for (let x = BOX_X; x < BOX_X + BOX_W; x++)
         if (x >= 0 && x < DISPLAY_WIDTH && y >= 0 && y < WORLD_ROWS) markDirty(x, y);
     renderDirty();
-    display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
+    display.draw(state.player.x, state.player.y, '@', state.player.color || BRIGHT_WHITE, BG);
     state.gameState = 'playing';
   }
 
@@ -3540,6 +3812,7 @@ let mtMenuRedrawFn     = null;
 let mtMenuBlinkOn      = true;
 let storageMenuRedrawFn = null;
 let bankMenuRedrawFn    = null;
+let gsMenuRedrawFn      = null;
 
 function checkAbstractionCollapse() {
   if (state.endingTriggered || state.derivatives.totalPnL < 50000) return;
@@ -3673,7 +3946,7 @@ function openFuturesMenu() {
   function closeF() {
     window.removeEventListener('keydown', futKeyHandler);
     for (let y = BOX_Y; y < BOX_Y + BOX_H; y++) for (let x = BOX_X; x < BOX_X + BOX_W; x++) if (y < WORLD_ROWS) markDirty(x, y);
-    renderDirty(); display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
+    renderDirty(); display.draw(state.player.x, state.player.y, '@', state.player.color || BRIGHT_WHITE, BG);
     state.gameState = 'playing';
   }
 
@@ -3870,7 +4143,7 @@ function showPositionsDashboard() {
     dashboardRedrawFn = null;
     window.removeEventListener('keydown', dashKeyHandler);
     for (let y = BOX_Y; y < BOX_Y + BOX_H; y++) for (let x = BOX_X; x < BOX_X + BOX_W; x++) if (y < WORLD_ROWS) markDirty(x, y);
-    renderDirty(); display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
+    renderDirty(); display.draw(state.player.x, state.player.y, '@', state.player.color || BRIGHT_WHITE, BG);
     state.gameState = 'playing';
   }
   function dashKeyHandler(e) { if (e.key === 'Escape') closeDash(); }
@@ -4391,7 +4664,7 @@ function openDerivativesMenu() {
       for (let x = BOX_X; x < BOX_X + BOX_W; x++)
         if (x >= 0 && x < DISPLAY_WIDTH && y >= 0 && y < WORLD_ROWS) markDirty(x, y);
     renderDirty();
-    display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
+    display.draw(state.player.x, state.player.y, '@', state.player.color || BRIGHT_WHITE, BG);
     for (const w of state.workers.apprentices) display.draw(w.x, w.y, 'a', '#66ccff', BG);
     for (const c of state.workers.couriers)    display.draw(c.x, c.y, 'c', '#cc66cc', BG);
     state.gameState = 'playing';
@@ -4665,7 +4938,7 @@ function showForwardPositions() {
       for (let x = BOX_X; x < BOX_X + BOX_W; x++)
         if (y < WORLD_ROWS) markDirty(x, y);
     renderDirty();
-    display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
+    display.draw(state.player.x, state.player.y, '@', state.player.color || BRIGHT_WHITE, BG);
     state.gameState = 'playing';
   }
   function posKeyHandler(e) { if (e.key === 'Escape') close(); }
@@ -4950,7 +5223,7 @@ function openLFMenu() {
       for (let x = BOX_X; x < BOX_X + BOX_W; x++)
         if (x >= 0 && x < DISPLAY_WIDTH && y >= 0 && y < WORLD_ROWS) markDirty(x, y);
     renderDirty();
-    display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
+    display.draw(state.player.x, state.player.y, '@', state.player.color || BRIGHT_WHITE, BG);
     state.gameState = 'playing';
   }
 
@@ -4979,6 +5252,8 @@ function handleInteract() {
     showOfficeMenu();
     return;
   }
+  const gsStation = STATION_DEFS.find(s => s.label === 'GS');
+  if (gsStation && isAdjacentToStation(gsStation) && state.stations.general_store?.unlocked) { openGeneralStoreMenu(); return; }
   const stStation = STATION_DEFS.find(s => s.label === 'ST');
   if (stStation && isAdjacentToStation(stStation)) { openStorageMenu(); return; }
   const bkStation = STATION_DEFS.find(s => s.label === 'BK');
@@ -5335,7 +5610,7 @@ function showInventory() {
       for (let x = BOX_X; x < BOX_X + BOX_W; x++)
         if (x >= 0 && x < DISPLAY_WIDTH && y >= 0 && y < WORLD_ROWS) markDirty(x, y);
     renderDirty();
-    display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
+    display.draw(state.player.x, state.player.y, '@', state.player.color || BRIGHT_WHITE, BG);
     for (const w of state.workers.apprentices) display.draw(w.x, w.y, 'a', '#66ccff', BG);
     for (const c of state.workers.couriers)    display.draw(c.x, c.y, 'c', '#cc66cc', BG);
     state.gameState = 'playing';
@@ -5613,7 +5888,8 @@ function devJumpToPhase(n) {
   state.lifetimeCreditsEarned = credits[n] ?? 10000;
   if (n >= 2) {
     state.officeUnlocked = true;
-    state.stations.storage.unlocked = true;
+    state.stations.storage.unlocked       = true;
+    state.stations.general_store.unlocked = true;
     state.skills.apprenticeCount = 1;
     state.skills.courierCount    = 0;
     state.storage.widgets        = 30;
@@ -5621,6 +5897,8 @@ function devJumpToPhase(n) {
     if (ofDef) state.workers.apprentices.push({ x: ofDef.x+1, y: ofDef.y+2, workerState: 'idle', carryRM: 0, carryWidgets: 0, target: {x:0,y:0}, craftTimer: 0, paused: false });
     const stD = STATION_DEFS.find(s => s.label === 'ST');
     if (stD) { stD.wc = '#66ccff'; stD.lc = '#aaddff'; }
+    const gsD2 = STATION_DEFS.find(s => s.label === 'GS');
+    if (gsD2) { gsD2.wc = '#aa66ff'; gsD2.lc = '#cc99ff'; }
   }
   if (n >= 3) {
     state.stations.bank = { unlocked: true };
@@ -5725,7 +6003,7 @@ function showPauseMenu() {
     renderDirty();
     for (const w of state.workers.apprentices) display.draw(w.x, w.y, 'a', '#66ccff', BG);
     for (const c of state.workers.couriers)    display.draw(c.x, c.y, 'c', '#cc66cc', BG);
-    display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
+    display.draw(state.player.x, state.player.y, '@', state.player.color || BRIGHT_WHITE, BG);
     state.gameState = prevState;
   }
 
@@ -5800,7 +6078,7 @@ function _advanceDayNightWave() {
       for (let x = 0; x < DISPLAY_WIDTH; x++)
         markDirty(x, y);
     renderDirty();
-    display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
+    display.draw(state.player.x, state.player.y, '@', state.player.color || BRIGHT_WHITE, BG);
     for (const w of state.workers.apprentices) display.draw(w.x, w.y, 'a', '#66ccff', BG);
     for (const c of state.workers.couriers)    display.draw(c.x, c.y, 'c', '#cc66cc', BG);
     dayNightFlash = null;
@@ -6011,7 +6289,7 @@ setInterval(() => {
     renderDirty();
     for (const w of state.workers.apprentices) display.draw(w.x, w.y, 'a', '#66ccff', BG);
     for (const c of state.workers.couriers)    display.draw(c.x, c.y, 'c', '#cc66cc', BG);
-    display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
+    display.draw(state.player.x, state.player.y, '@', state.player.color || BRIGHT_WHITE, BG);
   }
   checkProductionHalt();
   checkPhase3Trigger();
@@ -6110,6 +6388,7 @@ setInterval(() => {
   if (dvMenuRedrawFn) dvMenuRedrawFn();
   if (storageMenuRedrawFn) storageMenuRedrawFn();
   if (bankMenuRedrawFn) bankMenuRedrawFn();
+  if (gsMenuRedrawFn) gsMenuRedrawFn();
 
   // Live-refresh LF menu + rocket animation frame
   if (state.gameState === 'lf_menu') {
@@ -6180,6 +6459,7 @@ setInterval(() => {
     ];
     if (state.phase >= 2) {
       AMBIENT.push(
+        'The shop owner waves from the doorway. You wave back.',
         'A worker laughs at something across the yard.',
         'You hear the sound of tools from the workbench.',
         'One of your workers waves. You nod back.',
@@ -6232,7 +6512,7 @@ setInterval(() => {
       markDirty(sx, sy);
     }
     renderDirty();
-    display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
+    display.draw(state.player.x, state.player.y, '@', state.player.color || BRIGHT_WHITE, BG);
   }
 
   if (state.tick % 10 === 0) saveGame();

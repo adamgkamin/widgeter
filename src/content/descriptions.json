@@ -146,6 +146,11 @@
     "TR": {
       "wall": "A terminal of some kind. The screen is dark. The keyboard has too many keys.",
       "label": "Terminal. You don't know what this is yet."
+    },
+    "GS": {
+      "wall": "The shop front. A few items are visible through the window.",
+      "door": "The General Store entrance. A small bell above the door is silent for now.",
+      "label": "The General Store. It seems to sell clothing of some kind."
     }
   },
   "tiles": {
@@ -160,6 +165,7 @@
     "storage": "A warehouse you don't have keys for yet. The padlock is new. Someone anticipated filling this.",
     "bank": "A stone building. The hours are posted on the door but the times have been scratched out.",
     "terminal": "A terminal behind a locked panel. The screen is dark. You press a key. Nothing. You try again. Still nothing.",
-    "office_nodes": "A corkboard inside the Office, behind a door that won't open. The notes are in your own handwriting, somehow."
+    "office_nodes": "A corkboard inside the Office, behind a door that won't open. The notes are in your own handwriting, somehow.",
+    "general_store": "A small shop, shuttered. A sign in the window reads: 'OPENING SOON.' The display inside is covered with a cloth."
   }
 }
