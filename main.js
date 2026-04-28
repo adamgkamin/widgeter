@@ -135,12 +135,12 @@ const state = {
     pondStepsWalked:  0,
   },
   skills: {
-    apprentice:   0,
-    courier:      0,
-    workerCarry:  0,
-    workerSpeed:  0,
-    courierCarry: 0,
-    courierSpeed: 0,
+    apprenticeCount:   0,
+    courierCount:      0,
+    workerCarryLevel:  0,
+    workerSpeedLevel:  0,
+    courierCarryLevel: 0,
+    courierSpeedLevel: 0,
     storageExp1:    0,
     storageExp2:    0,
     reducedCarry:   0,
@@ -288,25 +288,34 @@ function loadGame() {
     state.stats.widgetsMadeToday = state.stats.widgetsMadeToday ?? 0;
     state.stats.revenueToday   = state.stats.revenueToday   ?? 0;
     state.stats.costsToday     = state.stats.costsToday     ?? 0;
-    state.skills               = data.skills            ?? { apprentice: 0, courier: 0, workerCarry: 0, workerSpeed: 0, courierCarry: 0, courierSpeed: 0, storageExp1: 0, storageExp2: 0, reducedCarry: 0, discountDump: 0 };
-    // normalise old saves missing phase-3 skill keys
-    state.skills.storageExp1    = state.skills.storageExp1    ?? 0;
-    state.skills.storageExp2    = state.skills.storageExp2    ?? 0;
-    state.skills.reducedCarry   = state.skills.reducedCarry   ?? 0;
-    state.skills.discountDump   = state.skills.discountDump   ?? 0;
-    state.skills.demandHistory     = state.skills.demandHistory     ?? 0;
-    state.skills.forecast          = state.skills.forecast          ?? 0;
-    state.skills.bulkRM            = state.skills.bulkRM            ?? 0;
-    state.skills.futures           = state.skills.futures           ?? 0;
-    state.skills.optionsBuy        = state.skills.optionsBuy        ?? 0;
-    state.skills.optionsWrite      = state.skills.optionsWrite      ?? 0;
-    state.skills.volatilitySurface = state.skills.volatilitySurface ?? 0;
-    state.skills.endurance   = state.skills.endurance   ?? { pips: 0 };
-    state.skills.aquatics    = state.skills.aquatics    ?? { purchased: false };
-    state.skills.interfacing = state.skills.interfacing ?? { pips: 0 };
-    state.skills.endurance.pips  = state.skills.endurance.pips  ?? 0;
-    state.skills.aquatics.purchased = state.skills.aquatics.purchased ?? false;
-    state.skills.interfacing.pips   = state.skills.interfacing.pips   ?? 0;
+    { const s = data.skills ?? {};
+      // Migrate old saves: apprentice/courier counts, workerCarry → level names
+      state.skills = {
+        apprenticeCount:   s.apprenticeCount   ?? s.apprentice    ?? 0,
+        courierCount:      s.courierCount      ?? s.courier       ?? 0,
+        workerCarryLevel:  s.workerCarryLevel  ?? Math.min(s.workerCarry  || 0, 5),
+        workerSpeedLevel:  s.workerSpeedLevel  ?? Math.min(s.workerSpeed  || 0, 4),
+        courierCarryLevel: s.courierCarryLevel ?? Math.min(s.courierCarry || 0, 4),
+        courierSpeedLevel: s.courierSpeedLevel ?? Math.min(s.courierSpeed || 0, 4),
+        storageExp1:    s.storageExp1    ?? 0,
+        storageExp2:    s.storageExp2    ?? 0,
+        reducedCarry:   s.reducedCarry   ?? 0,
+        discountDump:   s.discountDump   ?? 0,
+        demandHistory:     s.demandHistory     ?? 0,
+        forecast:          s.forecast          ?? 0,
+        bulkRM:            s.bulkRM            ?? 0,
+        futures:           s.futures           ?? 0,
+        optionsBuy:        s.optionsBuy        ?? 0,
+        optionsWrite:      s.optionsWrite      ?? 0,
+        volatilitySurface: s.volatilitySurface ?? 0,
+        endurance:   s.endurance   ?? { pips: 0 },
+        aquatics:    s.aquatics    ?? { purchased: false },
+        interfacing: s.interfacing ?? { pips: 0 },
+      };
+      state.skills.endurance.pips        = state.skills.endurance.pips        ?? 0;
+      state.skills.aquatics.purchased    = state.skills.aquatics.purchased    ?? false;
+      state.skills.interfacing.pips      = state.skills.interfacing.pips      ?? 0;
+    }
     state.craftingTimeRemote = data.craftingTimeRemote ?? 10;
     state.stats.pondStepsWalked = state.stats.pondStepsWalked ?? 0;
   } catch (_) {
@@ -957,7 +966,7 @@ function resetState() {
   state.audio            = { muted: false };
   state.workers = { apprentices: [], couriers: [] };
   state.stats = { rmLastTen: [], widgetsLastTen: [], creditsLastTen: [], widgetsMadeToday: 0, revenueToday: 0, costsToday: 0 };
-  state.skills = { apprentice: 0, courier: 0, workerCarry: 0, workerSpeed: 0, courierCarry: 0, courierSpeed: 0, storageExp1: 0, storageExp2: 0, reducedCarry: 0, discountDump: 0, demandHistory: 0, forecast: 0, bulkRM: 0, futures: 0, optionsBuy: 0, optionsWrite: 0, volatilitySurface: 0, endurance: { pips: 0 }, aquatics: { purchased: false }, interfacing: { pips: 0 } };
+  state.skills = { apprenticeCount: 0, courierCount: 0, workerCarryLevel: 0, workerSpeedLevel: 0, courierCarryLevel: 0, courierSpeedLevel: 0, storageExp1: 0, storageExp2: 0, reducedCarry: 0, discountDump: 0, demandHistory: 0, forecast: 0, bulkRM: 0, futures: 0, optionsBuy: 0, optionsWrite: 0, volatilitySurface: 0, endurance: { pips: 0 }, aquatics: { purchased: false }, interfacing: { pips: 0 } };
   state.craftingTimeRemote = 10;
   state.stats.pondStepsWalked = 0;
   const lfDef = STATION_DEFS.find(s => s.label === 'LF');
@@ -2223,24 +2232,44 @@ function openMarketMenu() {
 
 // ── Office skill tree (§5.3) ──────────────────────────────────────────────────
 
+// Carry cap and speed lookup tables indexed by skill level (§5.3)
+const WORKER_CARRY_CAPS  = [3, 5, 8, 12, 16, 20];        // workerCarryLevel 0–5
+const WORKER_SPEEDS      = [1.0, 1.25, 1.5, 1.75, 2.0];  // workerSpeedLevel 0–4
+const COURIER_CARRY_CAPS = [10, 15, 25, 40, 60];          // courierCarryLevel 0–4
+const COURIER_SPEEDS     = [1.0, 1.25, 1.5, 2.0, 2.5];   // courierSpeedLevel 0–4
+
 const OFFICE_NODES = [
-  { num: 1, name: 'Hire Apprentice',      cost:  50, key: 'apprentice',   max: 3,  minPhase: 2 },
-  { num: 2, name: 'Hire Courier Robot',   cost:  30, key: 'courier',      max: 4,  minPhase: 2 },
-  { num: 3, name: 'Worker Carry +1',      cost:  40, key: 'workerCarry',  max: 12, minPhase: 2 },
-  { num: 4, name: 'Worker Speed +0.25',   cost:  60, key: 'workerSpeed',  max: 6,  minPhase: 2 },
-  { num: 5, name: 'Courier Carry +5',     cost:  80, key: 'courierCarry', max: 8,  minPhase: 2 },
-  { num: 6, name: 'Courier Speed +0.5',   cost: 100, key: 'courierSpeed', max: 4,  minPhase: 2 },
-  { num: 7, name: 'Storage Expansion I',  cost: 200, key: 'storageExp1',  max: 1,  minPhase: 3 },
-  { num: 8, name: 'Storage Expansion II', cost: 500, key: 'storageExp2',  max: 1,  minPhase: 3, requires: 'storageExp1', requiresLabel: 'Expansion I' },
-  { num: 9, name: 'Reduced Carry Cost',   cost:  300, key: 'reducedCarry',   max: 1, minPhase: 3 },
-  { num:10, name: 'Market Discount Dump', cost:  250, key: 'discountDump',   max: 1, minPhase: 3 },
-  { num:11, name: 'Demand History',       cost:   50, key: 'demandHistory',  max: 1, minPhase: 3, inputKey: 'a' },
-  { num:12, name: '7-Day Forecast',       cost: 1500, key: 'forecast',       max: 1, minPhase: 3, inputKey: 'b' },
-  { num:13, name: 'Bulk RM Contract',     cost:  500, key: 'bulkRM',          max: 1, minPhase: 3, inputKey: 'c' },
-  { num:14, name: 'Futures Trading',      cost: 1000, key: 'futures',          max: 1, minPhase: 4, inputKey: 'd' },
-  { num:15, name: 'Options — Buy Side',   cost: 2500, key: 'optionsBuy',       max: 1, minPhase: 4, inputKey: 'e' },
-  { num:16, name: 'Options — Write Side', cost: 5000, key: 'optionsWrite',     max: 1, minPhase: 4, inputKey: 'f', requires: 'optionsBuy', requiresLabel: 'Buy Side first' },
-  { num:17, name: 'Volatility Surface',   cost: 3000, key: 'volatilitySurface',max: 1, minPhase: 4, inputKey: 'g' },
+  // Apprentices — 5 separate hire tiers (credit cost)
+  { key: 'apprentice1', name: 'Hire Apprentice 1', cost:   50, minPhase: 2, countKey: 'apprenticeCount', tier: 1 },
+  { key: 'apprentice2', name: 'Hire Apprentice 2', cost:  100, minPhase: 2, countKey: 'apprenticeCount', tier: 2 },
+  { key: 'apprentice3', name: 'Hire Apprentice 3', cost:  200, minPhase: 2, countKey: 'apprenticeCount', tier: 3 },
+  { key: 'apprentice4', name: 'Hire Apprentice 4', cost:  500, minPhase: 3, countKey: 'apprenticeCount', tier: 4 },
+  { key: 'apprentice5', name: 'Hire Apprentice 5', cost: 1000, minPhase: 3, countKey: 'apprenticeCount', tier: 5 },
+  // Worker upgrades — scaling repeatable (costs array indexed by current level)
+  { key: 'workerCarry', name: 'Worker Carry', levelKey: 'workerCarryLevel', costs: [40, 60, 100, 160, 250], max: 5, minPhase: 2 },
+  { key: 'workerSpeed', name: 'Worker Speed', levelKey: 'workerSpeedLevel', costs: [60, 100, 160, 250],     max: 4, minPhase: 2 },
+  // Storage (unchanged)
+  { key: 'storageExp1',  name: 'Storage Expansion I',  cost: 200, max: 1, minPhase: 3 },
+  { key: 'storageExp2',  name: 'Storage Expansion II', cost: 500, max: 1, minPhase: 3, requires: 'storageExp1', requiresLabel: 'Expansion I' },
+  { key: 'reducedCarry', name: 'Reduced Carry Cost',   cost: 300, max: 1, minPhase: 3 },
+  { key: 'discountDump', name: 'Market Discount Dump', cost: 250, max: 1, minPhase: 3 },
+  // Couriers — 4 separate build tiers (widget cost from storage)
+  { key: 'courier1', name: 'Build Courier 1', widgetCost:  20, minPhase: 2, countKey: 'courierCount', tier: 1 },
+  { key: 'courier2', name: 'Build Courier 2', widgetCost:  50, minPhase: 2, countKey: 'courierCount', tier: 2 },
+  { key: 'courier3', name: 'Build Courier 3', widgetCost: 100, minPhase: 2, countKey: 'courierCount', tier: 3 },
+  { key: 'courier4', name: 'Build Courier 4', widgetCost: 200, minPhase: 2, countKey: 'courierCount', tier: 4 },
+  // Courier upgrades — scaling repeatable
+  { key: 'courierCarry', name: 'Courier Carry', levelKey: 'courierCarryLevel', costs: [80, 150, 280, 500],  max: 4, minPhase: 2 },
+  { key: 'courierSpeed', name: 'Courier Speed', levelKey: 'courierSpeedLevel', costs: [100, 200, 350, 600], max: 4, minPhase: 2 },
+  // Marketing
+  { key: 'bulkRM',        name: 'Bulk RM Contract', cost:  500, max: 1, minPhase: 3 },
+  { key: 'demandHistory', name: 'Demand History',   cost:   50, max: 1, minPhase: 3 },
+  { key: 'forecast',      name: '7-Day Forecast',   cost: 1500, max: 1, minPhase: 3 },
+  // Trading
+  { key: 'futures',           name: 'Futures Trading',      cost: 1000, max: 1, minPhase: 4 },
+  { key: 'optionsBuy',        name: 'Options — Buy Side',   cost: 2500, max: 1, minPhase: 4 },
+  { key: 'optionsWrite',      name: 'Options — Write Side', cost: 5000, max: 1, minPhase: 4, requires: 'optionsBuy', requiresLabel: 'Buy Side first' },
+  { key: 'volatilitySurface', name: 'Volatility Surface',   cost: 3000, max: 1, minPhase: 4 },
 ];
 
 function showOfficeMenu() {
@@ -2277,32 +2306,39 @@ function showOfficeMenu() {
 
   const SECTIONS = [
     { header: 'LOGISTICS', items: [
-      { k: '1', nk: 'apprentice'   },
-      { k: '2', nk: 'workerCarry'  },
-      { k: '3', nk: 'workerSpeed'  },
+      { k: '1', nk: 'apprentice1' },
+      { k: '2', nk: 'apprentice2' },
+      { k: '3', nk: 'apprentice3' },
+      { k: '4', nk: 'apprentice4' },
+      { k: '5', nk: 'apprentice5' },
+      { k: '6', nk: 'workerCarry' },
+      { k: '7', nk: 'workerSpeed' },
     ]},
     { header: 'WAREHOUSING', items: [
       { k: null, label: 'Launch Facility', cost: 'AUTO', specialFn: () => state.phase >= 5 },
-      { k: '4',  nk: 'storageExp1'  },
-      { k: '5',  nk: 'storageExp2'  },
-      { k: '6',  nk: 'reducedCarry' },
-      { k: '7',  nk: 'discountDump' },
+      { k: '8', nk: 'storageExp1'  },
+      { k: '9', nk: 'storageExp2'  },
+      { k: 'a', nk: 'reducedCarry' },
+      { k: 'b', nk: 'discountDump' },
     ]},
     { header: 'TRANSPORT', items: [
-      { k: '8', nk: 'courier'       },
-      { k: '9', nk: 'courierCarry'  },
-      { k: 'a', nk: 'courierSpeed'  },
+      { k: 'c', nk: 'courier1'     },
+      { k: 'd', nk: 'courier2'     },
+      { k: 'e', nk: 'courier3'     },
+      { k: 'f', nk: 'courier4'     },
+      { k: 'g', nk: 'courierCarry' },
+      { k: 'h', nk: 'courierSpeed' },
     ]},
     { header: 'MARKETING', items: [
-      { k: 'b', nk: 'bulkRM'        },
-      { k: 'c', nk: 'demandHistory' },
-      { k: 'd', nk: 'forecast'      },
+      { k: 'j', nk: 'bulkRM'        },
+      { k: 'k', nk: 'demandHistory' },
+      { k: 'l', nk: 'forecast'      },
     ]},
     { header: 'TRADING', items: [
-      { k: 'e', nk: 'futures'           },
-      { k: 'f', nk: 'optionsBuy'        },
-      { k: 'g', nk: 'optionsWrite'      },
-      { k: 'h', nk: 'volatilitySurface' },
+      { k: 'm', nk: 'futures'           },
+      { k: 'n', nk: 'optionsBuy'        },
+      { k: 'q', nk: 'optionsWrite'      },
+      { k: 'r', nk: 'volatilitySurface' },
     ]},
   ];
 
@@ -2341,13 +2377,44 @@ function showOfficeMenu() {
   }
 
   function nodeStatus(nk) {
-    const node  = OFFICE_NODES.find(n => n.key === nk);
+    const node = OFFICE_NODES.find(n => n.key === nk);
     if (!node) return { fg: DC, status: '[unknown]' };
+    if (!state.officeUnlocked || state.phase < node.minPhase)
+      return { fg: DC, status: `[phase ${node.minPhase}]` };
+
+    // Count-tracked nodes (apprenticeN / courierN)
+    if (node.countKey) {
+      const count = state.skills[node.countKey] || 0;
+      if (count >= node.tier) return { fg: '#888888', status: '[owned]' };
+      if (count < node.tier - 1) return { fg: DC, status: '[locked]' };
+      if (node.widgetCost != null) {
+        if (state.storage.widgets < node.widgetCost)
+          return { fg: '#ff5555', status: '[not enough widgets]' };
+        return { fg: '#66cc66', status: '[build]' };
+      }
+      if (state.player.credits < node.cost)
+        return { fg: '#ff5555', status: `[${Math.ceil(node.cost - state.player.credits)}cr more]` };
+      return { fg: '#66cc66', status: '[available]' };
+    }
+
+    // Scaling repeatable nodes (workerCarry, workerSpeed, courierCarry, courierSpeed)
+    if (node.levelKey) {
+      const level = state.skills[node.levelKey] || 0;
+      if (level >= node.max) return { fg: '#888888', status: '[max]' };
+      const cost = node.costs[level];
+      if (state.player.credits < cost)
+        return { fg: '#ff5555', status: `[${Math.ceil(cost - state.player.credits)}cr more]` };
+      return { fg: '#66cc66', status: '[available]' };
+    }
+
+    // Standard flat-cost nodes
     const level = state.skills[nk] || 0;
-    if (!state.officeUnlocked || state.phase < node.minPhase) return { fg: DC, status: `[phase ${node.minPhase}]` };
-    if (node.requires && !state.skills[node.requires]) return { fg: DC, status: `[needs ${node.requiresLabel}]` };
-    if (level >= node.max) return { fg: '#888888', status: node.max === 1 ? '[owned]' : '[max]' };
-    if (state.player.credits < node.cost) return { fg: '#ff5555', status: `[${Math.ceil(node.cost - state.player.credits)}cr more]` };
+    if (node.requires && !state.skills[node.requires])
+      return { fg: DC, status: `[needs ${node.requiresLabel}]` };
+    if (level >= (node.max || 1))
+      return { fg: '#888888', status: node.max === 1 ? '[owned]' : '[max]' };
+    if (state.player.credits < node.cost)
+      return { fg: '#ff5555', status: `[${Math.ceil(node.cost - state.player.credits)}cr more]` };
     return { fg: '#66cc66', status: '[available]' };
   }
 
@@ -2361,13 +2428,23 @@ function showOfficeMenu() {
     rows.push({ type: 'hdr', text: `[${sec.header}]`, fg: hasAvail ? '#ffd633' : DC });
     for (const item of sec.items) {
       if (item.nk) {
-        const node  = OFFICE_NODES.find(n => n.key === item.nk);
+        const node = OFFICE_NODES.find(n => n.key === item.nk);
         if (!node) continue;
-        const level = state.skills[item.nk] || 0;
         const { fg, status } = nodeStatus(item.nk);
         let label = node.name;
-        if (node.max > 1 && level > 0) label += ` (${level}/${node.max})`;
-        rows.push({ type: 'node', k: item.k, label, cost: `${node.cost}cr`, fg, status });
+        let costStr;
+        if (node.levelKey) {
+          const level = state.skills[node.levelKey] || 0;
+          if (level > 0) label += ` (${level}/${node.max})`;
+          costStr = level < node.max ? `${node.costs[level]}cr` : '';
+        } else if (node.widgetCost != null) {
+          costStr = `${node.widgetCost} WG`;
+        } else if (node.cost != null) {
+          costStr = `${node.cost}cr`;
+        } else {
+          costStr = '';
+        }
+        rows.push({ type: 'node', k: item.k, label, cost: costStr, fg, status });
       } else {
         const owned = item.specialFn();
         rows.push({ type: 'node', k: null, label: item.label, cost: item.cost, fg: owned ? '#888888' : DC, status: owned ? '[owned]' : '[locked]' });
@@ -2503,7 +2580,7 @@ function showOfficeMenu() {
       // WORKERS tab — content rows 16-36 (PAGE_ROWS = 21)
       const apprentices = state.workers.apprentices;
       const n           = apprentices.length;
-      const carryMax    = 3 + (state.skills.workerCarry || 0);
+      const carryMax    = WORKER_CARRY_CAPS[state.skills.workerCarryLevel || 0];
 
       if (n === 0) {
         irow(BOX_Y + 16, 'No workers hired. Purchase Apprentice in UPGRADES tab.', DC);
@@ -2599,28 +2676,57 @@ function showOfficeMenu() {
     for (const sec of SECTIONS) {
       for (const item of sec.items) {
         if (!item.k || item.k !== e.key || !item.nk) continue;
-        const node  = OFFICE_NODES.find(n => n.key === item.nk);
+        const node = OFFICE_NODES.find(n => n.key === item.nk);
         if (!node || !state.officeUnlocked || state.phase < node.minPhase) return;
+
+        // Count-tracked nodes — apprentice (credit) or courier (widget)
+        if (node.countKey) {
+          const count = state.skills[node.countKey] || 0;
+          if (count >= node.tier || count < node.tier - 1) return;
+          if (node.widgetCost != null) {
+            if (state.storage.widgets < node.widgetCost) {
+              addLog(`Not enough widgets in storage. Need ${node.widgetCost} widgets.`, '#ff5555');
+              redraw(); return;
+            }
+            state.storage.widgets -= node.widgetCost;
+            state.skills.courierCount = count + 1;
+            const ofDef = STATION_DEFS.find(s => s.label === 'OF');
+            state.workers.couriers.push({ x: ofDef.x+1, y: ofDef.y+2, courierState: 'idle', carryWidgets: 0, target: {x:0,y:0} });
+            state.couriersOwned++;
+            addLog(`${node.widgetCost} widgets consumed from storage. Courier built.`, '#cc66cc');
+          } else {
+            if (state.player.credits < node.cost) return;
+            state.player.credits -= node.cost;
+            state.skills.apprenticeCount = count + 1;
+            const ofDef = STATION_DEFS.find(s => s.label === 'OF');
+            state.workers.apprentices.push({ x: ofDef.x+1, y: ofDef.y+2, workerState: 'idle', carryRM: 0, carryWidgets: 0, target: {x:0,y:0}, craftTimer: 0, paused: false });
+            addLog(`${node.name} hired.`, '#cc66cc');
+          }
+          drawStatusBar(); redraw(); return;
+        }
+
+        // Scaling repeatable nodes
+        if (node.levelKey) {
+          const level = state.skills[node.levelKey] || 0;
+          if (level >= node.max) return;
+          const cost = node.costs[level];
+          if (state.player.credits < cost) return;
+          state.player.credits -= cost;
+          state.skills[node.levelKey] = level + 1;
+          addLog(`${node.name} upgraded to level ${level + 1}.`, '#cc66cc');
+          drawStatusBar(); redraw(); return;
+        }
+
+        // Standard flat-cost nodes
         if (node.requires && !state.skills[node.requires]) return;
         const level = state.skills[item.nk] || 0;
-        if (level >= node.max || state.player.credits < node.cost) return;
-        state.player.credits  -= node.cost;
-        state.skills[item.nk]  = level + 1;
-        if (item.nk === 'apprentice') {
-          const ofDef = STATION_DEFS.find(s => s.label === 'OF');
-          state.workers.apprentices.push({ x: ofDef.x+1, y: ofDef.y+2, workerState: 'idle', carryRM: 0, carryWidgets: 0, target: {x:0,y:0}, craftTimer: 0, paused: false });
-        }
-        if (item.nk === 'courier') {
-          const ofDef = STATION_DEFS.find(s => s.label === 'OF');
-          state.workers.couriers.push({ x: ofDef.x+1, y: ofDef.y+2, courierState: 'idle', carryWidgets: 0, target: {x:0,y:0} });
-          state.couriersOwned++;
-        }
+        if (level >= (node.max || 1) || state.player.credits < node.cost) return;
+        state.player.credits -= node.cost;
+        state.skills[item.nk] = level + 1;
         if (item.nk === 'storageExp1') { state.storage.widgetCap = 100; state.storage.rmCap = 100; }
         if (item.nk === 'storageExp2') { state.storage.widgetCap = 200; state.storage.rmCap = 200; }
         addLog(`${node.name} purchased.`, '#cc66cc');
-        drawStatusBar();
-        redraw();
-        return;
+        drawStatusBar(); redraw(); return;
       }
     }
   }
@@ -2890,7 +2996,7 @@ function showWorkerManagement() {
   state.gameState = 'menu';
   const apprentices = state.workers.apprentices;
   const n           = apprentices.length;
-  const carryMax    = 3 + state.skills.workerCarry;
+  const carryMax    = WORKER_CARRY_CAPS[state.skills.workerCarryLevel || 0];
 
   const BOX_W  = 64;
   const BOX_H  = 7 + 2 * n;
@@ -5248,8 +5354,8 @@ function tickApprentices() {
   const wbDef  = STATION_DEFS.find(s => s.label === 'WB');
   const rmDoor = { x: rmDef.x + 1, y: rmDef.y + 2 };  // (10, 4)
   const wbDoor = { x: wbDef.x + 1, y: wbDef.y + 2 };  // (35, 10)
-  const speed    = Math.max(1, Math.round(1 + state.skills.workerSpeed * 0.25));
-  const carryMax = 3 + state.skills.workerCarry;
+  const speed    = Math.max(1, Math.round(WORKER_SPEEDS[state.skills.workerSpeedLevel || 0]));
+  const carryMax = WORKER_CARRY_CAPS[state.skills.workerCarryLevel || 0];
 
   for (const w of state.workers.apprentices) {
     if (w.paused) continue; // worker is paused — skip all logic, position unchanged
@@ -5351,8 +5457,8 @@ function tickCouriers() {
   const stDoor = { x: stDef.x + 1, y: stDef.y + 2 };
   const mtDoor = { x: mtDef.x + 1, y: mtDef.y + 2 };
   const lfDoor = lfDef ? { x: lfDef.x + 1, y: lfDef.y + 2 } : null;
-  const speed    = Math.max(1, Math.round(1 + state.skills.courierSpeed * 0.5));
-  const carryMax = 10 + state.skills.courierCarry * 5;
+  const speed    = Math.max(1, Math.round(COURIER_SPEEDS[state.skills.courierSpeedLevel || 0]));
+  const carryMax = COURIER_CARRY_CAPS[state.skills.courierCarryLevel || 0];
   const PRICE    = state.marketPrice;
   const toRocket = state.courierDestination === 'rocket' && state.stations.launch_facility?.unlocked && lfDoor;
 
@@ -5487,6 +5593,11 @@ function devJumpToPhase(n) {
   if (n >= 2) {
     state.officeUnlocked = true;
     state.stations.storage.unlocked = true;
+    state.skills.apprenticeCount = 1;
+    state.skills.courierCount    = 0;
+    state.storage.widgets        = 30;
+    const ofDef = STATION_DEFS.find(s => s.label === 'OF');
+    if (ofDef) state.workers.apprentices.push({ x: ofDef.x+1, y: ofDef.y+2, workerState: 'idle', carryRM: 0, carryWidgets: 0, target: {x:0,y:0}, craftTimer: 0, paused: false });
     const stD = STATION_DEFS.find(s => s.label === 'ST');
     if (stD) { stD.wc = '#66ccff'; stD.lc = '#aaddff'; }
   }
