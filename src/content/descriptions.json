@@ -143,9 +143,9 @@
       "wall": "A stone building, solid. The lights are off and have been for some time.",
       "label": "The bank. Loans and interest. You'll need this eventually."
     },
-    "DV": {
+    "TR": {
       "wall": "A terminal of some kind. The screen is dark. The keyboard has too many keys.",
-      "label": "Derivatives terminal. You don't know what this is yet."
+      "label": "Terminal. You don't know what this is yet."
     }
   },
   "tiles": {
@@ -159,7 +159,7 @@
     "launch_facility": "A large structure in the corner, shrouded in canvas. Something tall is underneath. The canvas smells of grease and oxidizer.",
     "storage": "A warehouse you don't have keys for yet. The padlock is new. Someone anticipated filling this.",
     "bank": "A stone building. The hours are posted on the door but the times have been scratched out.",
-    "derivatives": "A terminal behind a locked panel. The screen is dark. You press a key. Nothing. You try again. Still nothing.",
+    "terminal": "A terminal behind a locked panel. The screen is dark. You press a key. Nothing. You try again. Still nothing.",
     "office_nodes": "A corkboard inside the Office, behind a door that won't open. The notes are in your own handwriting, somehow."
   }
 }

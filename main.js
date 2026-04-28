@@ -4,6 +4,7 @@ import {
   BG, BRIGHT_WHITE, BRIGHT_YELLOW, BRIGHT_CYAN, BRIGHT_MAGENTA, DIM_GRAY,
   LOG_SCROLL_SPEED,
   COLOR_LF_FRAME, COLOR_LF_LABEL,
+  COLOR_HINT_LINE,
 } from './constants.js';
 import { EffectsManager } from './src/effects.js';
 
@@ -113,7 +114,7 @@ const state = {
   debtDaysUnpaid:       0,
   demandCrashOccurred:  false,
   demandHistory:        [],
-  derivativesUnlocked:  false,
+  terminalUnlocked:     false,
   derivatives:          { forwards: [], futures: [], options: [], pnlToday: 0, totalPnL: 0, marginCallActive: false, marginCallDay: 0, nextSpreadId: 0 },
   volatility:           0.2,
   endingTriggered:      false,
@@ -194,7 +195,7 @@ function saveGame() {
     debtDaysUnpaid:       state.debtDaysUnpaid,
     demandCrashOccurred:  state.demandCrashOccurred,
     demandHistory:        state.demandHistory,
-    derivativesUnlocked:  state.derivativesUnlocked,
+    terminalUnlocked:     state.terminalUnlocked,
     derivatives:          state.derivatives,
     volatility:           state.volatility,
     endingTriggered:      state.endingTriggered,
@@ -234,6 +235,11 @@ function loadGame() {
     state.stepsWalked          = data.stepsWalked       ?? 0;
     state.stations             = data.stations          ?? { launch_facility: { unlocked: false }, storage: { unlocked: false } };
     state.stations.launch_facility = state.stations.launch_facility ?? { unlocked: false };
+    // Migration: rename old stations.derivatives → stations.terminal
+    if (state.stations.derivatives && !state.stations.terminal) {
+      state.stations.terminal = state.stations.derivatives;
+      delete state.stations.derivatives;
+    }
     state.officeUnlocked       = data.officeUnlocked    ?? false;
     state.storage              = data.storage           ?? { widgets: 0, rm: 0, widgetCap: 50, rmCap: 50 };
     state.workbenchWidgets     = data.workbenchWidgets  ?? 0;
@@ -250,7 +256,7 @@ function loadGame() {
     state.debtDaysUnpaid       = data.debtDaysUnpaid       ?? 0;
     state.demandCrashOccurred  = data.demandCrashOccurred  ?? false;
     state.demandHistory        = data.demandHistory        ?? [];
-    state.derivativesUnlocked  = data.derivativesUnlocked  ?? false;
+    state.terminalUnlocked     = data.terminalUnlocked ?? data.derivativesUnlocked ?? false;
     state.derivatives                    = data.derivatives ?? { forwards: [], futures: [], options: [], pnlToday: 0, totalPnL: 0, marginCallActive: false, marginCallDay: 0 };
     state.derivatives.forwards           = state.derivatives.forwards           ?? [];
     state.derivatives.futures            = state.derivatives.futures            ?? [];
@@ -321,11 +327,11 @@ fetch('src/content/descriptions.json')
 // ── §3.3 Title screen ─────────────────────────────────────────────────────────
 
 const TITLE_ART = [
-  "W       W IIII DDDD   GGGG  EEEE  TTTT EEEE  RRRR ",
-  "W       W  II  D  D  G     E       TT  E     R  R ",
-  "W   W   W  II  D  D  G GG  EEE     TT  EEE   RRRR ",
-  "W  W W  W  II  D  D  G  G  E       TT  E     R R  ",
-  " WW   WW  IIII DDDD   GGGG  EEEE   TT  EEEE  R  R ",
+  "W       W  IIII  DDD    GGGG  EEEE  TTTTTT  EEEE  RRRR ",
+  "W       W   II   D  D  G      E       TT    E     R  R ",
+  "W   W   W   II   D  D  G GG   EEE     TT    EEE   RRRR ",
+  "W  W W  W   II   D  D  G  G   E       TT    E     R R  ",
+  " WW   WW   IIII  DDD    GGGG  EEEE    TT    EEEE  R  R ",
 ];
 const PROMPT = "[ press any key to start ]";
 
@@ -427,40 +433,18 @@ function drawTimeIndicator() {
 
 function drawStatusBar() {
   drawRow(STATUS_ROW, '', BRIGHT_WHITE);
+  const inv = state.player.inventory;
+  const cap = state.player.inventoryCaps;
+  const widgetFg = inv.widgets >= cap.widgets ? '#ff5555' : BRIGHT_WHITE;
   const seg = (x, text, fg) => {
     for (let i = 0; i < text.length; i++) display.draw(x + i, STATUS_ROW, text[i], fg, BG);
     return x + text.length;
   };
-  const inv = state.player.inventory;
-  const cap = state.player.inventoryCaps;
-  const widgetFg = inv.widgets >= cap.widgets ? '#ff5555' : BRIGHT_WHITE;
   let sx = 0;
-  if (state.phase >= 2) {
-    const activeW = state.workers.apprentices.filter(w => w.workerState !== 'idle' && !w.paused).length;
-    const activeC = state.workers.couriers.filter(c => c.courierState === 'delivering' || c.courierState === 'loading').length;
-    sx = seg(sx, `CR:${formatCredits(state.player.credits)}`,            '#ffd633') + 1;
-    sx = seg(sx, `RM:${inv.rm}`,                           '#ff9933') + 1;
-    sx = seg(sx, `WG:${inv.widgets}/${cap.widgets}`,       widgetFg)  + 1;
-    sx = seg(sx, `D:${state.rmPurchasedToday}/${state.skills.bulkRM ? 200 : 100}`, '#ff9933') + 1;
-    sx = seg(sx, `W:${activeW}`,                           '#66ccff') + 1;
-    sx = seg(sx, `C:${activeC}`,                           '#cc66cc') + 1;
-    sx = seg(sx, `ST:${state.storage.widgets}/50`,         '#66ccff') + 1;
-    if (state.phase >= 3) {
-      sx = seg(sx, `P:${state.marketPrice}cr`, '#66cc66') + 1;
-      if (state.phase >= 4) {
-        const pnl = state.derivatives.pnlToday;
-        sx = seg(sx, `PnL:${pnl >= 0 ? '+' : ''}${pnl}cr`, '#cc66cc') + 1;
-      }
-      if (state.phase >= 5) {
-        seg(sx, `LF:${Math.floor(state.rocketWidgets / 1000)}k/1M`, '#ff5555');
-      }
-    }
-  } else {
-    sx = seg(sx, `Credits: ${formatCredits(state.player.credits)}`,       '#ffd633') + 4;
-    sx = seg(sx, `Raw: ${inv.rm}`,                         '#ff9933') + 4;
-    sx = seg(sx, `Widgets: ${inv.widgets}/${cap.widgets}`, widgetFg)  + 4;
-         seg(sx, `Day ${state.day}`,                       BRIGHT_WHITE);
-  }
+  sx = seg(sx, `Credits: ${formatCredits(state.player.credits)}`, BRIGHT_YELLOW) + 3;
+  sx = seg(sx, `Raw Materials: ${inv.rm}`, '#ff9933') + 3;
+  sx = seg(sx, `Widgets: ${inv.widgets}/${cap.widgets}`, widgetFg) + 3;
+       seg(sx, `Price: ${state.marketPrice}cr`, '#66cc66');
   drawTimeIndicator();
 }
 
@@ -471,7 +455,7 @@ const STATION_DEFS = [
   { x: 66, y: 34, label: 'LF', wc: DIM_GRAY, lc: DIM_GRAY },
   { x: 23, y: 32, label: 'ST', wc: DIM_GRAY,  lc: DIM_GRAY  },
   { x: 61, y:  4, label: 'BK', wc: DIM_GRAY,  lc: DIM_GRAY  },
-  { x: 56, y: 16, label: 'DV', wc: DIM_GRAY,  lc: DIM_GRAY  },
+  { x: 56, y: 16, label: 'TR', wc: DIM_GRAY,  lc: DIM_GRAY  },
   { x:  9, y:  2, label: 'RM', wc: '#ff6600', lc: '#ff6600' },
   { x: 34, y:  8, label: 'WB', wc: '#cc3300', lc: '#cc3300' },
   { x: 61, y: 23, label: 'MT', wc: '#ffd633', lc: '#ffd633' },
@@ -649,7 +633,7 @@ function buildTileMap() {
     if (bk3) { bk3.wc = '#66cc66'; bk3.lc = '#aaffaa'; }
   }
   if (state.phase >= 4) {
-    const dv4 = STATION_DEFS.find(s => s.label === 'DV');
+    const dv4 = STATION_DEFS.find(s => s.label === 'TR');
     if (dv4) { dv4.wc = '#cc66cc'; dv4.lc = '#cc66cc'; }
   }
   if (state.phase >= 5) {
@@ -677,7 +661,7 @@ function buildTileMap() {
     },
     ST: { wall: 'A warehouse, padlocked. Through the slats you can see empty pallets and a hand truck.' },
     BK: { wall: "Through the dusty window, you see a polished counter and a sign: 'NO INTEREST WITHOUT DEPOSIT.' The door is locked." },
-    DV: { wall: "A glass-fronted building with screens displaying numbers you don't yet understand. The door is locked. A small plaque reads: 'AUTHORIZED PERSONNEL ONLY.'" },
+    TR: { wall: "A glass-fronted building with screens displaying numbers you don't yet understand. The door is locked. A small plaque reads: 'AUTHORIZED PERSONNEL ONLY.'" },
     LF: state.phase >= 5
       ? { wall: 'A reinforced wall. Built to withstand something significant.', door: 'The entrance to the Launch Facility. The air smells of fuel and ambition.' }
       : { wall: 'A large structure, shrouded in canvas. Something tall is underneath. The canvas smells of grease and oxidizer.' },
@@ -745,7 +729,7 @@ function drawWorld() {
   // Command hint (§3.9)
   drawRow(HINT_ROW,
     "[arrows: move]  [space: interact]  [i: inventory]  [o: look]  [p: ponder]",
-    '#555555');
+    COLOR_HINT_LINE);
 }
 
 function startPhaseIn() {
@@ -958,7 +942,7 @@ function resetState() {
   state.debtDaysUnpaid       = 0;
   state.demandCrashOccurred  = false;
   state.demandHistory        = [];
-  state.derivativesUnlocked  = false;
+  state.terminalUnlocked     = false;
   state.derivatives          = { forwards: [], futures: [], options: [], pnlToday: 0, totalPnL: 0, marginCallActive: false, marginCallDay: 0 };
   state.volatility           = 0.2;
   state.endingTriggered      = false;
@@ -974,9 +958,11 @@ function resetState() {
   const lfDef = STATION_DEFS.find(s => s.label === 'LF');
   const stDef = STATION_DEFS.find(s => s.label === 'ST');
   const bkDef = STATION_DEFS.find(s => s.label === 'BK');
+  const trDef = STATION_DEFS.find(s => s.label === 'TR');
   if (lfDef) { lfDef.wc = DIM_GRAY; lfDef.lc = DIM_GRAY; }
   if (stDef) { stDef.wc = DIM_GRAY; stDef.lc = DIM_GRAY; }
   if (bkDef) { bkDef.wc = DIM_GRAY; bkDef.lc = DIM_GRAY; }
+  if (trDef) { trDef.wc = DIM_GRAY; trDef.lc = DIM_GRAY; }
 }
 
 function showNewGameConfirm() {
@@ -1809,13 +1795,13 @@ function checkPhase3Trigger() {
 function checkPhase4Trigger() {
   if (state.phase === 3 && (state.demandCrashOccurred || state.lifetimeCreditsEarned >= 2000)) {
     state.phase = 4;
-    state.derivativesUnlocked = true;
-    state.stations.derivatives = { unlocked: true };
+    state.terminalUnlocked = true;
+    state.stations.terminal = { unlocked: true };
     addLog('A man in a clean suit appears at the market.', '#cc66cc');
     setTimeout(() => addLog("He offers you a contract. Lock in tomorrow's price, he says.", '#cc66cc'), 2000);
     setTimeout(() => {
-      addLog('The Derivatives Terminal is now open.', '#cc66cc');
-      colorInStation('DV', '#cc66cc', '#cc66cc');
+      addLog('The Terminal is now open.', '#cc66cc');
+      colorInStation('TR', '#cc66cc', '#cc66cc');
     }, 4000);
   }
 }
@@ -2210,13 +2196,14 @@ function showOfficeMenu() {
   const IW    = 52;
   const AW    = 14;
   const IPW   = 37;
-  const BOX_H = 38;
+  const BOX_H = 40;
   const BOX_X = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
   const BOX_Y = Math.max(1, Math.floor((WORLD_ROWS - BOX_H) / 2));
   const RPX   = BOX_X + 1 + AW + 1;
   const PAGE_ROWS = 21;
   const CONT_X    = BOX_X + 1;
   let page = 0;
+  let activeTab = 0; // 0 = UPGRADES, 1 = WORKERS
 
   const OF_ART = [
     '  _________   ',
@@ -2354,10 +2341,6 @@ function showOfficeMenu() {
   }
 
   function redraw() {
-    const pages = getPages();
-    const pg    = pages[page] || [];
-    const total = pages.length;
-
     // Clear interior
     for (let r = 1; r < BOX_H - 1; r++)
       for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, BOX_Y + r, ' ', BRIGHT_WHITE, BG);
@@ -2381,67 +2364,137 @@ function showOfficeMenu() {
     { const ay = BOX_Y + 2; border(ay);
       for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '═', DC, BG); }
 
-    // Rows 3-12: art + divider + info
-    for (let r = 0; r < 10; r++) crow(BOX_Y + 3 + r, r);
-
-    // Info pane
-    drp(BOX_Y + 4, 'THE OFFICE', LC);
-    drp(BOX_Y + 5, 'Credits available:', '#555555');
-    // Large number — 5 rows tall, starts at +6, ends at +10
-    const crStr = String(Math.floor(state.player.credits));
-    if (crStr.length * 6 <= IPW) {
-      renderLargeNumber(display, RPX, BOX_Y + 6, crStr, '#ffd633');
-    } else {
-      drp(BOX_Y + 8, crStr, '#ffd633');
-    }
-    drp(BOX_Y + 11, `Phase:  ${state.phase}`, '#555555');
-    drp(BOX_Y + 12, `Lifetime:  ${formatCredits(state.lifetimeCreditsEarned)}cr`, '#555555');
-
-    // Row 13: ─ separator
-    { const ay = BOX_Y + 13; border(ay);
-      for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '─', DC, BG); }
-
-    // Content rows 14-34 (PAGE_ROWS = 21)
-    for (let i = 0; i < pg.length && i < PAGE_ROWS; i++) {
-      const row = pg[i];
-      const ay  = BOX_Y + 14 + i;
-      if (row.type === 'blank') { border(ay); continue; }
-      if (row.type === 'hdr') {
-        irow(ay, row.text, row.fg);
-      } else {
-        irow(ay, menuLine(row.k, row.label, row.cost, row.status), row.fg);
+    // Row 3: tab bar
+    { const ay = BOX_Y + 3;
+      border(ay);
+      const TAB_BAR = '       [ UPGRADES ]       │       [ WORKERS ]       ';
+      for (let i = 0; i < IW; i++) {
+        let fg = DC;
+        if (activeTab === 0 && i >= 7  && i <= 18) fg = LC;  // [ UPGRADES ]
+        if (activeTab === 1 && i >= 34 && i <= 44) fg = LC;  // [ WORKERS ]
+        display.draw(BOX_X + 1 + i, ay, TAB_BAR[i] || ' ', fg, BG);
       }
     }
-    // Fill remaining content rows with empty bordered rows
-    for (let i = pg.length; i < PAGE_ROWS; i++) {
-      const ay = BOX_Y + 14 + i;
-      border(ay);
-      for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, ay, ' ', BRIGHT_WHITE, BG);
-    }
 
-    // Row 35: ─ separator
-    { const ay = BOX_Y + 35; border(ay);
+    // Row 4: ─ separator
+    { const ay = BOX_Y + 4; border(ay);
       for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '─', DC, BG); }
 
-    // Row 36: status / pagination
-    const allOwned = SECTIONS.every(sec => sec.items.every(item => {
-      if (!item.nk) return true;
-      const { fg } = nodeStatus(item.nk);
-      return fg === '#888888';
-    }));
-    let statusText, statusFg;
-    if (state.phase < 2)  { statusText = 'Upgrades unlock at 100cr earned.'; statusFg = DC; }
-    else if (allOwned)    { statusText = 'All available upgrades owned.'; statusFg = '#66cc66'; }
-    else                  { statusText = 'Purchase upgrades with credits.'; statusFg = DC; }
-    const footer = total > 1 ? `TAB next page  (${page+1}/${total})` : statusText;
-    const footerFg = total > 1 ? DC : statusFg;
-    { const ay = BOX_Y + 36; border(ay);
-      const centered = menuPad(footer.length < IW ? ' '.repeat(Math.floor((IW - footer.length) / 2)) + footer : footer, IW);
-      for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, centered[i] || ' ', footerFg, BG); }
+    // Rows 5-14: art + divider + info
+    for (let r = 0; r < 10; r++) crow(BOX_Y + 5 + r, r);
 
-    // Row 37: ╚═╝
-    display.draw(BOX_X, BOX_Y + 37, '╚', TC, BG); display.draw(BOX_X + BOX_W - 1, BOX_Y + 37, '╝', TC, BG);
-    for (let i = 1; i < BOX_W - 1; i++) display.draw(BOX_X + i, BOX_Y + 37, '═', TC, BG);
+    // Info pane
+    drp(BOX_Y + 6, 'THE OFFICE', LC);
+    drp(BOX_Y + 7, 'Credits available:', '#555555');
+    // Large number — 5 rows tall, starts at +8, ends at +12
+    const crStr = String(Math.floor(state.player.credits));
+    if (crStr.length * 6 <= IPW) {
+      renderLargeNumber(display, RPX, BOX_Y + 8, crStr, '#ffd633');
+    } else {
+      drp(BOX_Y + 10, crStr, '#ffd633');
+    }
+    drp(BOX_Y + 13, `Phase:  ${state.phase}`, '#555555');
+    drp(BOX_Y + 14, `Lifetime:  ${formatCredits(state.lifetimeCreditsEarned)}cr`, '#555555');
+
+    // Row 15: ─ separator
+    { const ay = BOX_Y + 15; border(ay);
+      for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '─', DC, BG); }
+
+    if (activeTab === 0) {
+      // UPGRADES tab — content rows 16-36 (PAGE_ROWS = 21)
+      const pages = getPages();
+      const pg    = pages[page] || [];
+      const total = pages.length;
+
+      for (let i = 0; i < pg.length && i < PAGE_ROWS; i++) {
+        const row = pg[i];
+        const ay  = BOX_Y + 16 + i;
+        if (row.type === 'blank') { border(ay); continue; }
+        if (row.type === 'hdr') {
+          irow(ay, row.text, row.fg);
+        } else {
+          irow(ay, menuLine(row.k, row.label, row.cost, row.status), row.fg);
+        }
+      }
+      for (let i = pg.length; i < PAGE_ROWS; i++) {
+        const ay = BOX_Y + 16 + i;
+        border(ay);
+        for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, ay, ' ', BRIGHT_WHITE, BG);
+      }
+
+      // Row 37: ─ separator
+      { const ay = BOX_Y + 37; border(ay);
+        for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '─', DC, BG); }
+
+      // Row 38: status / pagination
+      const allOwned = SECTIONS.every(sec => sec.items.every(item => {
+        if (!item.nk) return true;
+        const { fg } = nodeStatus(item.nk);
+        return fg === '#888888';
+      }));
+      let statusText, statusFg;
+      if (state.phase < 2)  { statusText = 'Upgrades unlock at 100cr earned.'; statusFg = DC; }
+      else if (allOwned)    { statusText = 'All available upgrades owned.'; statusFg = '#66cc66'; }
+      else                  { statusText = 'Purchase upgrades with credits.'; statusFg = DC; }
+      const footer = total > 1 ? `TAB: page ${page+1}/${total} → WORKERS` : `TAB: switch to WORKERS tab`;
+      const footerFg = DC;
+      { const ay = BOX_Y + 38; border(ay);
+        const centered = menuPad(footer.length < IW ? ' '.repeat(Math.floor((IW - footer.length) / 2)) + footer : footer, IW);
+        for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, centered[i] || ' ', footerFg, BG); }
+
+    } else {
+      // WORKERS tab — content rows 16-36 (PAGE_ROWS = 21)
+      const apprentices = state.workers.apprentices;
+      const n           = apprentices.length;
+      const carryMax    = 3 + (state.skills.workerCarry || 0);
+
+      if (n === 0) {
+        irow(BOX_Y + 16, 'No workers hired. Purchase Apprentice in UPGRADES tab.', DC);
+        for (let i = 1; i < PAGE_ROWS; i++) {
+          border(BOX_Y + 16 + i);
+          for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, BOX_Y + 16 + i, ' ', BRIGHT_WHITE, BG);
+        }
+      } else {
+        let row = 0;
+        for (let i = 0; i < n && row < PAGE_ROWS; i++) {
+          const w       = apprentices[i];
+          const stStr   = (w.paused ? 'PAUSED' : w.workerState.toUpperCase()).padEnd(9);
+          const stFg    = w.paused ? '#ff5555' : '#66cc66';
+          const carry   = `carry: ${w.carryRM}/${carryMax} RM`;
+          const pos     = `pos: (${w.x}, ${w.y})`;
+          irow(BOX_Y + 16 + row, `Apprentice ${i+1}: ${stStr}   ${carry}   ${pos}`, BRIGHT_WHITE);
+          row++;
+          if (row < PAGE_ROWS) {
+            const mode = w.paused ? 'AUTO' : 'IDLE';
+            irow(BOX_Y + 16 + row, `  [${i+1}] Toggle → ${mode}`, stFg);
+            row++;
+          }
+          if (row < PAGE_ROWS) {
+            border(BOX_Y + 16 + row);
+            for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, BOX_Y + 16 + row, ' ', BRIGHT_WHITE, BG);
+            row++;
+          }
+        }
+        for (; row < PAGE_ROWS; row++) {
+          border(BOX_Y + 16 + row);
+          for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, BOX_Y + 16 + row, ' ', BRIGHT_WHITE, BG);
+        }
+      }
+
+      // Row 37: ─ separator
+      { const ay = BOX_Y + 37; border(ay);
+        for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '─', DC, BG); }
+
+      // Row 38: footer
+      { const ay = BOX_Y + 38; border(ay);
+        const footer = n > 0 ? 'Number keys toggle worker pause.  TAB: back to UPGRADES.' : 'TAB: back to UPGRADES tab.';
+        const centered = menuPad(footer.length < IW ? ' '.repeat(Math.floor((IW - footer.length) / 2)) + footer : footer, IW);
+        for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, centered[i] || ' ', DC, BG); }
+    }
+
+    // Row 39: ╚═╝
+    display.draw(BOX_X, BOX_Y + 39, '╚', TC, BG); display.draw(BOX_X + BOX_W - 1, BOX_Y + 39, '╝', TC, BG);
+    for (let i = 1; i < BOX_W - 1; i++) display.draw(BOX_X + i, BOX_Y + 39, '═', TC, BG);
   }
 
   redraw();
@@ -2462,10 +2515,28 @@ function showOfficeMenu() {
     if (e.key === 'Escape') { closeOffice(); return; }
     if (e.key === 'Tab') {
       e.preventDefault();
-      const pages = getPages();
-      page = (page + 1) % Math.max(1, pages.length);
+      if (activeTab === 0) {
+        const pages = getPages();
+        page = (page + 1) % Math.max(1, pages.length);
+        if (page === 0) activeTab = 1;
+      } else {
+        activeTab = 0;
+        page = 0;
+      }
       redraw(); return;
     }
+    if (activeTab === 1) {
+      // WORKERS tab — number keys toggle apprentice pause
+      const apprentices = state.workers.apprentices;
+      const idx = parseInt(e.key) - 1;
+      if (!isNaN(idx) && idx >= 0 && idx < apprentices.length) {
+        apprentices[idx].paused = !apprentices[idx].paused;
+        addLog(`Apprentice ${idx+1} ${apprentices[idx].paused ? 'paused' : 'resumed'}.`, '#66ccff');
+        redraw();
+      }
+      return;
+    }
+    // UPGRADES tab key handlers
     for (const sec of SECTIONS) {
       for (const item of sec.items) {
         if (!item.k || item.k !== e.key || !item.nk) continue;
@@ -2562,61 +2633,164 @@ function openStorageMenu() {
   if (!state.stations.storage.unlocked) return;
   state.gameState = 'menu';
 
-  const BOX_W  = 44;
-  const BOX_H  = 17;
-  const BOX_X  = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
-  const BOX_Y  = Math.max(10, Math.floor((WORLD_ROWS - BOX_H) / 2));
-  const CONT_X = BOX_X + 2;
-  const CONT_W = BOX_W - 4; // 40
-  const WC     = '#555555';
-  const st     = state.storage;
+  const TC    = '#66ccff';
+  const DC    = '#333333';
+  const LC    = '#ffffff';
+  const BOX_W = 54;
+  const IW    = 52;
+  const AW    = 14;
+  const IPW   = 37;
+  const BOX_H = 24;
+  const BOX_X = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
+  const BOX_Y = Math.max(1, Math.floor((WORLD_ROWS - BOX_H) / 2));
+  const RPX   = BOX_X + 1 + AW + 1;
 
-  function drawBar(row, label, current, max, barFg) {
-    const BAR_W  = 10;
-    const filled = max > 0 ? Math.min(Math.round(current / max * BAR_W), BAR_W) : 0;
-    const lbl    = label.padEnd(17);
-    const count  = `${current} / ${max}`.padStart(7);
-    for (let i = 0; i < 17; i++) display.draw(CONT_X+i, BOX_Y+row, lbl[i], BRIGHT_WHITE, BG);
-    display.draw(CONT_X+17, BOX_Y+row, '[', WC, BG);
-    for (let i = 0; i < BAR_W; i++)
-      display.draw(CONT_X+18+i, BOX_Y+row, i < filled ? '=' : ' ', i < filled ? barFg : WC, BG);
-    display.draw(CONT_X+28, BOX_Y+row, ']', WC, BG);
-    for (let i = 0; i < count.length; i++) display.draw(CONT_X+29+i, BOX_Y+row, count[i], BRIGHT_WHITE, BG);
+  const ST_ART = [
+    '  _________   ',
+    ' |  STORE  |  ',
+    ' |---------|  ',
+    ' |         |  ',
+    ' |  [###]  |  ',
+    ' |  [###]  |  ',
+    ' |  [###]  |  ',
+    ' |         |  ',
+    ' |_________|  ',
+    '              ',
+  ];
+
+  function crateFg() {
+    const st = state.storage;
+    const fill = Math.max(
+      st.widgetCap > 0 ? st.widgets / st.widgetCap : 0,
+      st.rmCap    > 0 ? st.rm      / st.rmCap     : 0
+    );
+    if (fill >= 1.0) return '#ff5555';
+    if (fill >= 0.7) return '#ff9933';
+    if (fill >= 0.4) return '#ffd633';
+    return '#66cc66';
+  }
+
+  function drawArtRow(r, ay) {
+    const s = ST_ART[r];
+    for (let i = 0; i < AW; i++) {
+      let fg = TC;
+      if (r === 1 && i >= 4 && i <= 8) fg = LC;               // STORE text
+      if (r >= 4 && r <= 6 && i >= 5 && i <= 7) fg = crateFg(); // [###] fill
+      display.draw(BOX_X + 1 + i, ay, s[i] || ' ', fg, BG);
+    }
+  }
+
+  function border(ay) {
+    display.draw(BOX_X, ay, '║', TC, BG);
+    display.draw(BOX_X + BOX_W - 1, ay, '║', TC, BG);
+  }
+
+  function irow(ay, text, fg) {
+    border(ay);
+    const p = menuPad(text, IW);
+    for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, p[i] || ' ', fg, BG);
+  }
+
+  function crow(ay, r) {
+    border(ay);
+    drawArtRow(r, ay);
+    display.draw(BOX_X + 1 + AW, ay, '│', DC, BG);
+    for (let i = 0; i < IPW; i++) display.draw(RPX + i, ay, ' ', BRIGHT_WHITE, BG);
+  }
+
+  function drp(ay, text, fg) {
+    const p = menuPad(text, IPW);
+    for (let i = 0; i < IPW; i++) display.draw(RPX + i, ay, p[i] || ' ', fg, BG);
   }
 
   function redraw() {
-    display.draw(BOX_X, BOX_Y, '+', WC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y, '+', WC, BG);
-    for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, BOX_Y, '-', WC, BG);
-    const botY = BOX_Y + BOX_H - 1;
-    display.draw(BOX_X, botY, '+', WC, BG); display.draw(BOX_X+BOX_W-1, botY, '+', WC, BG);
-    for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, botY, '-', WC, BG);
-    for (let y = 1; y < BOX_H-1; y++) {
-      display.draw(BOX_X, BOX_Y+y, '|', WC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y+y, '|', WC, BG);
-      for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, BOX_Y+y, ' ', BRIGHT_WHITE, BG);
+    const st  = state.storage;
+    const inv = state.player.inventory;
+    const cap = state.player.inventoryCaps;
+
+    // Clear interior
+    for (let r = 1; r < BOX_H - 1; r++)
+      for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, BOX_Y + r, ' ', BRIGHT_WHITE, BG);
+
+    // Row 0: ╔═╗
+    display.draw(BOX_X, BOX_Y, '╔', TC, BG); display.draw(BOX_X + BOX_W - 1, BOX_Y, '╗', TC, BG);
+    for (let i = 1; i < BOX_W - 1; i++) display.draw(BOX_X + i, BOX_Y, '═', TC, BG);
+
+    // Row 1: header
+    { const ay = BOX_Y + 1;
+      border(ay);
+      const title = 'Storage', hint = 'press esc to exit';
+      for (let i = 0; i < IW; i++) {
+        const ch = i < title.length ? title[i] : (i >= IW - hint.length ? hint[i-(IW-hint.length)] : ' ');
+        const fg = i < title.length ? LC : (i >= IW - hint.length ? DC : BRIGHT_WHITE);
+        display.draw(BOX_X + 1 + i, ay, ch, fg, BG);
+      }
     }
-    const TITLE = '– STORAGE –';
-    const titleX = CONT_X + Math.floor((CONT_W - TITLE.length) / 2);
-    for (let i = 0; i < TITLE.length; i++) display.draw(titleX+i, BOX_Y+1, TITLE[i], '#66ccff', BG);
-    drawBar(3, 'Widgets stored:', st.widgets, st.widgetCap, '#f0f0f0');
-    drawBar(4, 'Raw Materials:', st.rm, st.rmCap, '#ff9933');
-    for (let i = 0; i < CONT_W; i++) display.draw(CONT_X+i, BOX_Y+6, '-', WC, BG);
-    const ah = 'Auto-halt when full: ON';
-    for (let i = 0; i < ah.length; i++) display.draw(CONT_X+i, BOX_Y+8, ah[i], '#66cc66', BG);
-    for (const [idx, txt] of [
-      [0, '1. Take all widgets'], [1, '2. Deposit all widgets'],
-      [2, '3. Take all RM'],      [3, '4. Deposit all RM'],
-    ]) for (let j = 0; j < txt.length; j++) display.draw(CONT_X+j, BOX_Y+10+idx, txt[j], BRIGHT_WHITE, BG);
-    const ESC = 'ESC to close';
-    const escX = CONT_X + Math.floor((CONT_W - ESC.length) / 2);
-    for (let i = 0; i < ESC.length; i++) display.draw(escX+i, BOX_Y+BOX_H-2, ESC[i], WC, BG);
+
+    // Row 2: ═ separator
+    { const ay = BOX_Y + 2; border(ay);
+      for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '═', DC, BG); }
+
+    // Rows 3-12: art + divider + info
+    for (let r = 0; r < 10; r++) crow(BOX_Y + 3 + r, r);
+
+    // Info pane
+    drp(BOX_Y + 4, 'STORAGE', LC);
+    drp(BOX_Y + 5, 'Widgets in storage:', DC);
+    const wStr = String(st.widgets);
+    if (wStr.length * 6 <= IPW) {
+      renderLargeNumber(display, RPX, BOX_Y + 6, wStr, TC);
+    } else {
+      drp(BOX_Y + 8, wStr, TC);
+    }
+    drp(BOX_Y + 12, `RM: ${st.rm}/${st.rmCap}   Wgt: ${st.widgets}/${st.widgetCap}`, DC);
+
+    // Row 13: ─ separator
+    { const ay = BOX_Y + 13; border(ay);
+      for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '─', DC, BG); }
+
+    // Rows 14-15: inventory status
+    irow(BOX_Y + 14, `In hand:     RM ${inv.rm}/${cap.rm}   Widgets ${inv.widgets}/${cap.widgets}`, DC);
+    irow(BOX_Y + 15, `In storage:  RM ${st.rm}/${st.rmCap}   Widgets ${st.widgets}/${st.widgetCap}`, DC);
+
+    // Row 16: ─ separator
+    { const ay = BOX_Y + 16; border(ay);
+      for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '─', DC, BG); }
+
+    // Action rows 17-20
+    const canTakeW = st.widgets > 0 && inv.widgets < cap.widgets;
+    const canDepW  = inv.widgets > 0 && st.widgets < st.widgetCap;
+    const canTakeR = st.rm > 0 && inv.rm < cap.rm;
+    const canDepR  = inv.rm > 0 && st.rm < st.rmCap;
+
+    irow(BOX_Y + 17, '1. Take all widgets', canTakeW ? TC : '#555555');
+    irow(BOX_Y + 18, '2. Deposit all widgets', canDepW ? TC : '#555555');
+    irow(BOX_Y + 19, '3. Take all raw materials', canTakeR ? '#ff9933' : '#555555');
+    irow(BOX_Y + 20, '4. Deposit all raw materials', canDepR ? '#ff9933' : '#555555');
+
+    // Row 21: ═ separator
+    { const ay = BOX_Y + 21; border(ay);
+      for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '═', DC, BG); }
+
+    // Row 22: footer
+    { const ay = BOX_Y + 22; border(ay);
+      const txt = 'Auto-halt: production pauses when storage is full.';
+      const centered = menuPad(txt.length < IW ? ' '.repeat(Math.floor((IW - txt.length) / 2)) + txt : txt, IW);
+      for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, centered[i] || ' ', '#555555', BG); }
+
+    // Row 23: ╚═╝
+    display.draw(BOX_X, BOX_Y + 23, '╚', TC, BG); display.draw(BOX_X + BOX_W - 1, BOX_Y + 23, '╝', TC, BG);
+    for (let i = 1; i < BOX_W - 1; i++) display.draw(BOX_X + i, BOX_Y + 23, '═', TC, BG);
   }
 
+  storageMenuRedrawFn = redraw;
   redraw();
 
   function closeStorage() {
+    storageMenuRedrawFn = null;
     window.removeEventListener('keydown', storageKeyHandler);
-    for (let y = BOX_Y; y < BOX_Y+BOX_H; y++)
-      for (let x = BOX_X; x < BOX_X+BOX_W; x++)
+    for (let y = BOX_Y; y < BOX_Y + BOX_H; y++)
+      for (let x = BOX_X; x < BOX_X + BOX_W; x++)
         if (x >= 0 && x < DISPLAY_WIDTH && y >= 0 && y < WORLD_ROWS) markDirty(x, y);
     renderDirty();
     display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
@@ -2627,25 +2801,26 @@ function openStorageMenu() {
     if (e.key === 'Escape') { closeStorage(); return; }
     const inv = state.player.inventory;
     const cap = state.player.inventoryCaps;
+    const st  = state.storage;
     if (e.key === '1') {
       const take = Math.min(st.widgets, cap.widgets - inv.widgets);
       if (take > 0) { st.widgets -= take; inv.widgets += take;
-        addLog(`You take ${take} widget${take !== 1 ? 's' : ''} from storage.`, BRIGHT_CYAN);
+        addLog(`You take ${take} widget${take !== 1 ? 's' : ''} from storage.`, TC);
         drawStatusBar(); redraw(); }
     } else if (e.key === '2') {
       const dep = Math.min(inv.widgets, st.widgetCap - st.widgets);
       if (dep > 0) { inv.widgets -= dep; st.widgets += dep;
-        addLog(`You deposit ${dep} widget${dep !== 1 ? 's' : ''} into storage.`, BRIGHT_CYAN);
+        addLog(`You deposit ${dep} widget${dep !== 1 ? 's' : ''} into storage.`, TC);
         drawStatusBar(); redraw(); }
     } else if (e.key === '3') {
       const take = Math.min(st.rm, cap.rm - inv.rm);
       if (take > 0) { st.rm -= take; inv.rm += take;
-        addLog(`You take ${take} raw material${take !== 1 ? 's' : ''} from storage.`, BRIGHT_CYAN);
+        addLog(`You take ${take} raw material${take !== 1 ? 's' : ''} from storage.`, '#ff9933');
         drawStatusBar(); redraw(); }
     } else if (e.key === '4') {
       const dep = Math.min(inv.rm, st.rmCap - st.rm);
       if (dep > 0) { inv.rm -= dep; st.rm += dep;
-        addLog(`You deposit ${dep} raw material${dep !== 1 ? 's' : ''} into storage.`, BRIGHT_CYAN);
+        addLog(`You deposit ${dep} raw material${dep !== 1 ? 's' : ''} into storage.`, '#ff9933');
         drawStatusBar(); redraw(); }
     }
   }
@@ -2835,82 +3010,172 @@ function openBankMenu() {
   if (!state.stations.bank || !state.stations.bank.unlocked) return;
   state.gameState = 'menu';
 
-  const BOX_W  = 56;
-  const BOX_H  = 22;
-  const BOX_X  = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
-  const BOX_Y  = Math.max(2, Math.floor((WORLD_ROWS - BOX_H) / 2));
-  const CONT_X = BOX_X + 2;
-  const CONT_W = BOX_W - 4;
-  const WC     = '#555555';
-  const GC     = '#66cc66';
+  const TC    = '#66cc66';
+  const DC    = '#333333';
+  const LC    = '#ffffff';
+  const BOX_W = 54;
+  const IW    = 52;
+  const AW    = 14;
+  const IPW   = 37;
+  const BOX_H = 28;
+  const BOX_X = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
+  const BOX_Y = Math.max(1, Math.floor((WORLD_ROWS - BOX_H) / 2));
+  const RPX   = BOX_X + 1 + AW + 1;
 
-  function line(row, text, fg) {
-    for (let i = 0; i < text.length; i++) display.draw(CONT_X+i, BOX_Y+row, text[i], fg, BG);
+  const BK_ART = [
+    '  _________   ',
+    ' |  BANK   |  ',
+    ' |---------|  ',
+    ' |  _____  |  ',
+    ' | |VAULT| |  ',
+    ' | |     | |  ',
+    ' | |_____| |  ',
+    ' |---------|  ',
+    ' |_________|  ',
+    '              ',
+  ];
+
+  function drawArtRow(r, ay) {
+    const s = BK_ART[r];
+    for (let i = 0; i < AW; i++) {
+      let fg = TC;
+      if (r === 1 && i >= 4 && i <= 7) fg = LC;          // BANK text
+      if (r === 4 && i >= 4 && i <= 8) fg = '#ffd633';   // VAULT text
+      display.draw(BOX_X + 1 + i, ay, s[i] || ' ', fg, BG);
+    }
   }
-  function centered(row, text, fg) {
-    const cx = CONT_X + Math.floor((CONT_W - text.length) / 2);
-    for (let i = 0; i < text.length; i++) display.draw(cx+i, BOX_Y+row, text[i], fg, BG);
+
+  function border(ay) {
+    display.draw(BOX_X, ay, '║', TC, BG);
+    display.draw(BOX_X + BOX_W - 1, ay, '║', TC, BG);
+  }
+
+  function irow(ay, text, fg) {
+    border(ay);
+    const p = menuPad(text, IW);
+    for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, p[i] || ' ', fg, BG);
+  }
+
+  function crow(ay, r) {
+    border(ay);
+    drawArtRow(r, ay);
+    display.draw(BOX_X + 1 + AW, ay, '│', DC, BG);
+    for (let i = 0; i < IPW; i++) display.draw(RPX + i, ay, ' ', BRIGHT_WHITE, BG);
+  }
+
+  function drp(ay, text, fg) {
+    const p = menuPad(text, IPW);
+    for (let i = 0; i < IPW; i++) display.draw(RPX + i, ay, p[i] || ' ', fg, BG);
   }
 
   function redraw() {
-    display.draw(BOX_X, BOX_Y, '+', GC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y, '+', GC, BG);
-    for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, BOX_Y, '-', GC, BG);
-    const bY = BOX_Y + BOX_H - 1;
-    display.draw(BOX_X, bY, '+', GC, BG); display.draw(BOX_X+BOX_W-1, bY, '+', GC, BG);
-    for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, bY, '-', GC, BG);
-    for (let y = 1; y < BOX_H-1; y++) {
-      display.draw(BOX_X, BOX_Y+y, '|', GC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y+y, '|', GC, BG);
-      for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, BOX_Y+y, ' ', BRIGHT_WHITE, BG);
+    // Clear interior
+    for (let r = 1; r < BOX_H - 1; r++)
+      for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, BOX_Y + r, ' ', BRIGHT_WHITE, BG);
+
+    // Row 0: ╔═╗
+    display.draw(BOX_X, BOX_Y, '╔', TC, BG); display.draw(BOX_X + BOX_W - 1, BOX_Y, '╗', TC, BG);
+    for (let i = 1; i < BOX_W - 1; i++) display.draw(BOX_X + i, BOX_Y, '═', TC, BG);
+
+    // Row 1: header
+    { const ay = BOX_Y + 1;
+      border(ay);
+      const title = 'The Bank', hint = 'press esc to exit';
+      for (let i = 0; i < IW; i++) {
+        const ch = i < title.length ? title[i] : (i >= IW - hint.length ? hint[i-(IW-hint.length)] : ' ');
+        const fg = i < title.length ? LC : (i >= IW - hint.length ? DC : BRIGHT_WHITE);
+        display.draw(BOX_X + 1 + i, ay, ch, fg, BG);
+      }
     }
 
-    centered(1, '– BANK –', GC);
+    // Row 2: ═ separator
+    { const ay = BOX_Y + 2; border(ay);
+      for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '═', DC, BG); }
 
-    // Deposit section
+    // Rows 3-12: art + info
+    for (let r = 0; r < 10; r++) crow(BOX_Y + 3 + r, r);
+
+    // Info pane
     const dep = state.bank.deposit;
-    line(3, `Deposit balance: ${dep.toFixed(1)}cr`, GC);
-    const availDep = Math.max(0, state.player.credits - 10);
-    line(4, `1. Deposit all             ${availDep > 0 ? `[+${availDep}cr available]` : '[need more than 10cr]'}`, availDep > 0 ? GC : WC);
-    line(5, `2. Deposit custom amount   ${availDep > 0 ? '[enter amount]' : '[need more than 10cr]'}`, availDep > 0 ? GC : WC);
-    line(6, `3. Withdraw all            ${dep > 0 ? `[${dep.toFixed(1)}cr]` : '[no deposit]'}`, dep > 0 ? GC : WC);
-
-    for (let i = 0; i < CONT_W; i++) display.draw(CONT_X+i, BOX_Y+8, '.', WC, BG);
-
-    // Loan section
     const loan = state.bank.loan;
+    drp(BOX_Y + 4, 'THE BANK', LC);
+    drp(BOX_Y + 5, 'Deposit balance:', DC);
+    const depStr = String(Math.floor(dep));
+    if (depStr.length * 6 <= IPW) {
+      renderLargeNumber(display, RPX, BOX_Y + 6, depStr, TC);
+    } else {
+      drp(BOX_Y + 8, depStr + 'cr', TC);
+    }
+    drp(BOX_Y + 12, loan ? `Loan: ${loan.remaining.toFixed(1)}cr @ ${(loan.rate*100).toFixed(1)}%` : 'No active loan.', loan ? '#ffd633' : DC);
+
+    // Row 13: ─ separator
+    { const ay = BOX_Y + 13; border(ay);
+      for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '─', DC, BG); }
+
+    // Deposit section rows 14-17
+    const availDep = Math.max(0, state.player.credits - 10);
+    irow(BOX_Y + 14, `Deposit on account: ${dep.toFixed(1)}cr`, TC);
+    irow(BOX_Y + 15, `1. Deposit all             ${availDep > 0 ? `[+${availDep}cr]` : '[need >10cr]'}`, availDep > 0 ? TC : '#555555');
+    irow(BOX_Y + 16, `2. Deposit custom amount   ${availDep > 0 ? '[enter amount]' : '[need >10cr]'}`, availDep > 0 ? TC : '#555555');
+    irow(BOX_Y + 17, `3. Withdraw all            ${dep > 0 ? `[${dep.toFixed(1)}cr]` : '[no deposit]'}`, dep > 0 ? TC : '#555555');
+
+    // Row 18: ─ separator
+    { const ay = BOX_Y + 18; border(ay);
+      for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '─', DC, BG); }
+
+    // Loan section rows 19-24
     const loanLimit = Math.floor(state.lifetimeCreditsEarned * 0.5);
     if (loan) {
       const daysLeft = loan.deadline - state.day;
       const rateStr  = (loan.rate * 100).toFixed(1);
       const owed     = loan.remaining.toFixed(1);
       if (daysLeft >= 0) {
-        line(9,  `Active loan: ${owed}cr at ${rateStr}%/day`, '#ffd633');
-        line(10, `  Deadline: day ${loan.deadline} — ${daysLeft} day${daysLeft !== 1 ? 's' : ''} remaining`, '#ffd633');
+        irow(BOX_Y + 19, `Active loan: ${owed}cr at ${rateStr}%/day`, '#ffd633');
+        irow(BOX_Y + 20, `  Deadline: day ${loan.deadline} — ${daysLeft} day${daysLeft !== 1 ? 's' : ''} left`, '#ffd633');
       } else {
-        line(9,  `OVERDUE LOAN: ${owed}cr at ${rateStr}%/day`, '#ff5555');
-        line(10, `  ${Math.abs(daysLeft)} day${Math.abs(daysLeft) !== 1 ? 's' : ''} overdue — REPAY IMMEDIATELY`, '#ff5555');
+        irow(BOX_Y + 19, `OVERDUE LOAN: ${owed}cr at ${rateStr}%/day`, '#ff5555');
+        irow(BOX_Y + 20, `  ${Math.abs(daysLeft)} day${Math.abs(daysLeft) !== 1 ? 's' : ''} overdue — REPAY IMMEDIATELY`, '#ff5555');
       }
     } else {
-      line(9, `No active loan.  Loan limit: ${loanLimit}cr`, WC);
+      irow(BOX_Y + 19, `No active loan.  Limit: ${loanLimit}cr`, DC);
+      irow(BOX_Y + 20, '', BRIGHT_WHITE);
     }
 
     const can4 = !loan && loanLimit > 0;
-    line(12, `4. Take loan               ${can4 ? `[limit: ${loanLimit}cr]` : (loan ? '[loan active]' : '[insufficient history]')}`, can4 ? GC : WC);
     const can5 = !!loan;
-    line(13, `5. Repay loan              ${can5 ? `[owed: ${loan.remaining.toFixed(1)}cr]` : '[no loan]'}`, can5 ? (state.player.credits >= loan.remaining ? GC : '#ff9933') : WC);
-    const daysLeft2   = loan ? loan.deadline - state.day : 999;
+    const daysLeft2 = loan ? loan.deadline - state.day : 999;
     const can6 = !!loan && daysLeft2 <= 5 && loan.rate < 0.05;
-    line(14, `6. Refinance loan          ${can6 ? '[within refi window]' : (!loan ? '[no loan]' : (loan.rate >= 0.05 ? '[rate cap reached]' : '[>5 days to deadline]'))}`, can6 ? '#ff9933' : WC);
+
+    irow(BOX_Y + 21, `4. Take loan               ${can4 ? `[limit: ${loanLimit}cr]` : (loan ? '[loan active]' : '[insufficient history]')}`, can4 ? TC : '#555555');
+    irow(BOX_Y + 22, `5. Repay loan              ${can5 ? `[owed: ${loan.remaining.toFixed(1)}cr]` : '[no loan]'}`, can5 ? (state.player.credits >= loan.remaining ? TC : '#ff9933') : '#555555');
+    irow(BOX_Y + 23, `6. Refinance loan          ${can6 ? '[within refi window]' : (!loan ? '[no loan]' : (loan.rate >= 0.05 ? '[rate cap reached]' : '[>5 days left]'))}`, can6 ? '#ff9933' : '#555555');
 
     if (state.debt > 0) {
-      line(16, `Outstanding debt: ${formatCredits(state.debt)}cr`, '#ff5555');
+      irow(BOX_Y + 24, `Outstanding debt: ${formatCredits(state.debt)}cr`, '#ff5555');
+    } else {
+      irow(BOX_Y + 24, '', BRIGHT_WHITE);
     }
 
-    centered(BOX_H-2, 'ESC to close', WC);
+    // Row 25: ═ separator
+    { const ay = BOX_Y + 25; border(ay);
+      for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '═', DC, BG); }
+
+    // Row 26: footer
+    { const ay = BOX_Y + 26; border(ay);
+      const txt = 'Loans: 1%/day. Keep an eye on the deadline.';
+      const centered = menuPad(txt.length < IW ? ' '.repeat(Math.floor((IW - txt.length) / 2)) + txt : txt, IW);
+      for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, centered[i] || ' ', '#555555', BG); }
+
+    // Row 27: ╚═╝
+    display.draw(BOX_X, BOX_Y + 27, '╚', TC, BG); display.draw(BOX_X + BOX_W - 1, BOX_Y + 27, '╝', TC, BG);
+    for (let i = 1; i < BOX_W - 1; i++) display.draw(BOX_X + i, BOX_Y + 27, '═', TC, BG);
   }
 
+  bankMenuRedrawFn = redraw;
   redraw();
 
   function closeBank() {
+    bankMenuRedrawFn = null;
     window.removeEventListener('keydown', bankKeyHandler);
     for (let y = BOX_Y; y < BOX_Y + BOX_H; y++)
       for (let x = BOX_X; x < BOX_X + BOX_W; x++)
@@ -2929,7 +3194,7 @@ function openBankMenu() {
       if (amt <= 0) return;
       state.bank.deposit       = Math.round((state.bank.deposit + amt) * 10) / 10;
       state.player.credits     = 10;
-      addLog(`Deposited ${amt}cr.`, GC);
+      addLog(`Deposited ${amt}cr.`, TC);
       drawStatusBar(); redraw();
       return;
     }
@@ -2937,8 +3202,9 @@ function openBankMenu() {
       const maxDep = Math.max(0, state.player.credits - 10);
       if (maxDep <= 0) return;
       window.removeEventListener('keydown', bankKeyHandler);
+      bankMenuRedrawFn = null;
       showNumericPrompt('Deposit Amount', maxDep,
-        (val) => { state.bank.deposit = Math.round((state.bank.deposit + val) * 10) / 10; state.player.credits -= val; addLog(`Deposited ${val}cr.`, GC); drawStatusBar(); openBankMenu(); },
+        (val) => { state.bank.deposit = Math.round((state.bank.deposit + val) * 10) / 10; state.player.credits -= val; addLog(`Deposited ${val}cr.`, TC); drawStatusBar(); openBankMenu(); },
         () => openBankMenu()
       );
       return;
@@ -2948,7 +3214,7 @@ function openBankMenu() {
       const amt = state.bank.deposit;
       state.player.credits = Math.round((state.player.credits + amt) * 10) / 10;
       state.bank.deposit   = 0;
-      addLog(`Withdrew ${amt.toFixed(1)}cr from deposit.`, GC);
+      addLog(`Withdrew ${amt.toFixed(1)}cr from deposit.`, TC);
       drawStatusBar(); redraw();
       return;
     }
@@ -2957,6 +3223,7 @@ function openBankMenu() {
       const loanLimit = Math.floor(state.lifetimeCreditsEarned * 0.5);
       if (loanLimit <= 0) return;
       window.removeEventListener('keydown', bankKeyHandler);
+      bankMenuRedrawFn = null;
       showNumericPrompt('Loan Amount', loanLimit,
         (val) => {
           state.bank.loan = { principal: val, remaining: val, rate: 0.01, dayTaken: state.day, deadline: state.day + 20, refinanceCount: 0, overdueDays: 0 };
@@ -2972,7 +3239,7 @@ function openBankMenu() {
       if (!loan || state.player.credits <= 0) return;
       if (state.player.credits >= loan.remaining) {
         state.player.credits -= loan.remaining;
-        addLog(`Loan of ${loan.remaining.toFixed(1)}cr repaid in full.`, GC);
+        addLog(`Loan of ${loan.remaining.toFixed(1)}cr repaid in full.`, TC);
         state.bank.loan = null;
       } else {
         const partial = state.player.credits;
@@ -3085,6 +3352,8 @@ let wbMenuRedrawFn     = null;
 let wbMenuCloseFn      = null;
 let mtMenuRedrawFn     = null;
 let mtMenuBlinkOn      = true;
+let storageMenuRedrawFn = null;
+let bankMenuRedrawFn    = null;
 
 function checkAbstractionCollapse() {
   if (state.endingTriggered || state.derivatives.totalPnL < 50000) return;
@@ -3423,7 +3692,7 @@ function showPositionsDashboard() {
 }
 
 function openDerivativesMenu() {
-  if (!state.stations.derivatives?.unlocked) return;
+  if (!state.stations.terminal?.unlocked) return;
   state.gameState = 'dv_menu';
 
   // ── Constants ─────────────────────────────────────────────────────────────
@@ -4521,15 +4790,15 @@ function handleInteract() {
   if (mt && isAdjacentToStation(mt)) { openMarketMenu(); return; }
   const of = STATION_DEFS.find(s => s.label === 'OF');
   if (of && isAdjacentToStation(of)) {
-    state.officeUnlocked ? showOfficeDispatch() : showOfficeMenu();
+    showOfficeMenu();
     return;
   }
   const stStation = STATION_DEFS.find(s => s.label === 'ST');
   if (stStation && isAdjacentToStation(stStation)) { openStorageMenu(); return; }
   const bkStation = STATION_DEFS.find(s => s.label === 'BK');
   if (bkStation && isAdjacentToStation(bkStation)) { openBankMenu(); return; }
-  const dvStation = STATION_DEFS.find(s => s.label === 'DV');
-  if (dvStation && isAdjacentToStation(dvStation)) { openDerivativesMenu(); return; }
+  const trStation = STATION_DEFS.find(s => s.label === 'TR');
+  if (trStation && isAdjacentToStation(trStation)) { openDerivativesMenu(); return; }
   const lfStation = STATION_DEFS.find(s => s.label === 'LF');
   if (lfStation && isAdjacentToStation(lfStation) && state.stations.launch_facility?.unlocked) { openLFMenu(); return; }
   // Remote crafting via INTERFACING skill (not adjacent to workbench)
@@ -5170,9 +5439,9 @@ function devJumpToPhase(n) {
     state.widgetsSoldToday = 0;
   }
   if (n >= 4) {
-    state.stations.derivatives = { unlocked: true };
-    state.derivativesUnlocked  = true;
-    const dvD = STATION_DEFS.find(s => s.label === 'DV');
+    state.stations.terminal = { unlocked: true };
+    state.terminalUnlocked  = true;
+    const dvD = STATION_DEFS.find(s => s.label === 'TR');
     if (dvD) { dvD.wc = '#cc66cc'; dvD.lc = '#cc66cc'; }
   }
   if (n >= 5) {
@@ -5627,6 +5896,8 @@ setInterval(() => {
   if (wbMenuRedrawFn) wbMenuRedrawFn();
   if (mtMenuRedrawFn) { mtMenuBlinkOn = !mtMenuBlinkOn; mtMenuRedrawFn(); }
   if (dvMenuRedrawFn) dvMenuRedrawFn();
+  if (storageMenuRedrawFn) storageMenuRedrawFn();
+  if (bankMenuRedrawFn) bankMenuRedrawFn();
 
   // Live-refresh LF menu + rocket animation frame
   if (state.gameState === 'lf_menu') {

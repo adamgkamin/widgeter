@@ -15,6 +15,7 @@ export const LOG_SCROLL_SPEED = 2;
 // Launch Facility map colors (§4.2)
 export const COLOR_LF_FRAME = '#ff5555';
 export const COLOR_LF_LABEL = '#ff8888';
+export const COLOR_HINT_LINE = '#2a2a3a';
 
 // §3.1 — Screen layout
 export const DISPLAY_WIDTH  = 80;
