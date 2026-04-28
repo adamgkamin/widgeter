@@ -1430,12 +1430,12 @@ function openRMShedMenu() {
 
     // Populate info pane
     drp(BOX_Y + 4, 'RAW MATERIALS', TC);
-    drp(BOX_Y + 6, 'In inventory:', '#555555');
+    drp(BOX_Y + 5, 'In inventory:', '#555555');
 
-    // Large number: rm/cap
+    // Large number: rm/cap (5 rows tall, starts at +6, ends at +10)
     const numStr = `${rm}/${rmCap}`;
     if (numStr.length * 6 <= IPW) {
-      renderLargeNumber(display, RPX, BOX_Y + 7, numStr, TC);
+      renderLargeNumber(display, RPX, BOX_Y + 6, numStr, TC);
     } else {
       drp(BOX_Y + 8, `${rm} / ${rmCap}`, '#f0f0f0');
     }
@@ -1660,9 +1660,10 @@ function openWorkbenchMenu() {
 
     // Info pane
     drp(BOX_Y + 4, 'WORKBENCH', TC);
-    drp(BOX_Y + 6, 'Materials:', '#555555');
+    drp(BOX_Y + 5, 'Materials:', '#555555');
+    // Large number — 5 rows tall, starts at +6, ends at +10
     if (String(rm).length * 6 <= IPW) {
-      renderLargeNumber(display, RPX, BOX_Y + 7, String(rm), '#ff9933');
+      renderLargeNumber(display, RPX, BOX_Y + 6, String(rm), '#ff9933');
     } else {
       drp(BOX_Y + 8, String(rm), '#ff9933');
     }
@@ -2081,10 +2082,11 @@ function openMarketMenu() {
     if (mtMenuBlinkOn) {
       drp(BOX_Y + 5, state.marketOpen ? 'OPEN' : 'CLOSED', state.marketOpen ? '#66cc66' : '#ff5555');
     }
-    drp(BOX_Y + 7, 'Widgets in hand:', '#555555');
+    drp(BOX_Y + 6, 'Widgets in hand:', '#555555');
+    // Large number — 5 rows tall, starts at +7, ends at +11
     const wStr = String(widgets);
     if (wStr.length * 6 <= IPW) {
-      renderLargeNumber(display, RPX, BOX_Y + 8, wStr, '#f0f0f0');
+      renderLargeNumber(display, RPX, BOX_Y + 7, wStr, '#f0f0f0');
     } else {
       drp(BOX_Y + 9, wStr, '#f0f0f0');
     }
@@ -2404,10 +2406,11 @@ function showOfficeMenu() {
 
     // Info pane
     drp(BOX_Y + 4, 'THE OFFICE', LC);
-    drp(BOX_Y + 6, 'Credits available:', '#555555');
+    drp(BOX_Y + 5, 'Credits available:', '#555555');
+    // Large number — 5 rows tall, starts at +6, ends at +10
     const crStr = String(Math.floor(state.player.credits));
     if (crStr.length * 6 <= IPW) {
-      renderLargeNumber(display, RPX, BOX_Y + 7, crStr, '#ffd633');
+      renderLargeNumber(display, RPX, BOX_Y + 6, crStr, '#ffd633');
     } else {
       drp(BOX_Y + 8, crStr, '#ffd633');
     }
@@ -3603,19 +3606,19 @@ function showForwardPositions() {
 // ── Large digit renderer (§9) ─────────────────────────────────────────────────
 
 const LARGE_DIGITS = {
-  '0': [' ███ ','█   █',' ███ '],
-  '1': ['  █  ','  █  ','  █  '],
-  '2': ['████ ','  ███','████ '],
-  '3': ['████ ',' ███ ','████ '],
-  '4': ['█   █',' ████','    █'],
-  '5': [' ████','███  ',' ███ '],
-  '6': [' ████','████ ',' ███ '],
-  '7': ['████ ','   █ ','   █ '],
-  '8': [' ███ ',' ███ ',' ███ '],
-  '9': [' ███ ',' ████',' ███ '],
-  ',': ['     ','     ','  ,  '],
-  '/': ['    █','  █  ','█    '],
-  ' ': ['     ','     ','     '],
+  '0': ['┌───┐','│   │','│   │','│   │','└───┘'],
+  '1': ['  ╷  ','  │  ','  │  ','  │  ','  ╵  '],
+  '2': ['╶───┐','    │','┌───┘','│    ','└───╴'],
+  '3': ['╶───┐','    │',' ───┤','    │','╶───┘'],
+  '4': ['┐   ┐','│   │','└───┤','    │','    ╵'],
+  '5': ['┌───╴','│    ','└───┐','    │','╶───┘'],
+  '6': ['┌───╴','│    ','├───┐','│   │','└───┘'],
+  '7': ['╶───┐','    │','    │','    │','    ╵'],
+  '8': ['┌───┐','│   │','├───┤','│   │','└───┘'],
+  '9': ['┌───┐','│   │','└───┤','    │','╶───┘'],
+  ',': ['     ','     ','     ','  ,  ',' /   '],
+  '/': ['    ╱','   ╱ ','  ╱  ',' ╱   ','╱    '],
+  ' ': ['     ','     ','     ','     ','     '],
 };
 
 // Shared menu utility — pads to exact width, hard-truncates with … if over
@@ -3629,7 +3632,7 @@ function renderLargeNumber(display, x, y, numberString, color) {
     const ch    = numberString[ci];
     const pat   = LARGE_DIGITS[ch] || LARGE_DIGITS[' '];
     const ox    = x + ci * 6;
-    for (let row = 0; row < 3; row++) {
+    for (let row = 0; row < 5; row++) {
       const line = pat[row];
       for (let col = 0; col < 5; col++) {
         const sx = ox + col, sy = y + row;
@@ -3783,13 +3786,13 @@ function openLFMenu() {
       for (let i = 0; i < RW; i++) display.draw(RP + i, ay, line[i] || ' ', fg, BG);
     }
 
-    rpt(6,  'WIDGETS LOADED', WC);
+    rpt(4,  'WIDGETS LOADED', WC);
 
-    // Large digit display (rows 7-9)
+    // Large digit display (rows 5-9, 5 rows tall)
     const rw     = Math.min(state.rocketWidgets, 1000000);
     const numStr = rw.toLocaleString('en-US');
     const numFg  = rw >= 900000 ? '#ff5555' : rw >= 500000 ? '#ff9933' : '#ffd633';
-    renderLargeNumber(display, RP, BOX_Y + 7, numStr, numFg);
+    renderLargeNumber(display, RP, BOX_Y + 5, numStr, numFg);
 
     rpt(10, '/ 1,000,000', WC);
 
@@ -4516,6 +4519,7 @@ function startDayNightFlash(type) {
 }
 
 function _advanceDayNightWave() {
+  if (state.gameState !== 'playing') return; // pause wave behind any open menu
   if (!dayNightFlash) return;
 
   if (dayNightFlash.frame >= 120) {
@@ -4914,7 +4918,8 @@ setInterval(() => {
   }
 
   // Pond shimmer — §4.2
-  if (state.tick % 8 === 0 && shimmerTiles.length >= 2) {
+  if (state.tick % 8 === 0 && shimmerTiles.length >= 2 &&
+      (state.gameState === 'playing' || state.gameState === 'look')) {
     for (const key of shimmerActive) {
       const [sx, sy] = key.split(',').map(Number);
       tileMap[sx][sy].fg = '#1a4a6a';
