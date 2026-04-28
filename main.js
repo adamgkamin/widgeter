@@ -238,6 +238,17 @@ function addLog(message, color) {
   renderLog();
 }
 
+// Splits text longer than 70 chars at the nearest word boundary and logs each part.
+// 70 chars + the "> " prefix = 72 displayed chars, matching the log area width.
+function wrapLog(text, color) {
+  const MAX = 70;
+  if (text.length <= MAX) { addLog(text, color); return; }
+  const cut = text.lastIndexOf(' ', MAX);
+  const split = cut > 0 ? cut : MAX;
+  addLog(text.slice(0, split), color);
+  addLog(text.slice(split + (cut > 0 ? 1 : 0)), color);
+}
+
 function renderLog() {
   for (let i = 0; i < 5; i++) {
     const row   = LOG_START_ROW + i;
@@ -1376,7 +1387,7 @@ function handlePonder() {
   const inv = state.player.inventory;
   let hint;
   if (state.lifetimeCreditsEarned === 0) {
-    hint = 'The shed to the north sells raw materials. The workbench turns them into something.';
+    hint = 'The shed to the north sells raw materials. The workbench crafts them.';
   } else if (inv.rm > 0 && inv.widgets === 0) {
     hint = "Those materials won't shape themselves. The workbench is waiting.";
   } else if (inv.widgets > 0 && state.marketOpen) {
@@ -1388,7 +1399,7 @@ function handlePonder() {
   } else {
     hint = 'Keep working. The numbers will move.';
   }
-  addLog(hint, '#66ccff');
+  wrapLog(hint, '#66ccff');
 }
 
 function openStorageMenu() {
