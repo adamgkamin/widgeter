@@ -1324,41 +1324,205 @@ function isAdjacentToStation(s) {
 }
 
 function openRMShedMenu() {
-  const COST      = 3;
-  const rmSpace   = state.player.inventoryCaps.rm - state.player.inventory.rm;
-  const rmDailyCap = state.skills.bulkRM ? 200 : 100;
-  const dailyLeft  = state.phase >= 2 ? Math.max(0, rmDailyCap - state.rmPurchasedToday) : Infinity;
-  const maxBuy    = Math.min(rmSpace, Math.floor(state.player.credits / COST),
-                             dailyLeft === Infinity ? Infinity : dailyLeft);
-  const canBuy1   = state.player.credits >= COST && rmSpace > 0 && dailyLeft > 0;
-  const limitHit  = state.phase >= 2 && dailyLeft <= 0;
+  state.gameState = 'rm_menu';
 
-  showMenu('Raw Materials Shed', [
-    {
-      label:   limitHit ? 'Buy 1 RM — DAILY LIMIT REACHED' : `Buy 1 RM (${COST}cr)`,
-      enabled: canBuy1,
-      action:  () => {
-        state.player.credits      -= COST;
-        state.player.inventory.rm += 1;
-        state.rmPurchasedToday    += 1;
-        addLog('You buy 1 raw material.', '#ff9933');
-        drawStatusBar();
-        { const rmD = STATION_DEFS.find(s => s.label === 'RM'); if (rmD) effectsManager.coinDrain(state.player.x, state.player.y, rmD.x + 1, rmD.y + 2, COST); }
-      },
-    },
-    {
-      label:   `Buy max (${maxBuy})`,
-      enabled: maxBuy > 0,
-      action:  () => {
-        state.player.credits      -= maxBuy * COST;
-        state.player.inventory.rm += maxBuy;
-        state.rmPurchasedToday    += maxBuy;
-        addLog(`You buy ${maxBuy} raw material${maxBuy !== 1 ? 's' : ''}.`, '#ff9933');
-        drawStatusBar();
-      },
-    },
-    { label: 'Cancel', enabled: true, action: () => {} },
-  ]);
+  const COST  = 3;
+  const TC    = '#ff6600'; // theme color
+  const DC    = '#333333';
+  const BOX_W = 54;
+  const IW    = 52;
+  const AW    = 14; // art pane width
+  const IPW   = 37; // info pane width
+  const BOX_H = 21;
+  const BOX_X = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
+  const BOX_Y = Math.max(1, Math.floor((WORLD_ROWS - BOX_H) / 2));
+  const RPX   = BOX_X + 1 + AW + 1; // right pane absolute x
+
+  const RM_ART = [
+    '  +------+    ',
+    '  |  __  |    ',
+    '  | |  | |    ',
+    '  | |  | |    ',
+    '  +-+--+-+    ',
+    '   /    \\     ',
+    '  / SHED \\    ',
+    ' /________\\   ',
+    '  |  RM  |    ',
+    '  +------+    ',
+  ];
+
+  function drawArtRow(r, ay) {
+    const s = RM_ART[r];
+    for (let i = 0; i < AW; i++) {
+      let fg = '#aaaaaa';
+      if (r === 6 && i >= 4 && i <= 7) fg = TC;  // SHED
+      if (r === 8 && i >= 5 && i <= 6) fg = TC;  // RM
+      display.draw(BOX_X + 1 + i, ay, s[i] || ' ', fg, BG);
+    }
+  }
+
+  function border(ay) {
+    display.draw(BOX_X, ay, '║', TC, BG);
+    display.draw(BOX_X + BOX_W - 1, ay, '║', TC, BG);
+  }
+
+  function irow(ay, text, fg) {
+    border(ay);
+    const p = menuPad(text, IW);
+    for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, p[i] || ' ', fg, BG);
+  }
+
+  function crow(ay, r) {
+    border(ay);
+    drawArtRow(r, ay);
+    display.draw(BOX_X + 1 + AW, ay, '│', DC, BG);
+    for (let i = 0; i < IPW; i++) display.draw(RPX + i, ay, ' ', BRIGHT_WHITE, BG);
+  }
+
+  function drp(ay, text, fg) {
+    const p = menuPad(text, IPW);
+    for (let i = 0; i < IPW; i++) display.draw(RPX + i, ay, p[i] || ' ', fg, BG);
+  }
+
+  function arow(ay, label, cost, fg) {
+    const gap  = Math.max(1, IW - label.length - (cost ? cost.length : 0));
+    const line = cost ? label + ' '.repeat(gap) + cost : label;
+    irow(ay, line, fg);
+  }
+
+  function redraw() {
+    const rm      = state.player.inventory.rm;
+    const rmCap   = state.player.inventoryCaps.rm;
+    const rmSpace = rmCap - rm;
+    const rmDailyCap = state.skills.bulkRM ? 200 : 100;
+    const dailyLeft  = state.phase >= 2 ? Math.max(0, rmDailyCap - state.rmPurchasedToday) : Infinity;
+    const maxBuy  = Math.min(rmSpace, Math.floor(state.player.credits / COST),
+                             dailyLeft === Infinity ? rmSpace : dailyLeft);
+    const canBuy1 = state.player.credits >= COST && rmSpace > 0 && dailyLeft > 0;
+    const limitHit = state.phase >= 2 && dailyLeft <= 0;
+
+    // Clear interior
+    for (let r = 1; r < BOX_H - 1; r++)
+      for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, BOX_Y + r, ' ', BRIGHT_WHITE, BG);
+
+    // Row 0: ╔═…═╗
+    display.draw(BOX_X, BOX_Y, '╔', TC, BG); display.draw(BOX_X + BOX_W - 1, BOX_Y, '╗', TC, BG);
+    for (let i = 1; i < BOX_W - 1; i++) display.draw(BOX_X + i, BOX_Y, '═', TC, BG);
+
+    // Row 1: header
+    { const ay = BOX_Y + 1;
+      border(ay);
+      const title = 'Raw Materials Shed', hint = 'press esc to exit';
+      const sp = IW - title.length - hint.length;
+      for (let i = 0; i < IW; i++) {
+        const ch = i < title.length ? title[i] : (i >= IW - hint.length ? hint[i-(IW-hint.length)] : ' ');
+        const fg = i < title.length ? '#f0f0f0' : (i >= IW - hint.length ? DC : BRIGHT_WHITE);
+        display.draw(BOX_X + 1 + i, ay, ch, fg, BG);
+      }
+    }
+
+    // Row 2: ═ separator
+    { const ay = BOX_Y + 2; border(ay);
+      for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '═', DC, BG); }
+
+    // Rows 3-12: content (art + divider + info)
+    for (let r = 0; r < 10; r++) crow(BOX_Y + 3 + r, r);
+
+    // Populate info pane
+    drp(BOX_Y + 4, 'RAW MATERIALS', TC);
+    drp(BOX_Y + 6, 'In inventory:', '#555555');
+
+    // Large number: rm/cap
+    const numStr = `${rm}/${rmCap}`;
+    if (numStr.length * 6 <= IPW) {
+      renderLargeNumber(display, RPX, BOX_Y + 7, numStr, TC);
+    } else {
+      drp(BOX_Y + 8, `${rm} / ${rmCap}`, '#f0f0f0');
+    }
+
+    drp(BOX_Y + 11, `Cost per unit:  ${formatCredits(COST)}cr`, '#f0f0f0');
+    drp(BOX_Y + 12, `Daily limit:  ${state.phase >= 2 ? `${rmDailyCap}/day` : 'unlimited'}`, '#555555');
+
+    // Row 13: ─ action separator
+    { const ay = BOX_Y + 13; border(ay);
+      for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '─', DC, BG); }
+
+    // Action rows 14-17
+    const c1 = `-${formatCredits(COST)}cr`;
+    const cm = maxBuy > 0 ? `-${formatCredits(maxBuy * COST)}cr` : '';
+    arow(BOX_Y + 14, `1. Buy 1 RM`, c1, canBuy1 ? '#66cc66' : '#ff5555');
+    arow(BOX_Y + 15, `2. Buy max (${maxBuy})`, cm, canBuy1 && maxBuy > 0 ? '#66cc66' : '#ff5555');
+    arow(BOX_Y + 16, '3. Buy custom amount', '', canBuy1 ? '#66cc66' : '#ff5555');
+    arow(BOX_Y + 17, '4. Cancel', '', '#555555');
+
+    // Row 18: ═ bottom rule
+    { const ay = BOX_Y + 18; border(ay);
+      for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '═', DC, BG); }
+
+    // Row 19: status
+    let statusText, statusFg;
+    if (limitHit)                                           { statusText = 'Daily limit reached. Resets at dawn.'; statusFg = '#ff5555'; }
+    else if (rmSpace <= 0)                                  { statusText = 'Inventory full.'; statusFg = '#ff5555'; }
+    else if (state.player.credits < COST)                   { statusText = 'Insufficient credits.'; statusFg = '#ff5555'; }
+    else                                                    { statusText = 'Walk to shed. Press space to purchase.'; statusFg = '#555555'; }
+    { const ay = BOX_Y + 19; border(ay);
+      const centered = menuPad(statusText.length < IW ? ' '.repeat(Math.floor((IW-statusText.length)/2)) + statusText : statusText, IW);
+      for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, centered[i] || ' ', statusFg, BG); }
+
+    // Row 20: ╚═…═╝
+    display.draw(BOX_X, BOX_Y + 20, '╚', TC, BG); display.draw(BOX_X + BOX_W - 1, BOX_Y + 20, '╝', TC, BG);
+    for (let i = 1; i < BOX_W - 1; i++) display.draw(BOX_X + i, BOX_Y + 20, '═', TC, BG);
+  }
+
+  function closeRM() {
+    rmMenuRedrawFn = null;
+    window.removeEventListener('keydown', rmKeyHandler);
+    for (let y = BOX_Y; y < BOX_Y + BOX_H; y++)
+      for (let x = BOX_X; x < BOX_X + BOX_W; x++)
+        if (x >= 0 && x < DISPLAY_WIDTH && y >= 0 && y < WORLD_ROWS) markDirty(x, y);
+    renderDirty();
+    display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
+    for (const w of state.workers.apprentices) display.draw(w.x, w.y, 'a', '#66ccff', BG);
+    for (const c of state.workers.couriers)    display.draw(c.x, c.y, 'c', '#cc66cc', BG);
+    state.gameState = 'playing';
+  }
+
+  function rmKeyHandler(e) {
+    if (e.key === 'Escape' || e.key === '4') { closeRM(); return; }
+    const rm       = state.player.inventory.rm;
+    const rmCap    = state.player.inventoryCaps.rm;
+    const rmSpace  = rmCap - rm;
+    const rmDailyCap = state.skills.bulkRM ? 200 : 100;
+    const dailyLeft  = state.phase >= 2 ? Math.max(0, rmDailyCap - state.rmPurchasedToday) : Infinity;
+    const maxBuy   = Math.min(rmSpace, Math.floor(state.player.credits / COST),
+                              dailyLeft === Infinity ? rmSpace : dailyLeft);
+    const canBuy1  = state.player.credits >= COST && rmSpace > 0 && dailyLeft > 0;
+
+    if (e.key === '1' && canBuy1) {
+      state.player.credits -= COST; state.player.inventory.rm++; state.rmPurchasedToday++;
+      addLog('You buy 1 raw material.', '#ff9933'); drawStatusBar();
+      { const rmD = STATION_DEFS.find(s => s.label === 'RM'); if (rmD) effectsManager.coinDrain(state.player.x, state.player.y, rmD.x+1, rmD.y+2, COST); }
+      return;
+    }
+    if (e.key === '2' && maxBuy > 0 && canBuy1) {
+      state.player.credits -= maxBuy * COST; state.player.inventory.rm += maxBuy; state.rmPurchasedToday += maxBuy;
+      addLog(`You buy ${maxBuy} raw material${maxBuy !== 1 ? 's' : ''}.`, '#ff9933'); drawStatusBar();
+      return;
+    }
+    if (e.key === '3' && canBuy1) {
+      window.removeEventListener('keydown', rmKeyHandler);
+      showNumericPrompt(`Buy RM (max ${maxBuy})`, maxBuy,
+        (n) => { state.player.credits -= n * COST; state.player.inventory.rm += n; state.rmPurchasedToday += n;
+                 addLog(`You buy ${n} raw material${n !== 1 ? 's' : ''}.`, '#ff9933'); drawStatusBar();
+                 openRMShedMenu(); },
+        () => openRMShedMenu()
+      );
+    }
+  }
+
+  rmMenuRedrawFn = redraw;
+  redraw();
+  window.addEventListener('keydown', rmKeyHandler);
 }
 
 // WB label tile positions for pulse effect (middle row of WB station at x=34,y=8)
@@ -1391,27 +1555,208 @@ function cancelCrafting() {
   display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
   addLog('Crafting cancelled. Current widget lost.', '#ff5555');
   state.gameState = 'playing';
+  if (wbMenuCloseFn) { wbMenuCloseFn(); wbMenuRedrawFn = null; wbMenuCloseFn = null; }
 }
 
 function openWorkbenchMenu() {
-  const rm          = state.player.inventory.rm;
-  const widgetSpace = state.player.inventoryCaps.widgets - state.player.inventory.widgets;
-  const maxCraft    = Math.min(rm, widgetSpace);
-  const canCraft1   = rm >= 1 && widgetSpace > 0;
+  state.gameState = 'wb_menu';
 
-  showMenu('Workbench', [
-    {
-      label:   'Craft 1 (1 RM → 1 widget, 3s)',
-      enabled: canCraft1,
-      action:  () => startCrafting(1),
-    },
-    {
-      label:   `Craft max (${maxCraft})`,
-      enabled: maxCraft > 0,
-      action:  () => startCrafting(maxCraft),
-    },
-    { label: 'Cancel', enabled: true, action: () => {} },
-  ]);
+  const TC    = '#cc3300';
+  const DC    = '#333333';
+  const BOX_W = 54;
+  const IW    = 52;
+  const AW    = 14;
+  const IPW   = 37;
+  const BOX_H = 21;
+  const BOX_X = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
+  const BOX_Y = Math.max(1, Math.floor((WORLD_ROWS - BOX_H) / 2));
+  const RPX   = BOX_X + 1 + AW + 1;
+
+  const WB_ART = [
+    '    ______    ',
+    '   /      \\   ',
+    '  | BENCH  |  ',
+    '  |--------|  ',
+    '  | ~~~~~~ |  ',
+    '  | ~~~~~~ |  ',
+    '  |________|  ',
+    '  ||      ||  ',
+    '  ||      ||  ',
+    '  ++      ++  ',
+  ];
+
+  function drawArtRow(r, ay) {
+    const s = WB_ART[r];
+    for (let i = 0; i < AW; i++) {
+      let fg = '#aaaaaa';
+      if (r === 2 && i >= 4 && i <= 8) fg = TC;
+      if ((r === 4 || r === 5) && i >= 4 && i <= 9) fg = '#ff9933';
+      display.draw(BOX_X + 1 + i, ay, s[i] || ' ', fg, BG);
+    }
+  }
+
+  function border(ay) {
+    display.draw(BOX_X, ay, '║', TC, BG);
+    display.draw(BOX_X + BOX_W - 1, ay, '║', TC, BG);
+  }
+
+  function irow(ay, text, fg) {
+    border(ay);
+    const p = menuPad(text, IW);
+    for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, p[i] || ' ', fg, BG);
+  }
+
+  function crow(ay, r) {
+    border(ay);
+    drawArtRow(r, ay);
+    display.draw(BOX_X + 1 + AW, ay, '│', DC, BG);
+    for (let i = 0; i < IPW; i++) display.draw(RPX + i, ay, ' ', BRIGHT_WHITE, BG);
+  }
+
+  function drp(ay, text, fg) {
+    const p = menuPad(text, IPW);
+    for (let i = 0; i < IPW; i++) display.draw(RPX + i, ay, p[i] || ' ', fg, BG);
+  }
+
+  function arow(ay, label, cost, fg) {
+    const gap  = Math.max(1, IW - label.length - (cost ? cost.length : 0));
+    const line = cost ? label + ' '.repeat(gap) + cost : label;
+    irow(ay, line, fg);
+  }
+
+  function redraw() {
+    const rm          = state.player.inventory.rm;
+    const widgetCap   = state.player.inventoryCaps.widgets;
+    const widgetSpace = widgetCap - state.player.inventory.widgets;
+    const maxCraft    = Math.min(rm, widgetSpace);
+    const canCraft1   = rm >= 1 && widgetSpace > 0;
+    const isCrafting  = state.gameState === 'crafting';
+
+    // Clear interior
+    for (let r = 1; r < BOX_H - 1; r++)
+      for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, BOX_Y + r, ' ', BRIGHT_WHITE, BG);
+
+    // Row 0: ╔═…═╗
+    display.draw(BOX_X, BOX_Y, '╔', TC, BG); display.draw(BOX_X + BOX_W - 1, BOX_Y, '╗', TC, BG);
+    for (let i = 1; i < BOX_W - 1; i++) display.draw(BOX_X + i, BOX_Y, '═', TC, BG);
+
+    // Row 1: header
+    { const ay = BOX_Y + 1;
+      border(ay);
+      const title = 'Workbench', hint = 'press esc to exit';
+      for (let i = 0; i < IW; i++) {
+        const ch = i < title.length ? title[i] : (i >= IW - hint.length ? hint[i-(IW-hint.length)] : ' ');
+        const fg = i < title.length ? '#f0f0f0' : (i >= IW - hint.length ? DC : BRIGHT_WHITE);
+        display.draw(BOX_X + 1 + i, ay, ch, fg, BG);
+      }
+    }
+
+    // Row 2: ═ separator
+    { const ay = BOX_Y + 2; border(ay);
+      for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '═', DC, BG); }
+
+    // Rows 3-12: art + divider + info
+    for (let r = 0; r < 10; r++) crow(BOX_Y + 3 + r, r);
+
+    // Info pane
+    drp(BOX_Y + 4, 'WORKBENCH', TC);
+    drp(BOX_Y + 6, 'Materials:', '#555555');
+    if (String(rm).length * 6 <= IPW) {
+      renderLargeNumber(display, RPX, BOX_Y + 7, String(rm), '#ff9933');
+    } else {
+      drp(BOX_Y + 8, String(rm), '#ff9933');
+    }
+    drp(BOX_Y + 11, 'Time per widget:  3s', '#f0f0f0');
+    drp(BOX_Y + 12, `Widget cap:  ${widgetCap}`, '#555555');
+
+    // Row 13: ─ separator
+    { const ay = BOX_Y + 13; border(ay);
+      for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '─', DC, BG); }
+
+    // Action rows 14-17
+    if (isCrafting) {
+      const filled   = Math.floor((craftProgress / CRAFT_TICKS) * 10);
+      const bar      = '█'.repeat(filled) + '░'.repeat(10 - filled);
+      const secsLeft = CRAFT_TICKS - craftProgress;
+      const queueLeft = craftQueue + 1;
+      irow(BOX_Y + 14, `[${bar}]  ${queueLeft} widget${queueLeft !== 1 ? 's' : ''} remaining`, '#ff9933');
+      irow(BOX_Y + 15, `${secsLeft}s until next widget`, '#ff9933');
+      irow(BOX_Y + 16, 'ESC to cancel  (current widget lost)', '#ff5555');
+      irow(BOX_Y + 17, '', '#555555');
+    } else {
+      arow(BOX_Y + 14, '1. Craft 1', '1 RM → 1 widget, 3s', canCraft1 ? '#66cc66' : '#ff5555');
+      arow(BOX_Y + 15, `2. Craft max  (${maxCraft})`, '', canCraft1 && maxCraft > 0 ? '#66cc66' : '#ff5555');
+      arow(BOX_Y + 16, '3. Craft custom amount', '', canCraft1 ? '#66cc66' : '#ff5555');
+      arow(BOX_Y + 17, '4. Cancel', '', '#555555');
+    }
+
+    // Row 18: ═ rule
+    { const ay = BOX_Y + 18; border(ay);
+      for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '═', DC, BG); }
+
+    // Row 19: status
+    let statusText, statusFg;
+    if (isCrafting)            { statusText = 'Crafting in progress.'; statusFg = '#ff9933'; }
+    else if (rm === 0)         { statusText = 'No raw materials.'; statusFg = '#ff5555'; }
+    else if (widgetSpace <= 0) { statusText = 'Widget inventory full.'; statusFg = '#ff5555'; }
+    else                       { statusText = 'Ready to craft.'; statusFg = '#555555'; }
+    { const ay = BOX_Y + 19; border(ay);
+      const centered = menuPad(statusText.length < IW ? ' '.repeat(Math.floor((IW - statusText.length) / 2)) + statusText : statusText, IW);
+      for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, centered[i] || ' ', statusFg, BG); }
+
+    // Row 20: ╚═…═╝
+    display.draw(BOX_X, BOX_Y + 20, '╚', TC, BG); display.draw(BOX_X + BOX_W - 1, BOX_Y + 20, '╝', TC, BG);
+    for (let i = 1; i < BOX_W - 1; i++) display.draw(BOX_X + i, BOX_Y + 20, '═', TC, BG);
+  }
+
+  function closeWB() {
+    window.removeEventListener('keydown', wbKeyHandler);
+    for (let y = BOX_Y; y < BOX_Y + BOX_H; y++)
+      for (let x = BOX_X; x < BOX_X + BOX_W; x++)
+        if (x >= 0 && x < DISPLAY_WIDTH && y >= 0 && y < WORLD_ROWS) markDirty(x, y);
+    renderDirty();
+    display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
+    for (const w of state.workers.apprentices) display.draw(w.x, w.y, 'a', '#66ccff', BG);
+    for (const c of state.workers.couriers)    display.draw(c.x, c.y, 'c', '#cc66cc', BG);
+  }
+
+  function wbKeyHandler(e) {
+    if (state.gameState === 'crafting') return;
+    if (e.key === 'Escape' || e.key === '4') {
+      closeWB();
+      wbMenuRedrawFn = null; wbMenuCloseFn = null;
+      state.gameState = 'playing';
+      return;
+    }
+    const rm          = state.player.inventory.rm;
+    const widgetSpace = state.player.inventoryCaps.widgets - state.player.inventory.widgets;
+    const maxCraft    = Math.min(rm, widgetSpace);
+    const canCraft1   = rm >= 1 && widgetSpace > 0;
+
+    if (e.key === '1' && canCraft1) {
+      window.removeEventListener('keydown', wbKeyHandler);
+      startCrafting(1);
+      return;
+    }
+    if (e.key === '2' && canCraft1 && maxCraft > 0) {
+      window.removeEventListener('keydown', wbKeyHandler);
+      startCrafting(maxCraft);
+      return;
+    }
+    if (e.key === '3' && canCraft1) {
+      window.removeEventListener('keydown', wbKeyHandler);
+      showNumericPrompt(`Craft how many? (max ${maxCraft})`, maxCraft,
+        (n) => { startCrafting(n); },
+        () => openWorkbenchMenu()
+      );
+      return;
+    }
+  }
+
+  wbMenuRedrawFn = redraw;
+  wbMenuCloseFn  = closeWB;
+  redraw();
+  window.addEventListener('keydown', wbKeyHandler);
 }
 
 function colorInStation(label, wc, lc) {
@@ -2452,6 +2797,9 @@ function calculateVolatility() {
 let dashboardRedrawFn  = null;
 let inventoryRedrawFn  = null;
 let lfMenuRedrawFn     = null;
+let rmMenuRedrawFn     = null;
+let wbMenuRedrawFn     = null;
+let wbMenuCloseFn      = null;
 
 function checkAbstractionCollapse() {
   if (state.endingTriggered || state.derivatives.totalPnL < 50000) return;
@@ -2971,8 +3319,15 @@ const LARGE_DIGITS = {
   '8': [' ███ ',' ███ ',' ███ '],
   '9': [' ███ ',' ████',' ███ '],
   ',': ['     ','     ','  ,  '],
+  '/': ['    █','  █  ','█    '],
   ' ': ['     ','     ','     '],
 };
+
+// Shared menu utility — pads to exact width, hard-truncates with … if over
+function menuPad(str, width) {
+  if (str.length > width) return str.slice(0, width - 1) + '…';
+  return str.padEnd(width);
+}
 
 function renderLargeNumber(display, x, y, numberString, color) {
   for (let ci = 0; ci < numberString.length; ci++) {
@@ -3003,11 +3358,6 @@ function openLFMenu() {
   const RC     = '#ff5555'; // rocket red (border color)
   const WC     = '#555555';
   const DC     = '#333333';
-
-  function menuPad(str, width) {
-    if (str.length > width) return str.slice(0, width - 1) + '…';
-    return str.padEnd(width);
-  }
 
   function drawInnerRow(row, text, fg) {
     const abs  = BOX_Y + row;
@@ -3926,7 +4276,7 @@ function _advanceDayNightWave() {
 // ── Tick loop — 1 tick/second (§7.1) ─────────────────────────────────────────
 
 setInterval(() => {
-  if (state.gameState !== 'playing' && state.gameState !== 'crafting' && state.gameState !== 'dashboard' && state.gameState !== 'inventory' && state.gameState !== 'lf_menu') return;
+  if (state.gameState !== 'playing' && state.gameState !== 'crafting' && state.gameState !== 'dashboard' && state.gameState !== 'inventory' && state.gameState !== 'lf_menu' && state.gameState !== 'rm_menu' && state.gameState !== 'wb_menu') return;
 
   // Stats: snapshot before tick for delta computation
   const _sCr = state.player.credits;
@@ -4056,6 +4406,7 @@ setInterval(() => {
       } else {
         addLog(`Done. ${craftTotal} widget${craftTotal !== 1 ? 's' : ''} crafted.`, '#66cc66');
         state.gameState = 'playing';
+        if (wbMenuCloseFn) { wbMenuCloseFn(); wbMenuRedrawFn = null; wbMenuCloseFn = null; }
       }
     }
   }
@@ -4158,6 +4509,10 @@ setInterval(() => {
 
   // Live-refresh inventory
   if (state.gameState === 'inventory' && inventoryRedrawFn) inventoryRedrawFn();
+
+  // Live-refresh station menus
+  if (rmMenuRedrawFn) rmMenuRedrawFn();
+  if (wbMenuRedrawFn) wbMenuRedrawFn();
 
   // Live-refresh LF menu + rocket animation frame
   if (state.gameState === 'lf_menu') {
@@ -4293,7 +4648,8 @@ setInterval(() => {
   // Scroll-in: advance pendingLine only when world is active (not paused, not look mode)
   const logActive = state.gameState === 'playing' || state.gameState === 'crafting' ||
                     state.gameState === 'dashboard' || state.gameState === 'menu' ||
-                    state.gameState === 'inventory' || state.gameState === 'lf_menu';
+                    state.gameState === 'inventory' || state.gameState === 'lf_menu' ||
+                    state.gameState === 'rm_menu' || state.gameState === 'wb_menu';
   if (pendingLine && logActive) {
     pendingLine.charsRevealed = Math.min(pendingLine.charsRevealed + LOG_SCROLL_SPEED, pendingLine.text.length);
     renderLog();
