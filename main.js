@@ -86,6 +86,7 @@ const state = {
   wbFullLogged:      false,
   rmPurchasedToday:  0,
   rmLimitLogged:     false,
+  audio: { muted: false },
   workers: { apprentices: [], couriers: [] },
   skills: {
     apprentice:   0,
@@ -126,6 +127,7 @@ function saveGame() {
     wbFullLogged:         state.wbFullLogged,
     rmPurchasedToday:     state.rmPurchasedToday,
     rmLimitLogged:        state.rmLimitLogged,
+    audio:                state.audio,
     workers:              state.workers,
     skills:               state.skills,
   };
@@ -159,6 +161,7 @@ function loadGame() {
     state.wbFullLogged         = data.wbFullLogged       ?? false;
     state.rmPurchasedToday     = data.rmPurchasedToday   ?? 0;
     state.rmLimitLogged        = data.rmLimitLogged       ?? false;
+    state.audio                = data.audio               ?? { muted: false };
     state.workers              = data.workers           ?? { apprentices: [], couriers: [] };
     state.workers.couriers     = state.workers.couriers ?? []; // normalise old saves
     state.skills               = data.skills            ?? { apprentice: 0, courier: 0, workerCarry: 0, workerSpeed: 0, courierCarry: 0, courierSpeed: 0 };
@@ -741,6 +744,7 @@ function resetState() {
   state.wbFullLogged     = false;
   state.rmPurchasedToday = 0;
   state.rmLimitLogged    = false;
+  state.audio            = { muted: false };
   state.workers = { apprentices: [], couriers: [] };
   state.skills = { apprentice: 0, courier: 0, workerCarry: 0, workerSpeed: 0, courierCarry: 0, courierSpeed: 0 };
   const fcDef = STATION_DEFS.find(s => s.label === 'FC');
@@ -853,6 +857,7 @@ window.addEventListener('keydown', (e) => {
     return;
   }
   if (state.gameState !== 'playing') return;
+  if (e.key === 'Escape') { showPauseMenu(); return; }
   if (e.key === 'o') { enterLookMode(); e.stopImmediatePropagation(); return; }
   if (e.key === 'i') { showInventory(); return; }
   if (e.key === 'p') { handlePonder(); return; }
@@ -967,7 +972,8 @@ function exitLookMode() {
 
 window.addEventListener('keydown', (e) => {
   if (state.gameState !== 'look') return;
-  if (e.key === 'o' || e.key === 'Escape') { exitLookMode(); return; }
+  if (e.key === 'o') { exitLookMode(); return; }
+  if (e.key === 'Escape') { exitLookMode(); showPauseMenu(); return; }
   const DIRS = { ArrowLeft:[-1,0], ArrowRight:[1,0], ArrowUp:[0,-1], ArrowDown:[0,1] };
   const d = DIRS[e.key];
   if (!d) return;
@@ -1911,6 +1917,133 @@ function checkProductionHalt() {
     state.productionHalted = false;
     addLog('Storage space available. Production resuming.', '#66cc66');
   }
+}
+
+// ── Pause menu and dev tools (§3.9) ──────────────────────────────────────────
+
+function devJumpToPhase(n) {
+  const credits = { 1: 50, 2: 500, 3: 2000, 4: 5000 };
+  resetState();
+  state.phase = n;
+  state.player.credits = credits[n];
+  state.lifetimeCreditsEarned = credits[n];
+  if (n >= 2) {
+    state.officeUnlocked = true;
+    state.stations.factory.unlocked = true;
+    state.stations.storage.unlocked = true;
+    const fcD = STATION_DEFS.find(s => s.label === 'FC');
+    const stD = STATION_DEFS.find(s => s.label === 'ST');
+    if (fcD) { fcD.wc = '#555555'; fcD.lc = '#ff9933'; }
+    if (stD) { stD.wc = '#555555'; stD.lc = '#66ccff'; }
+  }
+  if (n >= 3) state.stations.bank        = { unlocked: true };
+  if (n >= 4) state.stations.derivatives = { unlocked: true };
+  state.gameState = 'playing';
+  clearScreen();
+  drawWorld();
+  addLog(`DEV: Jumped to Phase ${n}.`, '#ff5555');
+}
+
+function showPauseMenu() {
+  const prevState = state.gameState !== 'paused' ? state.gameState : 'playing';
+  state.gameState = 'paused';
+
+  const BOX_W  = 54;
+  const BOX_H  = 12;
+  const BOX_X  = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
+  const BOX_Y  = Math.max(5, Math.floor((WORLD_ROWS - BOX_H) / 2));
+  const CONT_X = BOX_X + 2;
+  const CONT_W = BOX_W - 4; // 50
+  const WC     = '#555555';
+
+  // Draw fixed frame (stays across all sub-screens)
+  display.draw(BOX_X, BOX_Y, '+', WC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y, '+', WC, BG);
+  for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, BOX_Y, '-', WC, BG);
+  const bY = BOX_Y + BOX_H - 1;
+  display.draw(BOX_X, bY, '+', WC, BG); display.draw(BOX_X+BOX_W-1, bY, '+', WC, BG);
+  for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, bY, '-', WC, BG);
+  for (let y = 1; y < BOX_H-1; y++) {
+    display.draw(BOX_X, BOX_Y+y, '|', WC, BG);
+    display.draw(BOX_X+BOX_W-1, BOX_Y+y, '|', WC, BG);
+  }
+
+  let screen = 'pause';
+
+  function clearInner() {
+    for (let y = 1; y < BOX_H-1; y++)
+      for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, BOX_Y+y, ' ', BRIGHT_WHITE, BG);
+  }
+
+  function line(row, text, fg) {
+    for (let i = 0; i < text.length; i++) display.draw(CONT_X+i, BOX_Y+row, text[i], fg, BG);
+  }
+  function centered(row, text, fg) {
+    const cx = CONT_X + Math.floor((CONT_W - text.length) / 2);
+    for (let i = 0; i < text.length; i++) display.draw(cx+i, BOX_Y+row, text[i], fg, BG);
+  }
+
+  function render() {
+    clearInner();
+    if (screen === 'pause') {
+      centered(1, '– PAUSED –', '#66ccff');
+      line(3, '1. Resume',          BRIGHT_WHITE);
+      line(4, '2. Settings',        BRIGHT_WHITE);
+      line(5, '3. Quit to Menu',    BRIGHT_WHITE);
+      centered(10, 'ESC to resume', WC);
+    } else if (screen === 'settings') {
+      centered(1, '– SETTINGS –', '#66ccff');
+      line(3, `1. Mute / Unmute sounds  [${state.audio.muted ? 'OFF' : 'ON '}]`, BRIGHT_WHITE);
+      line(4, '2. Developer Mode',  BRIGHT_WHITE);
+      line(5, '3. Back',            BRIGHT_WHITE);
+      centered(10, 'ESC to go back', WC);
+    } else {
+      centered(1, '– DEV MODE –', '#ff5555');
+      line(2, 'For testing only.', WC);
+      line(4, '1. Jump to Phase 1  (fresh start, 50cr)',         BRIGHT_WHITE);
+      line(5, '2. Jump to Phase 2  (500cr, workers unlocked)',   BRIGHT_WHITE);
+      line(6, '3. Jump to Phase 3  (2000cr, bank unlocked)',     BRIGHT_WHITE);
+      line(7, '4. Jump to Phase 4  (5000cr, derivatives unlocked)', BRIGHT_WHITE);
+      line(8, '5. Back',            BRIGHT_WHITE);
+      centered(10, 'ESC to go back', WC);
+    }
+  }
+
+  render();
+
+  function close() {
+    window.removeEventListener('keydown', pauseKeyHandler);
+    for (let y = BOX_Y; y < BOX_Y+BOX_H; y++)
+      for (let x = BOX_X; x < BOX_X+BOX_W; x++)
+        if (x >= 0 && x < DISPLAY_WIDTH && y >= 0 && y < WORLD_ROWS) markDirty(x, y);
+    renderDirty();
+    for (const w of state.workers.apprentices) display.draw(w.x, w.y, 'a', '#66ccff', BG);
+    for (const c of state.workers.couriers)    display.draw(c.x, c.y, 'c', '#cc66cc', BG);
+    display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
+    state.gameState = prevState;
+  }
+
+  function pauseKeyHandler(e) {
+    if (screen === 'pause') {
+      if (e.key === '1' || e.key === 'Escape') { close(); }
+      else if (e.key === '2') { screen = 'settings'; render(); }
+      else if (e.key === '3') {
+        window.removeEventListener('keydown', pauseKeyHandler);
+        saveGame();
+        showContinueMenu();
+      }
+    } else if (screen === 'settings') {
+      if (e.key === '1') { state.audio.muted = !state.audio.muted; saveGame(); render(); }
+      else if (e.key === '2') { screen = 'dev'; render(); }
+      else if (e.key === '3' || e.key === 'Escape') { screen = 'pause'; render(); }
+    } else {
+      const num = parseInt(e.key);
+      if (num >= 1 && num <= 4) {
+        window.removeEventListener('keydown', pauseKeyHandler);
+        devJumpToPhase(num);
+      } else if (e.key === '5' || e.key === 'Escape') { screen = 'settings'; render(); }
+    }
+  }
+  window.addEventListener('keydown', pauseKeyHandler);
 }
 
 // ── Tick loop — 1 tick/second (§7.1) ─────────────────────────────────────────
