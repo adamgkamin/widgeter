@@ -17,6 +17,9 @@ export const COLOR_LF_FRAME = '#ff5555';
 export const COLOR_LF_LABEL = '#ff8888';
 export const COLOR_HINT_LINE = '#2a2a3a';
 
+// Stamps currency color (§13)
+export const COLOR_STAMPS = '#aa9966';
+
 // §3.1 — Screen layout
 export const DISPLAY_WIDTH  = 80;
 export const DISPLAY_HEIGHT = 50;

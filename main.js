@@ -5,6 +5,7 @@ import {
   LOG_SCROLL_SPEED,
   COLOR_LF_FRAME, COLOR_LF_LABEL,
   COLOR_HINT_LINE,
+  COLOR_STAMPS,
 } from './constants.js';
 import { EffectsManager } from './src/effects.js';
 
@@ -134,6 +135,7 @@ function fullRedraw() {
     if (dashboardRedrawFn)   dashboardRedrawFn();
     if (inventoryRedrawFn)   inventoryRedrawFn();
     if (officeMenuRedrawFn)  officeMenuRedrawFn();
+    if (npMenuRedrawFn)      npMenuRedrawFn();
   }
   if (pauseMenuRedrawFn) pauseMenuRedrawFn();
 }
@@ -174,6 +176,11 @@ const state = {
     color:        '#f0f0f0',  // current outfit hex
     colorName:    'DEFAULT',  // current outfit name
     ownedOutfits: [],         // e.g. ['crimson', 'cobalt']
+    stamps:            0,
+    stampWalkCounter:  0,
+    stampLookTiles:    new Set(),
+    stampLookMilestone: 0,
+    stampEventTimer:   Math.floor(Math.random() * 21) + 40,
   },
   day: 1,
   tick: 0,
@@ -191,7 +198,9 @@ const state = {
     launch_facility: { unlocked: false },
     storage:         { unlocked: false },
     general_store:   { unlocked: false },
+    newspaper:       { unlocked: false, lastManipulationDay: -99, manipulationCooldownDays: 3, pendingManipulation: null },
   },
+  newspaper: { todayHeadline: '', tomorrowForecastLabel: '', animTick: 0 },
   rocketWidgets:       0,
   rocketFull:          false,
   courierDestination:  'market',  // 'market' | 'rocket'
@@ -266,6 +275,8 @@ const state = {
     optionsBuy:         0,
     optionsWrite:       0,
     volatilitySurface:  0,
+    plantStory:         0,
+    smearCampaign:      0,
     endurance:    { pips: 0 },
     aquatics:     { purchased: false },
     interfacing:  { pips: 0 },
@@ -334,6 +345,12 @@ function saveGame() {
     craftingTimeRemote:   state.craftingTimeRemote,
     cottage:              state.cottage,
     bookshelfLog:         state.bookshelfLog,
+    stamps:               state.player.stamps,
+    stampWalkCounter:     state.player.stampWalkCounter,
+    stampLookTiles:       Array.from(state.player.stampLookTiles),
+    stampLookMilestone:   state.player.stampLookMilestone,
+    stampEventTimer:      state.player.stampEventTimer,
+    newspaper:            state.newspaper,
   };
   localStorage.setItem(SAVE_KEY, JSON.stringify(data));
 }
@@ -445,6 +462,8 @@ function loadGame() {
         optionsBuy:        s.optionsBuy        ?? 0,
         optionsWrite:      s.optionsWrite      ?? 0,
         volatilitySurface: s.volatilitySurface ?? 0,
+        plantStory:        s.plantStory        ?? 0,
+        smearCampaign:     s.smearCampaign     ?? 0,
         endurance:   s.endurance   ?? { pips: 0 },
         aquatics:    s.aquatics    ?? { purchased: false },
         interfacing: s.interfacing ?? { pips: 0 },
@@ -469,6 +488,21 @@ function loadGame() {
     state.cottage.catY      = state.cottage.catY      ?? 7;
     state.cottage.matLoggedThisVisit = state.cottage.matLoggedThisVisit ?? false;
     state.bookshelfLog = data.bookshelfLog ?? [];
+    // Stamps (§13)
+    state.player.stamps            = data.stamps            ?? 0;
+    state.player.stampWalkCounter  = data.stampWalkCounter  ?? 0;
+    state.player.stampLookTiles    = new Set(data.stampLookTiles ?? []);
+    state.player.stampLookMilestone = data.stampLookMilestone ?? 0;
+    state.player.stampEventTimer   = data.stampEventTimer   ?? (Math.floor(Math.random() * 21) + 40);
+    // Newspaper (§13)
+    state.newspaper = data.newspaper ?? { todayHeadline: '', tomorrowForecastLabel: '', animTick: 0 };
+    state.newspaper.todayHeadline       = state.newspaper.todayHeadline       ?? '';
+    state.newspaper.tomorrowForecastLabel = state.newspaper.tomorrowForecastLabel ?? '';
+    state.newspaper.animTick            = 0; // transient
+    state.stations.newspaper = state.stations.newspaper ?? { unlocked: false, lastManipulationDay: -99, manipulationCooldownDays: 3, pendingManipulation: null };
+    state.stations.newspaper.lastManipulationDay    = state.stations.newspaper.lastManipulationDay    ?? -99;
+    state.stations.newspaper.manipulationCooldownDays = state.stations.newspaper.manipulationCooldownDays ?? 3;
+    state.stations.newspaper.pendingManipulation    = state.stations.newspaper.pendingManipulation    ?? null;
   } catch (_) {
     // corrupt save — start fresh
   }
@@ -627,6 +661,7 @@ const STATION_DEFS = [
   { x: 34, y:  8, label: 'WB', wc: '#cc3300', lc: '#cc3300' },
   { x: 61, y: 23, label: 'MT', wc: '#ffd633', lc: '#ffd633' },
   { x: 23, y: 17, label: 'OF', wc: '#aaaaaa', lc: '#ffffff' },
+  { x: 45, y: 32, label: 'NP', wc: DIM_GRAY,  lc: DIM_GRAY  },
 ];
 
 let tileMap   = []; // tileMap[x][y] = { glyph, fg, bg, walkable }
@@ -842,6 +877,9 @@ function buildTileMap() {
     GS: state.stations.general_store?.unlocked
       ? { wall: 'The shop front. A few items are visible through the window.', door: 'The General Store entrance. A small bell above the door is silent for now.' }
       : { wall: "A small shop, shuttered. A sign in the window reads: 'OPENING SOON.' The display inside is covered with a cloth." },
+    NP: state.stations.newspaper?.unlocked
+      ? { wall: 'The press building. You can hear machinery inside.', door: 'The Newspaper office entrance. The smell of ink is strong.' }
+      : { wall: "A small print shop, dark. A sign reads: 'THE DAILY WIDGET — COMING SOON.' Ink stains on the doorstep." },
   };
   for (const s of STATION_DEFS) {
     if (s.wide) continue; // custom stamp handled separately
@@ -1127,9 +1165,15 @@ function resetState() {
   state.marketOpen = true; state.phase = 1;
   state.lifetimeCreditsEarned = 0; state.logLines = []; state.bellFiredToday = false;
   state.lastAmbientTick = 0; state.lastNarrativeTick = 0; state.nextAmbientDelay = 45; state.stepsWalked = 0;
-  state.stations = { launch_facility: { unlocked: false }, storage: { unlocked: false }, general_store: { unlocked: false } };
+  state.stations = {
+    launch_facility: { unlocked: false }, storage: { unlocked: false }, general_store: { unlocked: false },
+    newspaper: { unlocked: false, lastManipulationDay: -99, manipulationCooldownDays: 3, pendingManipulation: null },
+  };
+  state.newspaper = { todayHeadline: '', tomorrowForecastLabel: '', animTick: 0 };
   const gsDef = STATION_DEFS.find(s => s.label === 'GS');
   if (gsDef) { gsDef.wc = DIM_GRAY; gsDef.lc = DIM_GRAY; }
+  const npDef = STATION_DEFS.find(s => s.label === 'NP');
+  if (npDef) { npDef.wc = DIM_GRAY; npDef.lc = DIM_GRAY; delete npDef.dc; }
   state.rocketWidgets      = 0;
   state.rocketFull         = false;
   state.courierDestination = 'market';
@@ -1166,12 +1210,17 @@ function resetState() {
     state.settings = { fullscreen: savedFS ? JSON.parse(savedFS) : false, currentFontSize: state.settings?.currentFontSize ?? 16 }; }
   state.workers = { apprentices: [], couriers: [] };
   state.stats = { rmLastTen: [], widgetsLastTen: [], creditsLastTen: [], widgetsMadeToday: 0, revenueToday: 0, costsToday: 0 };
-  state.skills = { apprenticeCount: 0, courierCount: 0, workerCarryLevel: 0, workerSpeedLevel: 0, courierCarryLevel: 0, courierSpeedLevel: 0, storageExp1: 0, storageExp2: 0, reducedCarry: 0, discountDump: 0, demandHistory: 0, forecast: 0, bulkRM: 0, futures: 0, optionsBuy: 0, optionsWrite: 0, volatilitySurface: 0, endurance: { pips: 0 }, aquatics: { purchased: false }, interfacing: { pips: 0 } };
+  state.skills = { apprenticeCount: 0, courierCount: 0, workerCarryLevel: 0, workerSpeedLevel: 0, courierCarryLevel: 0, courierSpeedLevel: 0, storageExp1: 0, storageExp2: 0, reducedCarry: 0, discountDump: 0, demandHistory: 0, forecast: 0, bulkRM: 0, futures: 0, optionsBuy: 0, optionsWrite: 0, volatilitySurface: 0, plantStory: 0, smearCampaign: 0, endurance: { pips: 0 }, aquatics: { purchased: false }, interfacing: { pips: 0 } };
   state.craftingTimeRemote = 10;
   state.stats.pondStepsWalked = 0;
   state.cottage = { owned: false, mapX: 40, mapY: 21, playerX: 10, playerY: 5, furniture: {}, visited: false, catX: 9, catY: 7, matLoggedThisVisit: false };
   state.bookshelfLog = [];
   state.officeAnim = { apprenticeFlash: 0, courierFlash: 0 };
+  state.player.stamps            = 0;
+  state.player.stampWalkCounter  = 0;
+  state.player.stampLookTiles    = new Set();
+  state.player.stampLookMilestone = 0;
+  state.player.stampEventTimer   = Math.floor(Math.random() * 21) + 40;
   const lfDef = STATION_DEFS.find(s => s.label === 'LF');
   const stDef = STATION_DEFS.find(s => s.label === 'ST');
   const bkDef = STATION_DEFS.find(s => s.label === 'BK');
@@ -1360,6 +1409,9 @@ window.addEventListener('keydown', (e) => {
   if (destTile.glyph === '~') state.stats.pondStepsWalked = (state.stats.pondStepsWalked || 0) + 1;
   state.stepsWalked++;
   state.lastNarrativeTick = state.tick;
+  // Stamps: 1 per 15 steps (§13)
+  state.player.stampWalkCounter = (state.player.stampWalkCounter || 0) + 1;
+  if (state.player.stampWalkCounter >= 15) { state.player.stampWalkCounter = 0; awardStamp(1, false); }
   if (state.stepsWalked === 1000)
     addLog('Your boots have worn a groove in the path.', '#cc66cc');
   if (state.stepsWalked === 5000)
@@ -1439,11 +1491,23 @@ function renderLookDescription() {
   }
 }
 
+function trackLookStamp(x, y) {
+  const key = `${x},${y}`;
+  if (!state.player.stampLookTiles.has(key)) {
+    state.player.stampLookTiles.add(key);
+    while (state.player.stampLookTiles.size >= state.player.stampLookMilestone + 8) {
+      state.player.stampLookMilestone += 8;
+      awardStamp(1, false);
+    }
+  }
+}
+
 function enterLookMode() {
   if (!descriptions) return; // wait for JSON to load
   state.gameState = 'look';
   lookX = state.player.x;
   lookY = state.player.y;
+  trackLookStamp(lookX, lookY);
   drawLookCursor(true);
   renderLookDescription();
   let blinkOn = true;
@@ -1473,6 +1537,7 @@ window.addEventListener('keydown', (e) => {
   restoreLookTile();
   lookX = Math.max(0, Math.min(DISPLAY_WIDTH - 1, lookX + d[0]));
   lookY = Math.max(0, Math.min(WORLD_ROWS - 1,    lookY + d[1]));
+  trackLookStamp(lookX, lookY);
   drawLookCursor(true);
   renderLookDescription();
 });
@@ -2113,11 +2178,16 @@ function checkPhase3Trigger() {
   if (state.phase === 2 && (state.lifetimeCreditsEarned >= 500 || (state.couriersOwned >= 1 && state.day >= 2))) {
     state.phase = 3;
     state.stations.bank = { unlocked: true };
+    state.stations.newspaper.unlocked = true;
     logHistory('The market began fluctuating.');
     calculateDailyDemand();
     addLog('The bank lights come on for the first time.', '#66cc66');
     setTimeout(() => addLog('New possibilities are available.', '#66cc66'), 2000);
     setTimeout(() => colorInStation('BK', '#66cc66', '#aaffaa'), 4000);
+    setTimeout(() => {
+      addLog('> The Newspaper office has a light on. Someone is printing something.', '#ccaa44');
+      colorInStation('NP', '#ccaa44', '#ffdd66');
+    }, 5000);
   }
 }
 
@@ -2526,6 +2596,8 @@ const OFFICE_NODES = [
   { key: 'bulkRM',        name: 'Bulk RM Contract', cost:  500, max: 1, minPhase: 3 },
   { key: 'demandHistory', name: 'Demand History',   cost:   50, max: 1, minPhase: 3 },
   { key: 'forecast',      name: '7-Day Forecast',   cost: 1500, max: 1, minPhase: 3 },
+  { key: 'plantStory',    name: 'Plant a Story',    cost: 1500, max: 1, minPhase: 3 },
+  { key: 'smearCampaign', name: 'Run a Smear',      cost: 4000, max: 1, minPhase: 3, requires: 'plantStory', requiresLabel: 'Plant a Story first' },
   // Trading
   { key: 'futures',           name: 'Futures Trading',      cost: 1000, max: 1, minPhase: 4 },
   { key: 'optionsBuy',        name: 'Options — Buy Side',   cost: 2500, max: 1, minPhase: 4 },
@@ -2587,6 +2659,8 @@ function showOfficeMenu() {
       { k: 'j', nk: 'bulkRM'        },
       { k: 'k', nk: 'demandHistory' },
       { k: 'l', nk: 'forecast'      },
+      { k: 's', nk: 'plantStory'    },
+      { k: 't', nk: 'smearCampaign' },
     ]},
     { header: 'TRADING', items: [
       { k: 'm', nk: 'futures'           },
@@ -3368,6 +3442,41 @@ function showOfficeMenu() {
   window.addEventListener('keydown', officeKeyHandler);
 }
 
+// ── Stamps currency helpers (§13) ─────────────────────────────────────────────
+
+let stampMsgRecent = [];
+
+function pickStampMsg() {
+  const pool = [
+    '> You find a stamp caught in the fence post.',
+    '> A stamp blows past. You catch it.',
+    '> Someone left a stamp under the workbench.',
+    '> You find a stamp on the path. Still good.',
+    '> There\'s a stamp wedged in the market doorframe.',
+    '> A stamp falls from somewhere above you.',
+    '> You notice a stamp half-buried in the dirt.',
+    '> A stamp was folded into your pocket at some point.',
+    '> There is a stamp on the ground near the shed.',
+    '> A stamp is stuck to the bottom of your boot.',
+    '> You find a stamp between two floorboards.',
+    '> A stamp rests in the hollow of the old tree.',
+    '> Someone has left a stamp on the market counter.',
+  ];
+  if (state.cottage.owned)            pool.push('> You find a stamp under the rug in your cottage.');
+  if (state.cottage.furniture?.cat)   pool.push('> Your cat knocks a stamp off the bookshelf.');
+  const available = pool.filter(m => !stampMsgRecent.includes(m));
+  const pick = (available.length > 0 ? available : pool)[Math.floor(Math.random() * (available.length || pool.length))];
+  stampMsgRecent.push(pick);
+  if (stampMsgRecent.length > 6) stampMsgRecent.shift();
+  return pick;
+}
+
+function awardStamp(amount, announce) {
+  state.player.stamps += amount;
+  if (announce) addLog(pickStampMsg(), COLOR_STAMPS);
+  if (state.gameState === 'inventory' && inventoryRedrawFn) inventoryRedrawFn();
+}
+
 function handlePonder() {
   const inv = state.player.inventory;
   let hint;
@@ -3396,6 +3505,19 @@ function handlePonder() {
       hint = "The market didn't cooperate. You'll owe the difference at settlement.";
     }
     wrapLog(hint, '#cc66cc'); return;
+  }
+
+  // Newspaper hints (§13)
+  if (state.phase >= 3 && state.stations.newspaper?.unlocked) {
+    const np = state.stations.newspaper;
+    if (np.pendingManipulation) {
+      wrapLog('> Tomorrow\'s headline is already written.', '#ccaa44'); return;
+    } else if (state.skills.plantStory) {
+      const onCooldown = (state.day - np.lastManipulationDay) < 3;
+      if (!onCooldown) { wrapLog('> The press is ready. The market is listening.', '#ccaa44'); return; }
+    } else {
+      wrapLog('> The paper prints what it\'s given. For now.', '#ccaa44'); return;
+    }
   }
 
   // Phase 3 urgent hints first
@@ -3458,20 +3580,20 @@ const OUTFITS = [
   { key: 'violet',  name: 'VIOLET',  color: '#8844cc' },
 ];
 
-// HOME GOODS catalog (§4.2) — 12 purchasable items in order A–L
+// HOME GOODS catalog (§4.2) — 12 purchasable items in order A–L. Prices in stamps (§13).
 const FURNITURE_DEFS = [
-  { key: 'cottage',      name: 'COTTAGE',       price: 50000, glyph: '⌂', color: '#886633' },
-  { key: 'rug',          name: 'BRAIDED RUG',   price: 500,   glyph: '≈', color: '#886633' },
-  { key: 'table',        name: 'WOODEN TABLE',  price: 1000,  glyph: '=', color: '#aa7744' },
-  { key: 'fireplace',    name: 'FIREPLACE',     price: 2500,  glyph: '{', color: '#ff9933' },
-  { key: 'bookshelf',    name: 'BOOKSHELF',     price: 1500,  glyph: '[', color: '#886633' },
-  { key: 'clock',        name: 'CLOCK',         price: 750,   glyph: 'o', color: '#aaaaaa' },
-  { key: 'cat',          name: 'PET (CAT)',     price: 2000,  glyph: 'f', color: '#cc9933' },
-  { key: 'kitchen',      name: 'KITCHEN',       price: 3000,  glyph: '#', color: '#aaaaaa' },
-  { key: 'bed',          name: 'BED',           price: 2000,  glyph: 'z', color: '#6688cc' },
-  { key: 'candles',      name: 'CANDLES',       price: 300,   glyph: 'i', color: '#ffd633' },
-  { key: 'rockingchair', name: 'ROCKING CHAIR', price: 800,   glyph: '~', color: '#aa7744' },
-  { key: 'mat',          name: 'WELCOME MAT',   price: 400,   glyph: '-', color: '#aa7744' },
+  { key: 'cottage',      name: 'COTTAGE',       price: 150, glyph: '⌂', color: '#886633' },
+  { key: 'rug',          name: 'BRAIDED RUG',   price:   8, glyph: '≈', color: '#886633' },
+  { key: 'table',        name: 'WOODEN TABLE',  price:  12, glyph: '=', color: '#aa7744' },
+  { key: 'fireplace',    name: 'FIREPLACE',     price:  32, glyph: '{', color: '#ff9933' },
+  { key: 'bookshelf',    name: 'BOOKSHELF',     price:  20, glyph: '[', color: '#886633' },
+  { key: 'clock',        name: 'CLOCK',         price:   8, glyph: 'o', color: '#aaaaaa' },
+  { key: 'cat',          name: 'PET (CAT)',     price:  24, glyph: 'f', color: '#cc9933' },
+  { key: 'kitchen',      name: 'KITCHEN',       price:  36, glyph: '#', color: '#aaaaaa' },
+  { key: 'bed',          name: 'BED',           price:  24, glyph: 'z', color: '#6688cc' },
+  { key: 'candles',      name: 'CANDLES',       price:   4, glyph: 'i', color: '#ffd633' },
+  { key: 'rockingchair', name: 'ROCKING CHAIR', price:  12, glyph: '~', color: '#aa7744' },
+  { key: 'mat',          name: 'WELCOME MAT',   price:   8, glyph: '-', color: '#aa7744' },
 ];
 
 function openGeneralStoreMenu() {
@@ -3512,7 +3634,7 @@ function openGeneralStoreMenu() {
   function drp(ay,text,fg) { const p=menuPad(text,IPW); for(let i=0;i<IPW;i++) display.draw(RPX+i,ay,p[i]||' ',fg,BG); }
 
   function drawOutfitCell(cx, ay, outfit, idx) {
-    const letter=('abcdefghij')[idx], owned=state.player.ownedOutfits.includes(outfit.key), equipped=state.player.colorName===outfit.name, canAfford=state.player.credits>=100;
+    const letter=('abcdefghij')[idx], owned=state.player.ownedOutfits.includes(outfit.key), equipped=state.player.colorName===outfit.name, canAfford=state.player.stamps>=10;
     let marker=' ',markerFg=BRIGHT_WHITE,bracketFg=canAfford?TC:DC;
     if(equipped){marker='»';markerFg=LC;bracketFg=LC;}else if(owned){marker='✓';markerFg='#66cc66';bracketFg=TC;}
     const nameFg=equipped?LC:(owned?'#aaaaaa':(canAfford?'#aaaaaa':'#555555'));
@@ -3528,7 +3650,7 @@ function openGeneralStoreMenu() {
     const isCottage = item.key === 'cottage';
     const owned     = isCottage ? state.cottage.owned : !!state.cottage.furniture[item.key];
     const locked    = !isCottage && !state.cottage.owned;
-    const canAfford = state.player.credits >= item.price;
+    const canAfford = state.player.stamps >= item.price;
     const letterFg  = owned ? '#888888' : (canAfford && !locked ? TC : '#555555');
     display.draw(cx,  ay, letter,  letterFg, BG);
     display.draw(cx+1,ay, ')',     '#555555', BG);
@@ -3540,7 +3662,7 @@ function openGeneralStoreMenu() {
       if (isCottage) { const s='VISIT  '; for(let i=0;i<7;i++) display.draw(cx+16+i,ay,s[i],TC,BG); }
       else { display.draw(cx+16,ay,'✓','#66cc66',BG); for(let i=1;i<7;i++) display.draw(cx+16+i,ay,' ',BRIGHT_WHITE,BG); }
     } else {
-      const priceStr = (item.price+'cr').padStart(7);
+      const priceStr = (item.price+' ·').padStart(7);
       const priceFg  = locked ? '#444444' : (canAfford ? '#66cc66' : '#ff5555');
       for (let i=0;i<7;i++) display.draw(cx+16+i,ay,priceStr[i]||' ',priceFg,BG);
     }
@@ -3569,10 +3691,13 @@ function openGeneralStoreMenu() {
     { const ay=BOX_Y+4; border(ay); for(let i=0;i<IW;i++) display.draw(BOX_X+1+i,ay,'─',DC,BG); }
     // Rows 5-14: art
     for(let r=0;r<10;r++) crow(BOX_Y+5+r,r);
+    // Stamp balance in art pane last row (r=9, BOX_Y+14)
+    { const ay=BOX_Y+14; const stStr = `Stamps:${state.player.stamps} ·`.slice(0,AW);
+      for(let i=0;i<AW;i++) display.draw(BOX_X+1+i, ay, stStr[i]||' ', COLOR_STAMPS, BG); }
     // Right pane
     if(gsTab==='clothing'){
       drp(BOX_Y+6,'CLOTHING SHOP',TC); drp(BOX_Y+7,'Change your look.','#555555');
-      drp(BOX_Y+9,'Each item: 100cr','#555555'); drp(BOX_Y+11,'Current look:','#555555');
+      drp(BOX_Y+9,'Each item: 10 stamps','#555555'); drp(BOX_Y+11,'Current look:','#555555');
       { const ay=BOX_Y+12; const cn=(state.player.colorName==='DEFAULT')?'default white':state.player.colorName.toLowerCase();
         drp(ay,`@ ${cn}`,'#555555'); display.draw(RPX,ay,'@',state.player.color||BRIGHT_WHITE,BG); }
     } else {
@@ -3646,8 +3771,8 @@ function openGeneralStoreMenu() {
         return;
       }
       if (!isCottage && !state.cottage.owned) { addLog('You need a cottage first.', '#555555'); return; }
-      if (state.player.credits < item.price) { addLog("You can't afford that.", '#ff5555'); return; }
-      state.player.credits -= item.price;
+      if (state.player.stamps < item.price) { addLog(`You need ${item.price - state.player.stamps} more stamps.`, '#ff5555'); return; }
+      state.player.stamps -= item.price;
       if (isCottage) {
         state.cottage.owned = true;
         placeCottageTiles();
@@ -3675,8 +3800,8 @@ function openGeneralStoreMenu() {
       markDirty(state.player.x,state.player.y); renderDirty(); display.draw(state.player.x,state.player.y,'@',state.player.color,BG);
       addLog(`You change into something ${outfit.name.toLowerCase()}.`,outfit.color); redraw(); return;
     }
-    if (state.player.credits<100) { addLog("You can't afford that.",'#ff5555'); return; }
-    state.player.credits-=100; state.player.ownedOutfits.push(outfit.key); state.player.color=outfit.color; state.player.colorName=outfit.name;
+    if (state.player.stamps<10) { addLog(`You need ${10-state.player.stamps} more stamps.`,'#ff5555'); return; }
+    state.player.stamps-=10; state.player.ownedOutfits.push(outfit.key); state.player.color=outfit.color; state.player.colorName=outfit.name;
     markDirty(state.player.x,state.player.y); renderDirty(); display.draw(state.player.x,state.player.y,'@',state.player.color,BG);
     addLog(`You purchase and put on the ${outfit.name.toLowerCase()} outfit.`,outfit.color); drawStatusBar(); redraw();
   }
@@ -4402,6 +4527,7 @@ let storageMenuRedrawFn = null;
 let bankMenuRedrawFn    = null;
 let gsMenuRedrawFn      = null;
 let officeMenuRedrawFn  = null;
+let npMenuRedrawFn      = null;
 
 function checkAbstractionCollapse() {
   if (state.endingTriggered || state.derivatives.totalPnL < 50000) return;
@@ -6179,6 +6305,8 @@ function handleInteract() {
   if (trStation && isAdjacentToStation(trStation)) { openDerivativesMenu(); return; }
   const lfStation = STATION_DEFS.find(s => s.label === 'LF');
   if (lfStation && isAdjacentToStation(lfStation) && state.stations.launch_facility?.unlocked) { openLFMenu(); return; }
+  const npStation = STATION_DEFS.find(s => s.label === 'NP');
+  if (npStation && isAdjacentToStation(npStation) && state.stations.newspaper?.unlocked) { openNewspaperMenu(); return; }
   // Cottage door entry
   if (state.cottage.owned) {
     const doorX = state.cottage.mapX + 3, doorY = state.cottage.mapY + 3;
@@ -6314,26 +6442,40 @@ function showInventory() {
       const val = menuPad(`${formatCredits(state.player.credits)}cr`, IW-16-SYM_W);
       for (let i = 0; i < val.length; i++) display.draw(c++, BOX_Y+7, val[i]||' ', '#ffd633', BG);
     }
-    { // Lifetime sym row
+    { // Stamps row
       border(BOX_Y+8);
+      const SDOT_W = 20;
+      const stamps  = state.player.stamps;
+      const dots    = Math.min(stamps, SDOT_W);
+      const overflow = stamps > SDOT_W;
+      let c = CONT_X;
+      const lbl = menuPad('Stamps', 16);
+      for (let i = 0; i < 16; i++) display.draw(c++, BOX_Y+8, lbl[i], '#555555', BG);
+      for (let i = 0; i < SDOT_W; i++) display.draw(c++, BOX_Y+8, i < dots ? '·' : ' ', COLOR_STAMPS, BG);
+      display.draw(c++, BOX_Y+8, overflow ? '+' : ' ', COLOR_STAMPS, BG);
+      const val = menuPad(String(stamps), IW-16-SDOT_W-1);
+      for (let i = 0; i < val.length; i++) display.draw(c++, BOX_Y+8, val[i]||' ', COLOR_STAMPS, BG);
+    }
+    { // Lifetime sym row
+      border(BOX_Y+9);
       const SYM_W = 16, syms = Math.min(Math.floor(state.lifetimeCreditsEarned/10), SYM_W);
       let c = CONT_X;
       const lbl = menuPad('Lifetime', 16);
-      for (let i = 0; i < 16; i++) display.draw(c++, BOX_Y+8, lbl[i], WC, BG);
-      for (let i = 0; i < SYM_W; i++) display.draw(c++, BOX_Y+8, i<syms?'~':' ', i<syms?WC:WC, BG);
+      for (let i = 0; i < 16; i++) display.draw(c++, BOX_Y+9, lbl[i], WC, BG);
+      for (let i = 0; i < SYM_W; i++) display.draw(c++, BOX_Y+9, i<syms?'~':' ', i<syms?WC:WC, BG);
       const val = menuPad(`${formatCredits(state.lifetimeCreditsEarned)}cr`, IW-16-SYM_W);
-      for (let i = 0; i < val.length; i++) display.draw(c++, BOX_Y+8, val[i]||' ', WC, BG);
+      for (let i = 0; i < val.length; i++) display.draw(c++, BOX_Y+9, val[i]||' ', WC, BG);
     }
-    irow(BOX_Y+9, '─'.repeat(IW), DC);
+    irow(BOX_Y+10, '─'.repeat(IW), DC);
     if (state.phase >= 3) {
-      irow(BOX_Y+10, 'MARKET REPORT', BC);
+      irow(BOX_Y+11, 'MARKET REPORT', BC);
       const dl = demandLabel(state.demand);
-      irow(BOX_Y+11, `Demand today:   ${String(state.demand).padStart(3)} widgets  (${dl.text})`, dl.fg);
-      irow(BOX_Y+12, `Price today:    ${state.marketPrice}cr`, BRIGHT_WHITE);
-      irow(BOX_Y+13, `Sold today:     ${state.widgetsSoldToday} / ${state.demand}`, BRIGHT_WHITE);
-      irow(BOX_Y+14, `Remaining:      ${Math.max(0, state.demand-state.widgetsSoldToday)} widgets`, BRIGHT_WHITE);
+      irow(BOX_Y+12, `Demand today:   ${String(state.demand).padStart(3)} widgets  (${dl.text})`, dl.fg);
+      irow(BOX_Y+13, `Price today:    ${state.marketPrice}cr`, BRIGHT_WHITE);
+      irow(BOX_Y+14, `Sold today:     ${state.widgetsSoldToday} / ${state.demand}`, BRIGHT_WHITE);
+      irow(BOX_Y+15, `Remaining:      ${Math.max(0, state.demand-state.widgetsSoldToday)} widgets`, BRIGHT_WHITE);
     } else {
-      irow(BOX_Y+10, 'MARKET REPORT — available in Phase 3', WC);
+      irow(BOX_Y+11, 'MARKET REPORT — available in Phase 3', WC);
     }
     const ms  = state.marketOpen ? 'OPEN' : 'CLOSED';
     const mFg = state.marketOpen ? BRIGHT_YELLOW : WC;
@@ -6571,6 +6713,265 @@ function showInventory() {
 function workerLabel(w, idx, type) {
   if (w.nickname) return w.nickname;
   return type === 'courier' ? `Courier ${idx + 1}` : `Apprentice ${idx + 1}`;
+}
+
+// ── Newspaper menu (§13) ──────────────────────────────────────────────────────
+
+function openNewspaperMenu() {
+  if (!state.stations.newspaper?.unlocked) return;
+  state.gameState = 'newspaper';
+
+  const NC    = '#ccaa44'; // newsprint gold
+  const LC    = '#f0f0f0';
+  const DC    = '#333333';
+  const HL    = '#ffdd66'; // headline gold
+  const BOX_W = 60;
+  const IW    = 58;        // inner width
+  const LP_W  = 16;        // left pane (art)
+  const RP_W  = 41;        // right pane
+  const BOX_X = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
+
+  const NP_ART = [
+    ' _____________ ',
+    '|  THE DAILY  |',
+    '|    WIDGET   |',
+    '|=============|',
+    '| ## ## ## ## |',
+    '| ## ## ## ## |',
+    '| ## ## ## ## |',
+    '|-------------|',
+    '| [  PRESS  ] |',
+    '|_____________|',
+    '  |||     ||| ',
+    '  ___     ___ ',
+  ];
+
+  const BULLISH_STORIES = [
+    { label: 'Endorse by industry figure',  headline: 'INDUSTRY FIGURE ENDORSES WIDGETS — demand expected to surge',     nudge: +15 },
+    { label: 'Gov. subsidy incoming',        headline: 'GOVERNMENT WIDGET SUBSIDY INCOMING — analysts bullish',              nudge: +15 },
+    { label: 'Widgets cure mild ailments',   headline: 'WIDGETS LINKED TO HEALTH BENEFITS — sales forecast strong',        nudge: +15 },
+    { label: 'Supply running critically low',headline: 'SUPPLY RUNNING CRITICALLY LOW — buyers urged to act now',           nudge: +15 },
+    { label: 'Rival producer has gone under',headline: 'RIVAL WIDGET PRODUCER CONFIRMS CLOSURE — market share up',         nudge: +15 },
+  ];
+  const BEARISH_STORIES = [
+    { label: 'Link to food-borne illness',   headline: 'WIDGETS LINKED TO FOOD-BORNE ILLNESS OUTBREAK — demand at risk',   nudge: -15 },
+    { label: 'Factory environmental breach', headline: 'FACTORY ENVIRONMENTAL VIOLATIONS REPORTED — confidence shaken',    nudge: -15 },
+    { label: 'Competing product superior',   headline: 'COMPETING PRODUCT OUTPERFORMS WIDGETS IN INDEPENDENT TESTS',       nudge: -15 },
+    { label: 'Widgets contain banned material',headline: 'WIDGETS CONTAIN BANNED MATERIALS — investigation underway',     nudge: -15 },
+    { label: 'Demand survey shows sharp drop',headline: 'DEMAND SURVEY SHOWS SHARP DROP — analysts downgrade outlook',    nudge: -15 },
+  ];
+
+  let npSel     = 0;   // 0-9 (bullish 0-4, bearish 5-9), or 0-14 with smear
+  let npConfirm = false;
+
+  const hasSkill  = !!state.skills.plantStory;
+  const hasSmear  = !!state.skills.smearCampaign;
+  const onCooldown = () => (state.day - (state.stations.newspaper.lastManipulationDay ?? -99)) < 3;
+
+  function allStories() {
+    const list = [];
+    BULLISH_STORIES.forEach((s, i) => list.push({ ...s, tier: 'plant',  cost: 500,  letter: String.fromCharCode(97+i) }));
+    BEARISH_STORIES.forEach((s, i) => list.push({ ...s, tier: 'plant',  cost: 500,  letter: String.fromCharCode(102+i) }));
+    if (hasSmear) {
+      BULLISH_STORIES.forEach((s, i) => list.push({ ...s, nudge: +30, tier: 'smear', cost: 2000, letter: String(i+1) }));
+      BEARISH_STORIES.forEach((s, i) => list.push({ ...s, nudge: -30, tier: 'smear', cost: 2000, letter: String(i+6) }));
+    }
+    return list;
+  }
+
+  // Compute BOX_H based on what's shown
+  function calcBOX_H() {
+    if (!hasSkill)            return 28;
+    if (onCooldown())         return 24;
+    if (!hasSmear)            return 36;
+    return 46;
+  }
+
+  function redraw() {
+    const BOX_H = calcBOX_H();
+    const BOX_Y = Math.max(1, Math.floor((WORLD_ROWS - BOX_H) / 2));
+    const LP_X  = BOX_X + 1;
+    const RP_X  = BOX_X + 1 + LP_W + 1;
+    const animFrame = (state.newspaper.animTick >> 2) & 1; // flip every 4 ticks
+
+    function border(ay) { display.draw(BOX_X, ay, '║', NC, BG); display.draw(BOX_X + BOX_W - 1, ay, '║', NC, BG); }
+    function lp(ay, text, fg) {
+      const p = menuPad(text, LP_W);
+      for (let i = 0; i < LP_W; i++) display.draw(LP_X + i, ay, p[i]||' ', fg, BG);
+    }
+    function rp(ay, text, fg) {
+      const p = menuPad(text, RP_W);
+      for (let i = 0; i < RP_W; i++) display.draw(RP_X + i, ay, p[i]||' ', fg, BG);
+    }
+    function fullRow(ay, text, fg) {
+      border(ay);
+      const p = menuPad(text, IW);
+      for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, p[i]||' ', fg, BG);
+    }
+    function sep(ay) { fullRow(ay, '─'.repeat(IW), DC); }
+
+    // Clear
+    for (let r = 1; r < BOX_H - 1; r++) for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, BOX_Y + r, ' ', LC, BG);
+
+    // Top border
+    display.draw(BOX_X, BOX_Y, '╔', NC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y, '╗', NC, BG);
+    for (let i = 1; i < BOX_W-1; i++) display.draw(BOX_X+i, BOX_Y, '═', NC, BG);
+
+    // Row 1: title
+    { const ay = BOX_Y + 1; border(ay);
+      const title = 'THE DAILY WIDGET', hint = 'press esc to exit';
+      for (let i = 0; i < IW; i++) {
+        const ch = i < title.length ? title[i] : (i >= IW - hint.length ? hint[i-(IW-hint.length)] : ' ');
+        const fg = i < title.length ? LC : (i >= IW - hint.length ? DC : LC);
+        display.draw(BOX_X + 1 + i, BOX_Y + 1, ch, fg, BG);
+      }
+    }
+
+    // Row 2: ═ separator
+    { const ay = BOX_Y + 2; border(ay); for (let i = 0; i < IW; i++) display.draw(BOX_X+1+i, ay, '═', DC, BG); }
+
+    // Rows 3-14: art pane + right pane
+    for (let r = 0; r < 12; r++) {
+      const ay = BOX_Y + 3 + r;
+      border(ay);
+      // Art pane
+      const artLine = NP_ART[r] || '                ';
+      for (let i = 0; i < LP_W; i++) {
+        let fg = NC;
+        if (r === 1 || r === 2) fg = HL; // "THE DAILY" / "WIDGET" text
+        if (r >= 4 && r <= 6)   fg = animFrame === 0 ? '#555555' : '#444444'; // animated ## columns
+        if (r === 8)             fg = NC; // [  PRESS  ]
+        if (r === 10 || r === 11) fg = '#aaaaaa'; // press legs
+        display.draw(LP_X + i, ay, artLine[i]||' ', fg, BG);
+      }
+      // Divider
+      display.draw(BOX_X + 1 + LP_W, ay, '│', DC, BG);
+      // Right pane (cleared already)
+    }
+
+    // Right pane content
+    const hdl = state.newspaper.todayHeadline || '(no report yet today)';
+    const hdlWrapped = wordWrap(hdl, 38);
+    rp(BOX_Y+4,  'TODAY\'S REPORT', NC);
+    hdlWrapped.slice(0, 2).forEach((line, i) => rp(BOX_Y + 6 + i, line, LC));
+    const fLabel = state.newspaper.tomorrowForecastLabel || '—';
+    const FORECAST_FG = { Strong:'#66cc66', Positive:'#66cc66', Mixed:'#ffd633', Weak:'#ff9933', Poor:'#ff5555' };
+    rp(BOX_Y+9,  `Tomorrow's outlook: ${fLabel}`, FORECAST_FG[fLabel] || '#aaaaaa');
+    const eD = Math.round(50 + 30 * Math.sin((state.day+1) / 7 * 2 * Math.PI));
+    rp(BOX_Y+10, `Expected demand: ~${eD} widgets`, '#555555');
+    for (let i = 0; i < 39; i++) display.draw(RP_X + i, BOX_Y+12, '═', DC, BG);
+    rp(BOX_Y+13, hasSkill ? 'INFLUENCE THE NARRATIVE' : 'STANDARD EDITION', hasSkill ? NC : DC);
+
+    // Row 15: separator
+    sep(BOX_Y + 15);
+
+    // Story section rows start at BOX_Y+16
+    let cr = BOX_Y + 16;
+    if (!hasSkill) {
+      fullRow(cr++, 'This is a standard subscription.', '#555555');
+      cr++; // blank
+      fullRow(cr++, 'Influence options available via', '#555555');
+      fullRow(cr++, 'the Office (MARKETING section).', '#555555');
+      cr++;
+      fullRow(cr++, '  Plant a Story:     1,500cr', '#555555');
+      fullRow(cr++, '  Run a Smear:       4,000cr', '#555555');
+    } else if (onCooldown()) {
+      const nextDay = (state.stations.newspaper.lastManipulationDay ?? 0) + 3;
+      fullRow(cr++, 'Cooldown active.', '#555555');
+      fullRow(cr++, `Next story available: day ${nextDay}`, '#555555');
+    } else {
+      const stories = allStories();
+      const sections = [
+        { title: `BULLISH STORIES  (+demand)   ${hasSmear ? '500cr' : '500cr'}`, stories: BULLISH_STORIES, offset: 0, tier: 'plant', cost: 500 },
+        { title: `BEARISH STORIES  (-demand)   ${hasSmear ? '500cr' : '500cr'}`, stories: BEARISH_STORIES, offset: 5, tier: 'plant', cost: 500 },
+      ];
+      if (hasSmear) {
+        sections.push({ title: 'SMEAR CAMPAIGN (+/- demand)  2,000cr', stories: [...BULLISH_STORIES, ...BEARISH_STORIES], offset: 10, tier: 'smear', cost: 2000, isSmear: true });
+      }
+
+      for (const sec of sections) {
+        fullRow(cr++, sec.title, sec.isSmear ? '#ff5555' : NC);
+        for (let i = 0; i < sec.stories.length; i++) {
+          const globalIdx = sec.offset + i;
+          const isSel = npSel === globalIdx;
+          const prefix = isSel ? '>> ' : '   ';
+          const ltr = sec.isSmear ? (i < 5 ? String(i+1) : String(i-4)) : String.fromCharCode((sec.offset < 5 ? 97 : 102) + i);
+          fullRow(cr++, `${prefix}${ltr}) ${sec.stories[i].label}`, isSel ? HL : '#aaaaaa');
+        }
+        cr++; // blank
+      }
+
+      if (npConfirm) {
+        const chosen = allStories()[npSel];
+        fullRow(cr++, `File this story for ${chosen.cost}cr? (1. Yes / 2. No)`, LC);
+      }
+    }
+
+    // Bottom separator and footer
+    { const ay = BOX_Y + BOX_H - 3; sep(ay); }
+    { const ay = BOX_Y + BOX_H - 2; border(ay);
+      const footTxt = hasSkill && !onCooldown() ? (npConfirm ? '1: confirm  2: cancel' : '↑↓: select  Enter: choose  ESC: exit') : 'ESC: exit';
+      const fp = menuPad(footTxt.length < IW ? ' '.repeat(Math.floor((IW-footTxt.length)/2)) + footTxt : footTxt, IW);
+      for (let i = 0; i < IW; i++) display.draw(BOX_X+1+i, ay, fp[i]||' ', DC, BG); }
+
+    // Bottom border
+    { const ay = BOX_Y + BOX_H - 1;
+      display.draw(BOX_X, ay, '╚', NC, BG); display.draw(BOX_X+BOX_W-1, ay, '╝', NC, BG);
+      for (let i = 1; i < BOX_W-1; i++) display.draw(BOX_X+i, ay, '═', NC, BG); }
+  }
+
+  npMenuRedrawFn = redraw;
+  redraw();
+
+  // Animation ticker (4-tick cycle, ~100ms)
+  const npAnimInterval = setInterval(() => {
+    if (state.gameState !== 'newspaper') { clearInterval(npAnimInterval); return; }
+    state.newspaper.animTick++;
+    redraw();
+  }, 250);
+
+  function closeNP() {
+    npMenuRedrawFn = null;
+    clearInterval(npAnimInterval);
+    window.removeEventListener('keydown', npKeyHandler);
+    const BOX_H = calcBOX_H();
+    const BOX_Y = Math.max(1, Math.floor((WORLD_ROWS - BOX_H) / 2));
+    for (let y = BOX_Y; y < BOX_Y + BOX_H; y++)
+      for (let x = BOX_X; x < BOX_X + BOX_W; x++)
+        if (x >= 0 && x < DISPLAY_WIDTH && y >= 0 && y < WORLD_ROWS) markDirty(x, y);
+    renderDirty();
+    display.draw(state.player.x, state.player.y, '@', state.player.color || BRIGHT_WHITE, BG);
+    state.gameState = 'playing';
+  }
+
+  function npKeyHandler(e) {
+    if (e.key === 'Escape') { if (npConfirm) { npConfirm = false; redraw(); } else { closeNP(); } return; }
+    if (!hasSkill || onCooldown()) return;
+
+    const stories = allStories();
+    const maxSel  = stories.length - 1;
+
+    if (npConfirm) {
+      if (e.key === '1') {
+        const chosen = stories[npSel];
+        if (state.player.credits < chosen.cost) { addLog(`Not enough credits. Need ${chosen.cost}cr.`, '#ff5555'); npConfirm = false; redraw(); return; }
+        state.player.credits -= chosen.cost;
+        state.stations.newspaper.pendingManipulation = { tier: chosen.tier, nudge: chosen.nudge, headline: chosen.headline };
+        state.stations.newspaper.lastManipulationDay = state.day;
+        addLog('> Story filed. It will run at dawn.', NC);
+        drawStatusBar();
+        npConfirm = false; closeNP();
+      } else if (e.key === '2') {
+        npConfirm = false; redraw();
+      }
+      return;
+    }
+
+    if (e.key === 'ArrowDown') { e.preventDefault(); npSel = Math.min(npSel + 1, maxSel); redraw(); return; }
+    if (e.key === 'ArrowUp')   { e.preventDefault(); npSel = Math.max(npSel - 1, 0);       redraw(); return; }
+    if (e.key === 'Enter') { npConfirm = true; redraw(); return; }
+  }
+  window.addEventListener('keydown', npKeyHandler);
 }
 
 // ── Apprentice worker logic (§5.3) ───────────────────────────────────────────
@@ -7105,6 +7506,39 @@ setInterval(() => {
       const dl = demandLabel(state.demand);
       wrapLog(`Market demand today: ${dl.text}. Price: ${state.marketPrice}cr/widget.`, dl.fg);
     }
+    // Newspaper headline at dawn (§13)
+    if (state.phase >= 3 && state.stations.newspaper?.unlocked) {
+      const np = state.stations.newspaper;
+      const expectedD = Math.round(50 + 30 * Math.sin(state.day / 7 * 2 * Math.PI));
+      let useManipulated = false, manipHeadline = '';
+      if (np.pendingManipulation) {
+        const roll = Math.random();
+        const successRate = np.pendingManipulation.tier === 'smear' ? 0.85 : 0.80;
+        if (roll < successRate) {
+          state.demand = Math.max(5, state.demand + np.pendingManipulation.nudge);
+          state.marketPrice = Math.round(8 * Math.pow(state.demand / 50, 0.5) * 10) / 10;
+          useManipulated = true;
+          manipHeadline = np.pendingManipulation.headline;
+        }
+        np.pendingManipulation = null;
+      }
+      const HEADLINES_REAL = [
+        [71, 'WIDGET DEMAND PROJECTED STRONG — analysts optimistic'],
+        [55, 'STEADY GROWTH EXPECTED — market watchers confident'],
+        [40, 'MIXED SIGNALS IN WIDGET SECTOR — cautious outlook'],
+        [25, 'SUPPLY CONCERNS LOOM — demand forecast weak'],
+        [ 0, 'WIDGET MARKET FACES HEADWINDS — analysts concerned'],
+      ];
+      const headline = useManipulated ? manipHeadline
+        : HEADLINES_REAL.find(([thr]) => state.demand > thr)[1];
+      state.newspaper.todayHeadline = headline;
+      // Forecast for tomorrow's menu display
+      const nxtD = Math.round(50 + 30 * Math.sin((state.day + 1) / 7 * 2 * Math.PI));
+      const FORECAST_LABELS = [[71,'Strong'],[55,'Positive'],[40,'Mixed'],[25,'Weak'],[0,'Poor']];
+      state.newspaper.tomorrowForecastLabel = FORECAST_LABELS.find(([t]) => nxtD > t)[1];
+      state.newspaper.animTick = 0;
+      addLog(`> [DAILY WIDGET] ${headline}`, '#ccaa44');
+    }
     // Settle forward contracts due today
     if (state.derivatives.forwards.length > 0) {
       const due = state.derivatives.forwards.filter(f => f.settlementDay === state.day);
@@ -7192,6 +7626,15 @@ setInterval(() => {
     }
   }
   drawTimeIndicator();
+
+  // Stamp event timer — only when actively playing (§13)
+  if (state.gameState === 'playing') {
+    state.player.stampEventTimer = (state.player.stampEventTimer ?? 40) - 1;
+    if (state.player.stampEventTimer <= 0) {
+      state.player.stampEventTimer = Math.floor(Math.random() * 21) + 40;
+      awardStamp(1, true);
+    }
+  }
 
   if (state.gameState === 'crafting') {
     // Advance hammer animation frame

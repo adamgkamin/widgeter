@@ -151,6 +151,11 @@
       "wall": "The shop front. A few items are visible through the window.",
       "door": "The General Store entrance. A small bell above the door is silent for now.",
       "label": "The General Store. It seems to sell clothing of some kind."
+    },
+    "NP": {
+      "wall": "The press building. You can hear machinery inside.",
+      "door": "The Newspaper office entrance. The smell of ink is strong.",
+      "label": "The Daily Widget. Est. recently. Circulation: unknown."
     }
   },
   "tiles": {
@@ -166,6 +171,7 @@
     "bank": "A stone building. The hours are posted on the door but the times have been scratched out.",
     "terminal": "A terminal behind a locked panel. The screen is dark. You press a key. Nothing. You try again. Still nothing.",
     "office_nodes": "A corkboard inside the Office, behind a door that won't open. The notes are in your own handwriting, somehow.",
-    "general_store": "A small shop, shuttered. A sign in the window reads: 'OPENING SOON.' The display inside is covered with a cloth."
+    "general_store": "A small shop, shuttered. A sign in the window reads: 'OPENING SOON.' The display inside is covered with a cloth.",
+    "newspaper": "A small print shop, dark. A sign reads: 'THE DAILY WIDGET — COMING SOON.' Ink stains on the doorstep."
   }
 }
