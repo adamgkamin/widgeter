@@ -81,9 +81,11 @@ const state = {
   },
   officeUnlocked: false,
   storage: { widgets: 0, rm: 0, widgetCap: 50, rmCap: 50 },
-  workbenchWidgets: 0,
-  productionHalted: false,
-  wbFullLogged:     false,
+  workbenchWidgets:  0,
+  productionHalted:  false,
+  wbFullLogged:      false,
+  rmPurchasedToday:  0,
+  rmLimitLogged:     false,
   workers: { apprentices: [], couriers: [] },
   skills: {
     apprentice:   0,
@@ -122,6 +124,8 @@ function saveGame() {
     workbenchWidgets:     state.workbenchWidgets,
     productionHalted:     state.productionHalted,
     wbFullLogged:         state.wbFullLogged,
+    rmPurchasedToday:     state.rmPurchasedToday,
+    rmLimitLogged:        state.rmLimitLogged,
     workers:              state.workers,
     skills:               state.skills,
   };
@@ -153,6 +157,8 @@ function loadGame() {
     state.workbenchWidgets     = data.workbenchWidgets  ?? 0;
     state.productionHalted     = data.productionHalted  ?? false;
     state.wbFullLogged         = data.wbFullLogged       ?? false;
+    state.rmPurchasedToday     = data.rmPurchasedToday   ?? 0;
+    state.rmLimitLogged        = data.rmLimitLogged       ?? false;
     state.workers              = data.workers           ?? { apprentices: [], couriers: [] };
     state.workers.couriers     = state.workers.couriers ?? []; // normalise old saves
     state.skills               = data.skills            ?? { apprentice: 0, courier: 0, workerCarry: 0, workerSpeed: 0, courierCarry: 0, courierSpeed: 0 };
@@ -264,11 +270,16 @@ function drawStatusBar() {
   const inv = state.player.inventory;
   const cap = state.player.inventoryCaps;
   const widgetFg = inv.widgets >= cap.widgets ? '#ff5555' : BRIGHT_WHITE;
+  const gap = state.phase >= 2 ? 2 : 4;
   let sx = 0;
-  sx = seg(sx, `Credits: ${state.player.credits}`,              '#ffd633') + 4;
-  sx = seg(sx, `Raw: ${inv.rm}`,                                '#ff9933') + 4;
-  sx = seg(sx, `Widgets: ${inv.widgets}/${cap.widgets}`,        widgetFg)  + 4;
-  sx = seg(sx, `Day ${state.day}`,                              BRIGHT_WHITE) + 4;
+  sx = seg(sx, `Credits: ${state.player.credits}`,       '#ffd633') + gap;
+  sx = seg(sx, `Raw: ${inv.rm}`,                          '#ff9933') + gap;
+  sx = seg(sx, `Widgets: ${inv.widgets}/${cap.widgets}`,  widgetFg)  + gap;
+  if (state.phase >= 2) {
+    seg(sx, `RM today: ${state.rmPurchasedToday}/100`, '#ff9933');
+  } else {
+    sx = seg(sx, `Day ${state.day}`, BRIGHT_WHITE) + gap;
+  }
   drawTimeIndicator();
 }
 
@@ -721,6 +732,8 @@ function resetState() {
   state.workbenchWidgets = 0;
   state.productionHalted = false;
   state.wbFullLogged     = false;
+  state.rmPurchasedToday = 0;
+  state.rmLimitLogged    = false;
   state.workers = { apprentices: [], couriers: [] };
   state.skills = { apprentice: 0, courier: 0, workerCarry: 0, workerSpeed: 0, courierCarry: 0, courierSpeed: 0 };
   const fcDef = STATION_DEFS.find(s => s.label === 'FC');
@@ -1040,19 +1053,23 @@ function isAdjacentToStation(s) {
 }
 
 function openRMShedMenu() {
-  const COST    = 3;
-  const rmSpace = state.player.inventoryCaps.rm - state.player.inventory.rm;
-  const maxBuy  = Math.min(rmSpace, Math.floor(state.player.credits / COST));
-  const canBuy1 = state.player.credits >= COST && rmSpace > 0;
+  const COST      = 3;
+  const rmSpace   = state.player.inventoryCaps.rm - state.player.inventory.rm;
+  const dailyLeft = state.phase >= 2 ? Math.max(0, 100 - state.rmPurchasedToday) : Infinity;
+  const maxBuy    = Math.min(rmSpace, Math.floor(state.player.credits / COST),
+                             dailyLeft === Infinity ? Infinity : dailyLeft);
+  const canBuy1   = state.player.credits >= COST && rmSpace > 0 && dailyLeft > 0;
+  const limitHit  = state.phase >= 2 && dailyLeft <= 0;
 
   showMenu('Raw Materials Shed', [
     {
-      label:   `Buy 1 RM (${COST}cr)`,
+      label:   limitHit ? 'Buy 1 RM — DAILY LIMIT REACHED' : `Buy 1 RM (${COST}cr)`,
       enabled: canBuy1,
       action:  () => {
-        state.player.credits     -= COST;
+        state.player.credits      -= COST;
         state.player.inventory.rm += 1;
-        addLog(`You buy 1 raw material.`, '#ff9933');
+        state.rmPurchasedToday    += 1;
+        addLog('You buy 1 raw material.', '#ff9933');
         drawStatusBar();
       },
     },
@@ -1062,6 +1079,7 @@ function openRMShedMenu() {
       action:  () => {
         state.player.credits      -= maxBuy * COST;
         state.player.inventory.rm += maxBuy;
+        state.rmPurchasedToday    += maxBuy;
         addLog(`You buy ${maxBuy} raw material${maxBuy !== 1 ? 's' : ''}.`, '#ff9933');
         drawStatusBar();
       },
@@ -1738,16 +1756,26 @@ function tickApprentices() {
       // Arrived at RM shed?
       if (w.workerState === 'fetching' &&
           Math.abs(w.x - rmDoor.x) <= 1 && Math.abs(w.y - rmDoor.y) <= 1) {
-        const space = carryMax - w.carryRM;
-        let bought = 0;
-        while (bought < space && state.player.credits >= 3) {
-          state.player.credits -= 3;
-          w.carryRM++;
-          bought++;
+        if (state.phase >= 2 && state.rmPurchasedToday >= 100) {
+          if (!state.rmLimitLogged) {
+            state.rmLimitLogged = true;
+            addLog('Daily RM limit reached. Workers waiting for dawn.', '#ff5555');
+          }
+          w.workerState = 'idle';
+        } else {
+          const space = carryMax - w.carryRM;
+          let bought = 0;
+          while (bought < space && state.player.credits >= 3) {
+            if (state.phase >= 2 && state.rmPurchasedToday >= 100) break;
+            state.player.credits   -= 3;
+            state.rmPurchasedToday += 1;
+            w.carryRM++;
+            bought++;
+          }
+          if (bought > 0) drawStatusBar();
+          w.target = { ...wbDoor };
+          w.workerState = 'returning';
         }
-        if (bought > 0) drawStatusBar();
-        w.target = { ...wbDoor };
-        w.workerState = 'returning';
       }
 
       // Arrived at workbench?
@@ -1885,7 +1913,7 @@ setInterval(() => {
 
   state.tick++;
   state.dayTick++;
-  if (state.dayTick >= 240) { state.dayTick = 0; state.day++; state.bellFiredToday = false; }
+  if (state.dayTick >= 240) { state.dayTick = 0; state.day++; state.bellFiredToday = false; state.rmPurchasedToday = 0; state.rmLimitLogged = false; }
   state.marketOpen = state.dayTick < 180;
   if (state.dayTick === 0 && !state.bellFiredToday) {
     state.bellFiredToday = true;
