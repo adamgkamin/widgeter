@@ -86,11 +86,14 @@ const state = {
   wbFullLogged:      false,
   rmPurchasedToday:  0,
   rmLimitLogged:     false,
-  couriersOwned:     0,
-  demand:            50,
-  marketPrice:       8,
-  widgetsSoldToday:  0,
-  demandMetLogged:   false,
+  couriersOwned:        0,
+  demand:               50,
+  marketPrice:          8,
+  widgetsSoldToday:     0,
+  demandMetLogged:      false,
+  debt:                 0,
+  debtDaysUnpaid:       0,
+  demandCrashOccurred:  false,
   audio: { muted: false },
   workers: { apprentices: [], couriers: [] },
   skills: {
@@ -100,6 +103,10 @@ const state = {
     workerSpeed:  0,
     courierCarry: 0,
     courierSpeed: 0,
+    storageExp1:  0,
+    storageExp2:  0,
+    reducedCarry: 0,
+    discountDump: 0,
   },
 };
 
@@ -137,6 +144,9 @@ function saveGame() {
     marketPrice:          state.marketPrice,
     widgetsSoldToday:     state.widgetsSoldToday,
     demandMetLogged:      state.demandMetLogged,
+    debt:                 state.debt,
+    debtDaysUnpaid:       state.debtDaysUnpaid,
+    demandCrashOccurred:  state.demandCrashOccurred,
     audio:                state.audio,
     workers:              state.workers,
     skills:               state.skills,
@@ -176,10 +186,18 @@ function loadGame() {
     state.marketPrice          = data.marketPrice          ?? 8;
     state.widgetsSoldToday     = data.widgetsSoldToday     ?? 0;
     state.demandMetLogged      = data.demandMetLogged       ?? false;
+    state.debt                 = data.debt                 ?? 0;
+    state.debtDaysUnpaid       = data.debtDaysUnpaid       ?? 0;
+    state.demandCrashOccurred  = data.demandCrashOccurred  ?? false;
     state.audio                = data.audio               ?? { muted: false };
     state.workers              = data.workers           ?? { apprentices: [], couriers: [] };
     state.workers.couriers     = state.workers.couriers ?? []; // normalise old saves
-    state.skills               = data.skills            ?? { apprentice: 0, courier: 0, workerCarry: 0, workerSpeed: 0, courierCarry: 0, courierSpeed: 0 };
+    state.skills               = data.skills            ?? { apprentice: 0, courier: 0, workerCarry: 0, workerSpeed: 0, courierCarry: 0, courierSpeed: 0, storageExp1: 0, storageExp2: 0, reducedCarry: 0, discountDump: 0 };
+    // normalise old saves missing phase-3 skill keys
+    state.skills.storageExp1   = state.skills.storageExp1  ?? 0;
+    state.skills.storageExp2   = state.skills.storageExp2  ?? 0;
+    state.skills.reducedCarry  = state.skills.reducedCarry ?? 0;
+    state.skills.discountDump  = state.skills.discountDump ?? 0;
   } catch (_) {
     // corrupt save — start fresh
   }
@@ -785,10 +803,13 @@ function resetState() {
   state.demand           = 50;
   state.marketPrice      = 8;
   state.widgetsSoldToday = 0;
-  state.demandMetLogged  = false;
+  state.demandMetLogged      = false;
+  state.debt                 = 0;
+  state.debtDaysUnpaid       = 0;
+  state.demandCrashOccurred  = false;
   state.audio            = { muted: false };
   state.workers = { apprentices: [], couriers: [] };
-  state.skills = { apprentice: 0, courier: 0, workerCarry: 0, workerSpeed: 0, courierCarry: 0, courierSpeed: 0 };
+  state.skills = { apprentice: 0, courier: 0, workerCarry: 0, workerSpeed: 0, courierCarry: 0, courierSpeed: 0, storageExp1: 0, storageExp2: 0, reducedCarry: 0, discountDump: 0 };
   const fcDef = STATION_DEFS.find(s => s.label === 'FC');
   const stDef = STATION_DEFS.find(s => s.label === 'ST');
   const bkDef = STATION_DEFS.find(s => s.label === 'BK');
@@ -1268,6 +1289,7 @@ function calculateDailyDemand() {
   const raw      = 50 + 30 * Math.sin(state.day / 7 * 2 * Math.PI) + gaussianNoise(0, 10);
   state.demand      = Math.max(5, Math.round(raw));
   state.marketPrice = Math.round(8 * Math.pow(state.demand / 50, 0.5) * 10) / 10;
+  if (state.demand < 20) state.demandCrashOccurred = true;
 }
 
 function checkPhase3Trigger() {
@@ -1360,19 +1382,24 @@ function openMarketMenu() {
 // ── Office skill tree (§5.3) ──────────────────────────────────────────────────
 
 const OFFICE_NODES = [
-  { num: 1, name: 'Hire Apprentice',    cost:  50, key: 'apprentice',   max: 3  },
-  { num: 2, name: 'Hire Courier Robot', cost:  30, key: 'courier',      max: 4  },
-  { num: 3, name: 'Worker Carry +1',    cost:  40, key: 'workerCarry',  max: 12 },
-  { num: 4, name: 'Worker Speed +0.25', cost:  60, key: 'workerSpeed',  max: 6  },
-  { num: 5, name: 'Courier Carry +5',   cost:  80, key: 'courierCarry', max: 8  },
-  { num: 6, name: 'Courier Speed +0.5', cost: 100, key: 'courierSpeed', max: 4  },
+  { num: 1, name: 'Hire Apprentice',      cost:  50, key: 'apprentice',   max: 3,  minPhase: 2 },
+  { num: 2, name: 'Hire Courier Robot',   cost:  30, key: 'courier',      max: 4,  minPhase: 2 },
+  { num: 3, name: 'Worker Carry +1',      cost:  40, key: 'workerCarry',  max: 12, minPhase: 2 },
+  { num: 4, name: 'Worker Speed +0.25',   cost:  60, key: 'workerSpeed',  max: 6,  minPhase: 2 },
+  { num: 5, name: 'Courier Carry +5',     cost:  80, key: 'courierCarry', max: 8,  minPhase: 2 },
+  { num: 6, name: 'Courier Speed +0.5',   cost: 100, key: 'courierSpeed', max: 4,  minPhase: 2 },
+  { num: 7, name: 'Storage Expansion I',  cost: 200, key: 'storageExp1',  max: 1,  minPhase: 3 },
+  { num: 8, name: 'Storage Expansion II', cost: 500, key: 'storageExp2',  max: 1,  minPhase: 3, requires: 'storageExp1', requiresLabel: 'Expansion I' },
+  { num: 9, name: 'Reduced Carry Cost',   cost: 300, key: 'reducedCarry', max: 1,  minPhase: 3 },
+  { num:10, name: 'Market Discount Dump', cost: 250, key: 'discountDump', max: 1,  minPhase: 3 },
 ];
 
 function showOfficeMenu() {
   state.gameState = 'menu';
 
+  const visibleNodes = OFFICE_NODES.filter(n => state.phase >= n.minPhase);
   const BOX_W  = 68;
-  const BOX_H  = 20;
+  const BOX_H  = 7 + visibleNodes.length + 5; // header(5) + nodes + footer(5) + 2 borders
   const BOX_X  = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
   const BOX_Y  = Math.max(10, Math.floor((WORLD_ROWS  - BOX_H) / 2));
   const CONT_X = BOX_X + 2;
@@ -1405,8 +1432,8 @@ function showOfficeMenu() {
 
     // Nodes (start at BOX_Y + 5)
     const unlocked = state.officeUnlocked;
-    for (let i = 0; i < OFFICE_NODES.length; i++) {
-      const node  = OFFICE_NODES[i];
+    for (let i = 0; i < visibleNodes.length; i++) {
+      const node  = visibleNodes[i];
       const level = state.skills[node.key] || 0;
       const costStr = `${node.cost}cr`.padEnd(7);
       let label = node.name;
@@ -1414,6 +1441,8 @@ function showOfficeMenu() {
       let fg, suffix;
       if (!unlocked) {
         fg = WC; suffix = '[LOCKED — reach Phase 2]';
+      } else if (node.requires && !state.skills[node.requires]) {
+        fg = WC; suffix = `[Requires ${node.requiresLabel}]`;
       } else if (level >= node.max) {
         fg = WC; suffix = node.max === 1 ? '[Purchased]' : '[Max level]';
       } else if (state.player.credits < node.cost) {
@@ -1445,40 +1474,48 @@ function showOfficeMenu() {
 
   function officeKeyHandler(e) {
     if (e.key === 'Escape') { closeOffice(); return; }
-    const num = parseInt(e.key);
-    if (num >= 1 && num <= OFFICE_NODES.length) {
-      if (!state.officeUnlocked) return;
-      const node  = OFFICE_NODES[num - 1];
-      const level = state.skills[node.key] || 0;
-      if (level >= node.max) return; // already purchased / maxed
-      if (state.player.credits < node.cost) return;
-      state.player.credits -= node.cost;
-      state.skills[node.key] = level + 1;
-      if (node.key === 'apprentice') {
-        const ofDef = STATION_DEFS.find(s => s.label === 'OF');
-        state.workers.apprentices.push({
-          x: ofDef.x + 1, y: ofDef.y + 2,
-          workerState: 'idle',
-          carryRM: 0, carryWidgets: 0,
-          target: { x: 0, y: 0 },
-          craftTimer: 0,
-          paused: false,
-        });
-      }
-      if (node.key === 'courier') {
-        const ofDef = STATION_DEFS.find(s => s.label === 'OF');
-        state.workers.couriers.push({
-          x: ofDef.x + 1, y: ofDef.y + 2,
-          courierState: 'idle',
-          carryWidgets: 0,
-          target: { x: 0, y: 0 },
-        });
-        state.couriersOwned++;
-      }
-      addLog(`${node.name} purchased.`, '#cc66cc');
-      drawStatusBar();
-      redraw();
+    const pressedNum = e.key === '0' ? 10 : parseInt(e.key);
+    const node = visibleNodes.find(n => n.num === pressedNum);
+    if (!node) return;
+    if (!state.officeUnlocked) return;
+    if (node.requires && !state.skills[node.requires]) return;
+    const level = state.skills[node.key] || 0;
+    if (level >= node.max) return;
+    if (state.player.credits < node.cost) return;
+    state.player.credits -= node.cost;
+    state.skills[node.key] = level + 1;
+    if (node.key === 'apprentice') {
+      const ofDef = STATION_DEFS.find(s => s.label === 'OF');
+      state.workers.apprentices.push({
+        x: ofDef.x + 1, y: ofDef.y + 2,
+        workerState: 'idle',
+        carryRM: 0, carryWidgets: 0,
+        target: { x: 0, y: 0 },
+        craftTimer: 0,
+        paused: false,
+      });
     }
+    if (node.key === 'courier') {
+      const ofDef = STATION_DEFS.find(s => s.label === 'OF');
+      state.workers.couriers.push({
+        x: ofDef.x + 1, y: ofDef.y + 2,
+        courierState: 'idle',
+        carryWidgets: 0,
+        target: { x: 0, y: 0 },
+      });
+      state.couriersOwned++;
+    }
+    if (node.key === 'storageExp1') {
+      state.storage.widgetCap = 100;
+      state.storage.rmCap     = 100;
+    }
+    if (node.key === 'storageExp2') {
+      state.storage.widgetCap = 200;
+      state.storage.rmCap     = 200;
+    }
+    addLog(`${node.name} purchased.`, '#cc66cc');
+    drawStatusBar();
+    redraw();
   }
   window.addEventListener('keydown', officeKeyHandler);
 }
@@ -1740,7 +1777,7 @@ function showInventory() {
   state.gameState = 'inventory';
 
   const BOX_W  = 40;
-  const BOX_H  = 16;
+  const BOX_H  = state.phase >= 3 ? 18 : 16;
   const BOX_X  = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
   const BOX_Y  = Math.max(10, Math.floor((WORLD_ROWS  - BOX_H) / 2));
   const CONT_X = BOX_X + 2;
@@ -1822,10 +1859,23 @@ function showInventory() {
   for (const ch of ms)   { display.draw(sx++, BOX_Y+11, ch, mFg,          BG); }
   for (const ch of post) { display.draw(sx++, BOX_Y+11, ch, BRIGHT_WHITE, BG); }
 
-  // Row 13 — ESC hint centered
+  // Row 13 — storage cost (phase 3+) or ESC hint
+  if (state.phase >= 3) {
+    const mult      = state.skills.reducedCarry ? 0.1 : 0.2;
+    const costPerDay = Math.round(state.storage.widgets * mult * 10) / 10;
+    const costLine  = `Storage cost/day: ${costPerDay}cr`;
+    for (let i = 0; i < costLine.length; i++) display.draw(CONT_X+i, BOX_Y+13, costLine[i], '#ff5555', BG);
+    if (state.debt > 0) {
+      const debtLine = `Debt: ${state.debt}cr`;
+      for (let i = 0; i < debtLine.length; i++) display.draw(CONT_X+i, BOX_Y+14, debtLine[i], '#ff5555', BG);
+    }
+  }
+
+  // Row 15 (or 13 in phase <3) — ESC hint centered
+  const escRow = state.phase >= 3 ? 15 : 13;
   const ESC = '[ ESC to close ]';
   const escX = CONT_X + Math.floor((CONT_W - ESC.length) / 2);
-  for (let i = 0; i < ESC.length; i++) display.draw(escX+i, BOX_Y+13, ESC[i], WC, BG);
+  for (let i = 0; i < ESC.length; i++) display.draw(escX+i, BOX_Y+escRow, ESC[i], WC, BG);
 
   function closeInventory() {
     window.removeEventListener('keydown', invKeyHandler);
@@ -2024,7 +2074,20 @@ function tickCouriers() {
 
 function checkProductionHalt() {
   if (state.storage.widgets >= state.storage.widgetCap) {
-    if (!state.productionHalted) {
+    if (state.skills.discountDump) {
+      // Dump overflow at 50% market price rather than halting
+      const n = state.storage.widgets;
+      if (n > 0) {
+        const dumpPrice = Math.round(state.marketPrice * 0.5 * 10) / 10;
+        state.player.credits += Math.round(n * dumpPrice * 10) / 10;
+        state.storage.widgets = 0;
+        addLog(`Discount dump: ${n} widget${n !== 1 ? 's' : ''} sold at ${dumpPrice}cr each.`, '#ff9933');
+        drawStatusBar();
+      }
+      if (state.productionHalted) {
+        state.productionHalted = false;
+      }
+    } else if (!state.productionHalted) {
       state.productionHalted = true;
       for (const w of state.workers.apprentices) w.workerState = 'idle';
       addLog('Storage full. Production halted.', '#ff5555');
@@ -2221,6 +2284,37 @@ setInterval(() => {
   }
   checkProductionHalt();
   checkPhase3Trigger();
+
+  // Cost of carry — fires on the last tick of each day (§5.4)
+  if (state.dayTick === 239 && state.phase >= 3) {
+    // First: attempt to clear any existing debt
+    if (state.debt > 0) {
+      const debtPayment = Math.min(state.player.credits, state.debt);
+      state.player.credits = Math.round((state.player.credits - debtPayment) * 10) / 10;
+      state.debt           = Math.round((state.debt - debtPayment) * 10) / 10;
+      if (state.debt > 0) {
+        state.debtDaysUnpaid++;
+        if (state.debtDaysUnpaid >= 3) addLog('Your debts are mounting. Consider the Bank.', '#ff5555');
+      } else {
+        state.debtDaysUnpaid = 0;
+      }
+    }
+    // Then: charge carry cost on stored widgets
+    const mult      = state.skills.reducedCarry ? 0.1 : 0.2;
+    const carryCost = Math.round(state.storage.widgets * mult * 10) / 10;
+    if (carryCost > 0) {
+      if (state.player.credits >= carryCost) {
+        state.player.credits = Math.round((state.player.credits - carryCost) * 10) / 10;
+        addLog(`Storage cost: ${carryCost}cr for ${state.storage.widgets} widgets held.`, '#ff5555');
+      } else {
+        const shortfall = Math.round((carryCost - state.player.credits) * 10) / 10;
+        state.debt           = Math.round((state.debt + shortfall) * 10) / 10;
+        state.player.credits = 0;
+        addLog(`Insufficient credits for storage cost. Debt: ${state.debt}cr.`, '#ff5555');
+      }
+      drawStatusBar();
+    }
+  }
 
   // Ambient flavor events — §13
   if (state.tick - state.lastAmbientTick  > state.nextAmbientDelay &&
