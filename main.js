@@ -1973,35 +1973,227 @@ function showForecastScreen() {
 }
 
 function openMarketMenu() {
-  const widgets = state.player.inventory.widgets;
-  const price   = state.marketPrice;
+  state.gameState = 'mt_menu';
 
-  if (!state.marketOpen) {
-    addLog('The market is shuttered. The bell rings at dawn.', '#555555');
-    return;
-  }
-  if (widgets === 0) {
-    addLog('You have nothing to sell.', '#555555');
-    return;
-  }
+  const TC    = '#ffd633';
+  const DC    = '#333333';
+  const BOX_W = 54;
+  const IW    = 52;
+  const AW    = 14;
+  const IPW   = 37;
+  const BOX_H = 24;
+  const BOX_X = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
+  const BOX_Y = Math.max(1, Math.floor((WORLD_ROWS - BOX_H) / 2));
+  const RPX   = BOX_X + 1 + AW + 1;
 
-  if (state.phase >= 3 && state.widgetsSoldToday >= state.demand) {
-    addLog("The market has taken all it will take today.", '#ff9933');
-    return;
-  }
-
-  const dl    = state.phase >= 3 ? demandLabel(state.demand) : null;
-  const title = dl ? `Market — Demand: ${dl.text}` : 'Market';
-  const avail = state.phase >= 3 ? Math.min(widgets, state.demand - state.widgetsSoldToday) : widgets;
-
-  const opts = [
-    { label: `Sell 1 widget (+${price}cr)`,    enabled: true, action: () => sellWidgets(1) },
-    { label: `Sell max (+${avail * price}cr)`, enabled: true, action: () => sellWidgets(avail) },
+  const MT_ART = [
+    '  _________   ',
+    ' |  MARKET |  ',
+    ' |_________|  ',
+    ' | $ | $ | |  ',
+    ' |---|---| |  ',
+    ' | $ | $ | |  ',
+    ' |___|___|_|  ',
+    '   |     |    ',
+    '   |     |    ',
+    '  _|_____|_   ',
   ];
-  if (state.skills.demandHistory) opts.push({ label: 'View Demand History', enabled: true, action: showDemandHistoryScreen });
-  if (state.skills.forecast)      opts.push({ label: 'View Forecast',       enabled: true, action: showForecastScreen });
-  opts.push({ label: 'Cancel', enabled: true, action: () => {} });
-  showMenu(title, opts);
+
+  function drawArtRow(r, ay) {
+    const s        = MT_ART[r];
+    const dollarFg = state.marketOpen ? '#66cc66' : '#555555';
+    for (let i = 0; i < AW; i++) {
+      let fg = '#aaaaaa';
+      if (r === 1 && i >= 4 && i <= 9) fg = TC;
+      if ((r === 3 || r === 5) && (i === 3 || i === 7)) fg = dollarFg;
+      display.draw(BOX_X + 1 + i, ay, s[i] || ' ', fg, BG);
+    }
+  }
+
+  function border(ay) {
+    display.draw(BOX_X, ay, '║', TC, BG);
+    display.draw(BOX_X + BOX_W - 1, ay, '║', TC, BG);
+  }
+
+  function irow(ay, text, fg) {
+    border(ay);
+    const p = menuPad(text, IW);
+    for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, p[i] || ' ', fg, BG);
+  }
+
+  function crow(ay, r) {
+    border(ay);
+    drawArtRow(r, ay);
+    display.draw(BOX_X + 1 + AW, ay, '│', DC, BG);
+    for (let i = 0; i < IPW; i++) display.draw(RPX + i, ay, ' ', BRIGHT_WHITE, BG);
+  }
+
+  function drp(ay, text, fg) {
+    const p = menuPad(text, IPW);
+    for (let i = 0; i < IPW; i++) display.draw(RPX + i, ay, p[i] || ' ', fg, BG);
+  }
+
+  function arow(ay, label, cost, fg) {
+    const gap  = Math.max(1, IW - label.length - (cost ? cost.length : 0));
+    const line = cost ? label + ' '.repeat(gap) + cost : label;
+    irow(ay, line, fg);
+  }
+
+  function redraw() {
+    const widgets    = state.player.inventory.widgets;
+    const price      = state.phase >= 3 ? state.marketPrice : 8.0;
+    const demandMet  = state.phase >= 3 && state.widgetsSoldToday >= state.demand;
+    const avail      = state.phase >= 3
+      ? Math.max(0, Math.min(widgets, state.demand - state.widgetsSoldToday))
+      : widgets;
+    const cantSell   = avail === 0 || demandMet;
+    const dl         = state.phase >= 3 ? demandLabel(state.demand) : null;
+    const secsLeft   = state.marketOpen ? (180 - state.dayTick) : (240 - state.dayTick);
+
+    // Clear interior
+    for (let r = 1; r < BOX_H - 1; r++)
+      for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, BOX_Y + r, ' ', BRIGHT_WHITE, BG);
+
+    // Row 0: ╔═╗
+    display.draw(BOX_X, BOX_Y, '╔', TC, BG); display.draw(BOX_X + BOX_W - 1, BOX_Y, '╗', TC, BG);
+    for (let i = 1; i < BOX_W - 1; i++) display.draw(BOX_X + i, BOX_Y, '═', TC, BG);
+
+    // Row 1: header
+    { const ay = BOX_Y + 1;
+      border(ay);
+      const title = 'Widget Market', hint = 'press esc to exit';
+      for (let i = 0; i < IW; i++) {
+        const ch = i < title.length ? title[i] : (i >= IW - hint.length ? hint[i-(IW-hint.length)] : ' ');
+        const fg = i < title.length ? '#f0f0f0' : (i >= IW - hint.length ? DC : BRIGHT_WHITE);
+        display.draw(BOX_X + 1 + i, ay, ch, fg, BG);
+      }
+    }
+
+    // Row 2: ═ separator
+    { const ay = BOX_Y + 2; border(ay);
+      for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '═', DC, BG); }
+
+    // Rows 3-12: art + divider + info
+    for (let r = 0; r < 10; r++) crow(BOX_Y + 3 + r, r);
+
+    // Info pane
+    drp(BOX_Y + 4, 'WIDGET MARKET', TC);
+    if (mtMenuBlinkOn) {
+      drp(BOX_Y + 5, state.marketOpen ? 'OPEN' : 'CLOSED', state.marketOpen ? '#66cc66' : '#ff5555');
+    }
+    drp(BOX_Y + 7, 'Widgets in hand:', '#555555');
+    const wStr = String(widgets);
+    if (wStr.length * 6 <= IPW) {
+      renderLargeNumber(display, RPX, BOX_Y + 8, wStr, '#f0f0f0');
+    } else {
+      drp(BOX_Y + 9, wStr, '#f0f0f0');
+    }
+    drp(BOX_Y + 12, `Price today:  ${formatCredits(price)}cr`, TC);
+
+    // Row 13: ─ separator
+    { const ay = BOX_Y + 13; border(ay);
+      for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '─', DC, BG); }
+
+    // Rows 14-15: demand section
+    if (state.phase >= 3) {
+      irow(BOX_Y + 14, `Demand today:  ${state.demand} widgets`, dl ? dl.fg : '#f0f0f0');
+      irow(BOX_Y + 15, `Sold today:   ${state.widgetsSoldToday} / ${state.demand}`, '#555555');
+    } else {
+      irow(BOX_Y + 14, '', BRIGHT_WHITE);
+      irow(BOX_Y + 15, '', BRIGHT_WHITE);
+    }
+
+    // Row 16: ─ separator
+    { const ay = BOX_Y + 16; border(ay);
+      for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '─', DC, BG); }
+
+    // Action rows 17-20
+    if (!state.marketOpen) {
+      irow(BOX_Y + 17, 'The market is shuttered.', '#555555');
+      irow(BOX_Y + 18, 'Opens at dawn.', '#555555');
+      irow(BOX_Y + 19, `Dawn in:  ${secsLeft}s`, '#cc66cc');
+      arow(BOX_Y + 20, '1. Cancel', '', '#555555');
+    } else if (cantSell) {
+      irow(BOX_Y + 17, demandMet ? 'Daily demand satisfied. No more sales.' : 'Nothing to sell.', '#555555');
+      irow(BOX_Y + 18, '', BRIGHT_WHITE);
+      irow(BOX_Y + 19, '', BRIGHT_WHITE);
+      arow(BOX_Y + 20, '1. Cancel', '', '#555555');
+    } else {
+      arow(BOX_Y + 17, '1. Sell 1', `+${formatCredits(price)}cr`, '#66cc66');
+      arow(BOX_Y + 18, `2. Sell max  (${avail})`, `+${formatCredits(avail * price)}cr`, '#66cc66');
+      arow(BOX_Y + 19, '3. Sell custom amount', '', '#66cc66');
+      arow(BOX_Y + 20, '4. Cancel', '', '#555555');
+    }
+
+    // Row 21: ═ rule
+    { const ay = BOX_Y + 21; border(ay);
+      for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '═', DC, BG); }
+
+    // Row 22: status
+    let statusText, statusFg;
+    if (!state.marketOpen)  { statusText = 'Come back at dawn.'; statusFg = '#555555'; }
+    else if (demandMet)     { statusText = 'Daily demand satisfied. No more sales today.'; statusFg = TC; }
+    else                    { statusText = 'Sell widgets here during market hours.'; statusFg = '#555555'; }
+    { const ay = BOX_Y + 22; border(ay);
+      const centered = menuPad(statusText.length < IW ? ' '.repeat(Math.floor((IW - statusText.length) / 2)) + statusText : statusText, IW);
+      for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, centered[i] || ' ', statusFg, BG); }
+
+    // Row 23: ╚═╝
+    display.draw(BOX_X, BOX_Y + 23, '╚', TC, BG); display.draw(BOX_X + BOX_W - 1, BOX_Y + 23, '╝', TC, BG);
+    for (let i = 1; i < BOX_W - 1; i++) display.draw(BOX_X + i, BOX_Y + 23, '═', TC, BG);
+  }
+
+  function closeMT() {
+    mtMenuRedrawFn = null;
+    window.removeEventListener('keydown', mtKeyHandler);
+    for (let y = BOX_Y; y < BOX_Y + BOX_H; y++)
+      for (let x = BOX_X; x < BOX_X + BOX_W; x++)
+        if (x >= 0 && x < DISPLAY_WIDTH && y >= 0 && y < WORLD_ROWS) markDirty(x, y);
+    renderDirty();
+    display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
+    for (const w of state.workers.apprentices) display.draw(w.x, w.y, 'a', '#66ccff', BG);
+    for (const c of state.workers.couriers)    display.draw(c.x, c.y, 'c', '#cc66cc', BG);
+    state.gameState = 'playing';
+  }
+
+  function mtKeyHandler(e) {
+    if (e.key === 'Escape' || e.key === '4') {
+      // '4' only cancels when in the sell-capable state
+      const avail = state.phase >= 3
+        ? Math.max(0, Math.min(state.player.inventory.widgets, state.demand - state.widgetsSoldToday))
+        : state.player.inventory.widgets;
+      if (e.key === '4' && state.marketOpen && avail > 0) { closeMT(); return; }
+      if (e.key === 'Escape') { closeMT(); return; }
+    }
+    if (!state.marketOpen) { if (e.key === '1') closeMT(); return; }
+
+    const widgets = state.player.inventory.widgets;
+    const price   = state.phase >= 3 ? state.marketPrice : 8.0;
+    const demandMet = state.phase >= 3 && state.widgetsSoldToday >= state.demand;
+    const avail   = state.phase >= 3
+      ? Math.max(0, Math.min(widgets, state.demand - state.widgetsSoldToday))
+      : widgets;
+    const cantSell = avail === 0 || demandMet;
+
+    if (cantSell) { if (e.key === '1') closeMT(); return; }
+
+    if (e.key === '1') { sellWidgets(1); redraw(); return; }
+    if (e.key === '2') { sellWidgets(avail); redraw(); return; }
+    if (e.key === '3') {
+      window.removeEventListener('keydown', mtKeyHandler);
+      showNumericPrompt(`Sell how many? (max ${avail})`, avail,
+        (n) => { sellWidgets(n); openMarketMenu(); },
+        () => openMarketMenu()
+      );
+      return;
+    }
+    if (e.key === '4') { closeMT(); return; }
+  }
+
+  mtMenuRedrawFn = redraw;
+  mtMenuBlinkOn  = true;
+  redraw();
+  window.addEventListener('keydown', mtKeyHandler);
 }
 
 // ── Office skill tree (§5.3) ──────────────────────────────────────────────────
@@ -2029,7 +2221,34 @@ const OFFICE_NODES = [
 function showOfficeMenu() {
   state.gameState = 'menu';
 
-  // Section definitions — each item has display key and OFFICE_NODES key field
+  const TC    = '#aaaaaa';
+  const LC    = '#ffffff';
+  const DC    = '#333333';
+  const BOX_W = 54;
+  const IW    = 52;
+  const AW    = 14;
+  const IPW   = 37;
+  const BOX_H = 38;
+  const BOX_X = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
+  const BOX_Y = Math.max(1, Math.floor((WORLD_ROWS - BOX_H) / 2));
+  const RPX   = BOX_X + 1 + AW + 1;
+  const PAGE_ROWS = 21;
+  const CONT_X    = BOX_X + 1;
+  let page = 0;
+
+  const OF_ART = [
+    '  _________   ',
+    ' |  OFFICE |  ',
+    ' |---------|  ',
+    ' | [=====] |  ',
+    ' | [=====] |  ',
+    ' |  _   _  |  ',
+    ' | |_| |_| |  ',
+    ' |_________|  ',
+    '   |     |    ',
+    '  _|_____|_   ',
+  ];
+
   const SECTIONS = [
     { header: 'LOGISTICS', items: [
       { k: '1', nk: 'apprentice'   },
@@ -2061,22 +2280,46 @@ function showOfficeMenu() {
     ]},
   ];
 
-  const IW   = 50;        // inner width
-  const BOX_W  = IW + 4; // 54
-  const BOX_H  = 31;
-  const BOX_X  = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
-  const BOX_Y  = Math.max(1, Math.floor((WORLD_ROWS - BOX_H) / 2));
-  const CONT_X = BOX_X + 2;
-  const WC     = '#555555';
-  const PAGE_ROWS = 25; // content rows available per page
-  let page = 0;
+  function drawArtRow(r, ay) {
+    const s = OF_ART[r];
+    for (let i = 0; i < AW; i++) {
+      let fg = TC;
+      if (r === 1 && i >= 4 && i <= 9) fg = LC;                       // OFFICE
+      if ((r === 3 || r === 4) && i >= 3 && i <= 9) fg = '#66ccff';   // [=====]
+      if (r === 6 && ((i >= 3 && i <= 5) || (i >= 7 && i <= 9))) fg = '#555555'; // |_|
+      display.draw(BOX_X + 1 + i, ay, s[i] || ' ', fg, BG);
+    }
+  }
+
+  function border(ay) {
+    display.draw(BOX_X, ay, '║', TC, BG);
+    display.draw(BOX_X + BOX_W - 1, ay, '║', TC, BG);
+  }
+
+  function irow(ay, text, fg) {
+    border(ay);
+    const p = menuPad(text, IW);
+    for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, p[i] || ' ', fg, BG);
+  }
+
+  function crow(ay, r) {
+    border(ay);
+    drawArtRow(r, ay);
+    display.draw(BOX_X + 1 + AW, ay, '│', DC, BG);
+    for (let i = 0; i < IPW; i++) display.draw(RPX + i, ay, ' ', BRIGHT_WHITE, BG);
+  }
+
+  function drp(ay, text, fg) {
+    const p = menuPad(text, IPW);
+    for (let i = 0; i < IPW; i++) display.draw(RPX + i, ay, p[i] || ' ', fg, BG);
+  }
 
   function nodeStatus(nk) {
     const node  = OFFICE_NODES.find(n => n.key === nk);
-    if (!node) return { fg: WC, status: '[unknown]' };
+    if (!node) return { fg: DC, status: '[unknown]' };
     const level = state.skills[nk] || 0;
-    if (!state.officeUnlocked || state.phase < node.minPhase) return { fg: WC, status: `[phase ${node.minPhase}]` };
-    if (node.requires && !state.skills[node.requires]) return { fg: WC, status: `[needs ${node.requiresLabel}]` };
+    if (!state.officeUnlocked || state.phase < node.minPhase) return { fg: DC, status: `[phase ${node.minPhase}]` };
+    if (node.requires && !state.skills[node.requires]) return { fg: DC, status: `[needs ${node.requiresLabel}]` };
     if (level >= node.max) return { fg: '#888888', status: node.max === 1 ? '[owned]' : '[max]' };
     if (state.player.credits < node.cost) return { fg: '#ff5555', status: `[${Math.ceil(node.cost - state.player.credits)}cr more]` };
     return { fg: '#66cc66', status: '[available]' };
@@ -2089,7 +2332,7 @@ function showOfficeMenu() {
       const { fg } = nodeStatus(item.nk);
       return fg === '#66cc66';
     });
-    rows.push({ type: 'hdr', text: `[${sec.header}]`, fg: hasAvail ? '#ffd633' : '#333333' });
+    rows.push({ type: 'hdr', text: `[${sec.header}]`, fg: hasAvail ? '#ffd633' : DC });
     for (const item of sec.items) {
       if (item.nk) {
         const node  = OFFICE_NODES.find(n => n.key === item.nk);
@@ -2101,7 +2344,7 @@ function showOfficeMenu() {
         rows.push({ type: 'node', k: item.k, label, cost: `${node.cost}cr`, fg, status });
       } else {
         const owned = item.specialFn();
-        rows.push({ type: 'node', k: null, label: item.label, cost: item.cost, fg: owned ? '#888888' : WC, status: owned ? '[owned]' : '[locked]' });
+        rows.push({ type: 'node', k: null, label: item.label, cost: item.cost, fg: owned ? '#888888' : DC, status: owned ? '[owned]' : '[locked]' });
       }
     }
     rows.push({ type: 'blank' });
@@ -2124,60 +2367,111 @@ function showOfficeMenu() {
     const kp  = (k ? `${k}. ` : '   ').padEnd(4);
     const st  = (status.length > 12 ? status.slice(0, 11) + '.' : status).padEnd(12);
     const co  = cost.padStart(7);
-    const lbl = (label.length > 23 ? label.slice(0, 20) + '...' : label).padEnd(23);
+    const lbl = (label.length > 27 ? label.slice(0, 24) + '...' : label).padEnd(27);
     return (kp + lbl + ' ' + co + ' ' + st).slice(0, IW).padEnd(IW);
-  }
-
-  function drawLine(y, text, fg) {
-    for (let j = 0; j < IW; j++) display.draw(CONT_X+j, y, text[j] ?? ' ', fg, BG);
   }
 
   function redraw() {
     const pages = getPages();
     const pg    = pages[page] || [];
     const total = pages.length;
-    // Frame + clear
-    display.draw(BOX_X, BOX_Y, '+', WC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y, '+', WC, BG);
-    for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, BOX_Y, '-', WC, BG);
-    const botY = BOX_Y + BOX_H - 1;
-    display.draw(BOX_X, botY, '+', WC, BG); display.draw(BOX_X+BOX_W-1, botY, '+', WC, BG);
-    for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, botY, '-', WC, BG);
-    for (let y = 1; y < BOX_H-1; y++) {
-      display.draw(BOX_X, BOX_Y+y, '|', WC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y+y, '|', WC, BG);
-      for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, BOX_Y+y, ' ', BRIGHT_WHITE, BG);
-    }
-    // Header
-    const TITLE = '– THE OFFICE –';
-    const tx = CONT_X + Math.floor((IW - TITLE.length) / 2);
-    for (let i = 0; i < TITLE.length; i++) display.draw(tx+i, BOX_Y+1, TITLE[i], BRIGHT_CYAN, BG);
-    const sub = 'Upgrades purchased with credits.';
-    for (let i = 0; i < sub.length; i++) display.draw(CONT_X+i, BOX_Y+2, sub[i], WC, BG);
-    // Content rows (start at row 4)
-    for (let i = 0; i < pg.length && i < PAGE_ROWS; i++) {
-      const row = pg[i];
-      const y   = BOX_Y + 4 + i;
-      if (row.type === 'blank') continue;
-      if (row.type === 'hdr') {
-        drawLine(y, row.text.padEnd(IW), row.fg);
-      } else {
-        drawLine(y, menuLine(row.k, row.label, row.cost, row.status), row.fg);
+
+    // Clear interior
+    for (let r = 1; r < BOX_H - 1; r++)
+      for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, BOX_Y + r, ' ', BRIGHT_WHITE, BG);
+
+    // Row 0: ╔═╗
+    display.draw(BOX_X, BOX_Y, '╔', TC, BG); display.draw(BOX_X + BOX_W - 1, BOX_Y, '╗', TC, BG);
+    for (let i = 1; i < BOX_W - 1; i++) display.draw(BOX_X + i, BOX_Y, '═', TC, BG);
+
+    // Row 1: header
+    { const ay = BOX_Y + 1;
+      border(ay);
+      const title = 'The Office', hint = 'press esc to exit';
+      for (let i = 0; i < IW; i++) {
+        const ch = i < title.length ? title[i] : (i >= IW - hint.length ? hint[i-(IW-hint.length)] : ' ');
+        const fg = i < title.length ? LC : (i >= IW - hint.length ? DC : BRIGHT_WHITE);
+        display.draw(BOX_X + 1 + i, ay, ch, fg, BG);
       }
     }
-    // Footer
-    const footer = total > 1 ? `[ page ${page+1}/${total} — TAB for next ]` : 'ESC to close';
-    const fx = CONT_X + Math.floor((IW - footer.length) / 2);
-    for (let i = 0; i < footer.length; i++) display.draw(fx+i, BOX_Y+BOX_H-2, footer[i], WC, BG);
+
+    // Row 2: ═ separator
+    { const ay = BOX_Y + 2; border(ay);
+      for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '═', DC, BG); }
+
+    // Rows 3-12: art + divider + info
+    for (let r = 0; r < 10; r++) crow(BOX_Y + 3 + r, r);
+
+    // Info pane
+    drp(BOX_Y + 4, 'THE OFFICE', LC);
+    drp(BOX_Y + 6, 'Credits available:', '#555555');
+    const crStr = String(Math.floor(state.player.credits));
+    if (crStr.length * 6 <= IPW) {
+      renderLargeNumber(display, RPX, BOX_Y + 7, crStr, '#ffd633');
+    } else {
+      drp(BOX_Y + 8, crStr, '#ffd633');
+    }
+    drp(BOX_Y + 11, `Phase:  ${state.phase}`, '#555555');
+    drp(BOX_Y + 12, `Lifetime:  ${formatCredits(state.lifetimeCreditsEarned)}cr`, '#555555');
+
+    // Row 13: ─ separator
+    { const ay = BOX_Y + 13; border(ay);
+      for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '─', DC, BG); }
+
+    // Content rows 14-34 (PAGE_ROWS = 21)
+    for (let i = 0; i < pg.length && i < PAGE_ROWS; i++) {
+      const row = pg[i];
+      const ay  = BOX_Y + 14 + i;
+      if (row.type === 'blank') { border(ay); continue; }
+      if (row.type === 'hdr') {
+        irow(ay, row.text, row.fg);
+      } else {
+        irow(ay, menuLine(row.k, row.label, row.cost, row.status), row.fg);
+      }
+    }
+    // Fill remaining content rows with empty bordered rows
+    for (let i = pg.length; i < PAGE_ROWS; i++) {
+      const ay = BOX_Y + 14 + i;
+      border(ay);
+      for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, ay, ' ', BRIGHT_WHITE, BG);
+    }
+
+    // Row 35: ─ separator
+    { const ay = BOX_Y + 35; border(ay);
+      for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '─', DC, BG); }
+
+    // Row 36: status / pagination
+    const allOwned = SECTIONS.every(sec => sec.items.every(item => {
+      if (!item.nk) return true;
+      const { fg } = nodeStatus(item.nk);
+      return fg === '#888888';
+    }));
+    let statusText, statusFg;
+    if (state.phase < 2)  { statusText = 'Upgrades unlock at 100cr earned.'; statusFg = DC; }
+    else if (allOwned)    { statusText = 'All available upgrades owned.'; statusFg = '#66cc66'; }
+    else                  { statusText = 'Purchase upgrades with credits.'; statusFg = DC; }
+    const footer = total > 1 ? `TAB next page  (${page+1}/${total})` : statusText;
+    const footerFg = total > 1 ? DC : statusFg;
+    { const ay = BOX_Y + 36; border(ay);
+      const centered = menuPad(footer.length < IW ? ' '.repeat(Math.floor((IW - footer.length) / 2)) + footer : footer, IW);
+      for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, centered[i] || ' ', footerFg, BG); }
+
+    // Row 37: ╚═╝
+    display.draw(BOX_X, BOX_Y + 37, '╚', TC, BG); display.draw(BOX_X + BOX_W - 1, BOX_Y + 37, '╝', TC, BG);
+    for (let i = 1; i < BOX_W - 1; i++) display.draw(BOX_X + i, BOX_Y + 37, '═', TC, BG);
   }
 
   redraw();
 
   function closeOffice() {
     window.removeEventListener('keydown', officeKeyHandler);
-    for (let y = BOX_Y; y < BOX_Y+BOX_H; y++)
-      for (let x = BOX_X; x < BOX_X+BOX_W; x++)
+    for (let y = BOX_Y; y < BOX_Y + BOX_H; y++)
+      for (let x = BOX_X; x < BOX_X + BOX_W; x++)
         if (x >= 0 && x < DISPLAY_WIDTH && y >= 0 && y < WORLD_ROWS) markDirty(x, y);
     renderDirty();
     display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
+    for (const w of state.workers.apprentices) display.draw(w.x, w.y, 'a', '#66ccff', BG);
+    for (const c of state.workers.couriers)    display.draw(c.x, c.y, 'c', '#cc66cc', BG);
     state.gameState = 'playing';
   }
 
@@ -2189,7 +2483,6 @@ function showOfficeMenu() {
       page = (page + 1) % Math.max(1, pages.length);
       redraw(); return;
     }
-    // Find matching item across all sections
     for (const sec of SECTIONS) {
       for (const item of sec.items) {
         if (!item.k || item.k !== e.key || !item.nk) continue;
@@ -2800,6 +3093,8 @@ let lfMenuRedrawFn     = null;
 let rmMenuRedrawFn     = null;
 let wbMenuRedrawFn     = null;
 let wbMenuCloseFn      = null;
+let mtMenuRedrawFn     = null;
+let mtMenuBlinkOn      = true;
 
 function checkAbstractionCollapse() {
   if (state.endingTriggered || state.derivatives.totalPnL < 50000) return;
@@ -4276,7 +4571,7 @@ function _advanceDayNightWave() {
 // ── Tick loop — 1 tick/second (§7.1) ─────────────────────────────────────────
 
 setInterval(() => {
-  if (state.gameState !== 'playing' && state.gameState !== 'crafting' && state.gameState !== 'dashboard' && state.gameState !== 'inventory' && state.gameState !== 'lf_menu' && state.gameState !== 'rm_menu' && state.gameState !== 'wb_menu') return;
+  if (state.gameState !== 'playing' && state.gameState !== 'crafting' && state.gameState !== 'dashboard' && state.gameState !== 'inventory' && state.gameState !== 'lf_menu' && state.gameState !== 'rm_menu' && state.gameState !== 'wb_menu' && state.gameState !== 'mt_menu') return;
 
   // Stats: snapshot before tick for delta computation
   const _sCr = state.player.credits;
@@ -4513,6 +4808,7 @@ setInterval(() => {
   // Live-refresh station menus
   if (rmMenuRedrawFn) rmMenuRedrawFn();
   if (wbMenuRedrawFn) wbMenuRedrawFn();
+  if (mtMenuRedrawFn) { mtMenuBlinkOn = !mtMenuBlinkOn; mtMenuRedrawFn(); }
 
   // Live-refresh LF menu + rocket animation frame
   if (state.gameState === 'lf_menu') {
@@ -4649,7 +4945,8 @@ setInterval(() => {
   const logActive = state.gameState === 'playing' || state.gameState === 'crafting' ||
                     state.gameState === 'dashboard' || state.gameState === 'menu' ||
                     state.gameState === 'inventory' || state.gameState === 'lf_menu' ||
-                    state.gameState === 'rm_menu' || state.gameState === 'wb_menu';
+                    state.gameState === 'rm_menu' || state.gameState === 'wb_menu' ||
+                    state.gameState === 'mt_menu';
   if (pendingLine && logActive) {
     pendingLine.charsRevealed = Math.min(pendingLine.charsRevealed + LOG_SCROLL_SPEED, pendingLine.text.length);
     renderLog();
