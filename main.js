@@ -431,6 +431,7 @@ function drawTimeIndicator() {
   for (let i = 0; i < text.length; i++) display.draw(TIMER_X + i, STATUS_ROW, text[i], fg, BG);
 }
 
+// worst-case: "Credits: 9999.0  Raw: 5  Widgets: 5/5  Price: 20cr" (50) + "[== market open 180s ==]" (24) = 74 chars ≤ 78
 function drawStatusBar() {
   drawRow(STATUS_ROW, '', BRIGHT_WHITE);
   const inv = state.player.inventory;
@@ -441,9 +442,9 @@ function drawStatusBar() {
     return x + text.length;
   };
   let sx = 0;
-  sx = seg(sx, `Credits: ${formatCredits(state.player.credits)}`, BRIGHT_YELLOW) + 3;
-  sx = seg(sx, `Raw Materials: ${inv.rm}`, '#ff9933') + 3;
-  sx = seg(sx, `Widgets: ${inv.widgets}/${cap.widgets}`, widgetFg) + 3;
+  sx = seg(sx, `Credits: ${formatCredits(state.player.credits)}`, BRIGHT_YELLOW) + 2;
+  sx = seg(sx, `Raw: ${inv.rm}`, '#ff9933') + 2;
+  sx = seg(sx, `Widgets: ${inv.widgets}/${cap.widgets}`, widgetFg) + 2;
        seg(sx, `Price: ${state.marketPrice}cr`, '#66cc66');
   drawTimeIndicator();
 }
