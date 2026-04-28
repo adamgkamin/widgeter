@@ -98,7 +98,9 @@ const state = {
   rocketFull:          false,
   courierDestination:  'market',  // 'market' | 'rocket'
   rocketAnimFrame:     0,
-  officeUnlocked: false,
+  officeUnlocked:      false,
+  officeTab:           'upgrades', // 'upgrades' | 'workers'
+  officeUpgradesPage:  1,          // 1-indexed page within UPGRADES tab
   storage: { widgets: 0, rm: 0, widgetCap: 50, rmCap: 50 },
   workbenchWidgets:  0,
   workbenchHammerFrame: 0,
@@ -182,6 +184,8 @@ function saveGame() {
     stepsWalked:          state.stepsWalked,
     stations:             state.stations,
     officeUnlocked:       state.officeUnlocked,
+    officeTab:            state.officeTab,
+    officeUpgradesPage:   state.officeUpgradesPage,
     storage:              state.storage,
     workbenchWidgets:     state.workbenchWidgets,
     productionHalted:     state.productionHalted,
@@ -243,6 +247,8 @@ function loadGame() {
       delete state.stations.derivatives;
     }
     state.officeUnlocked       = data.officeUnlocked    ?? false;
+    state.officeTab            = data.officeTab            ?? 'upgrades';
+    state.officeUpgradesPage   = data.officeUpgradesPage   ?? 1;
     state.storage              = data.storage           ?? { widgets: 0, rm: 0, widgetCap: 50, rmCap: 50 };
     state.workbenchWidgets     = data.workbenchWidgets  ?? 0;
     state.productionHalted     = data.productionHalted  ?? false;
@@ -938,7 +944,9 @@ function resetState() {
   state.rocketFull         = false;
   state.courierDestination = 'market';
   state.rocketAnimFrame    = 0;
-  state.officeUnlocked = false;
+  state.officeUnlocked     = false;
+  state.officeTab          = 'upgrades';
+  state.officeUpgradesPage = 1;
   state.storage = { widgets: 0, rm: 0, widgetCap: 50, rmCap: 50 };
   state.workbenchWidgets    = 0;
   state.workbenchHammerFrame = 0;
@@ -1082,6 +1090,7 @@ window.addEventListener('keydown', (e) => {
     }
     return;
   }
+  if (state.gameState === 'menu') return; // arrow keys must not reach movement when any menu is open
   if (state.gameState !== 'playing') return;
   if (e.key === 'Escape') { showPauseMenu(); return; }
   if (e.key === 'o') { enterLookMode(); e.stopImmediatePropagation(); return; }
@@ -2288,8 +2297,9 @@ function showOfficeMenu() {
   const RPX   = BOX_X + 1 + AW + 1;
   const PAGE_ROWS = 21;
   const CONT_X    = BOX_X + 1;
-  let page = 0;
-  let activeTab = 0; // 0 = UPGRADES, 1 = WORKERS
+  // Navigation state lives on `state` so it persists across redraws and is saved
+  if (!state.officeTab)          state.officeTab          = 'upgrades';
+  if (!state.officeUpgradesPage) state.officeUpgradesPage = 1;
 
   const OF_ART = [
     '  _________   ',
@@ -2483,10 +2493,13 @@ function showOfficeMenu() {
     display.draw(BOX_X, BOX_Y, '╔', TC, BG); display.draw(BOX_X + BOX_W - 1, BOX_Y, '╗', TC, BG);
     for (let i = 1; i < BOX_W - 1; i++) display.draw(BOX_X + i, BOX_Y, '═', TC, BG);
 
-    // Row 1: header
+    // Row 1: header — shows current tab and page
     { const ay = BOX_Y + 1;
       border(ay);
-      const title = 'The Office', hint = 'press esc to exit';
+      const tabLabel = state.officeTab === 'upgrades'
+        ? `[UPGRADES p.${state.officeUpgradesPage}]`
+        : `[WORKERS]`;
+      const title = `The Office ${tabLabel}`, hint = 'press esc to exit';
       for (let i = 0; i < IW; i++) {
         const ch = i < title.length ? title[i] : (i >= IW - hint.length ? hint[i-(IW-hint.length)] : ' ');
         const fg = i < title.length ? LC : (i >= IW - hint.length ? DC : BRIGHT_WHITE);
@@ -2498,15 +2511,22 @@ function showOfficeMenu() {
     { const ay = BOX_Y + 2; border(ay);
       for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '═', DC, BG); }
 
-    // Row 3: tab bar
+    // Row 3: tab bar — active tab gets >> << indicators
     { const ay = BOX_Y + 3;
       border(ay);
-      const TAB_BAR = '       [ UPGRADES ]       │       [ WORKERS ]       ';
+      const isUpg    = state.officeTab === 'upgrades';
+      const pg       = state.officeUpgradesPage;
+      const upgLabel = isUpg ? `>> [ UPGRADES p.${pg} ] <<` : `[ UPGRADES ]`;
+      const wrkLabel = !isUpg ? `>> [ WORKERS ] <<`           : `[ WORKERS ]`;
+      const HALF     = Math.floor(IW / 2); // 26
+      const center   = (str, w) => { const pad = Math.max(0, w - str.length); const l = Math.floor(pad/2); return ' '.repeat(l) + str + ' '.repeat(pad - l); };
+      const leftStr  = center(upgLabel, HALF);
+      const rightStr = center(wrkLabel, IW - HALF);
       for (let i = 0; i < IW; i++) {
-        let fg = DC;
-        if (activeTab === 0 && i >= 7  && i <= 18) fg = LC;  // [ UPGRADES ]
-        if (activeTab === 1 && i >= 34 && i <= 44) fg = LC;  // [ WORKERS ]
-        display.draw(BOX_X + 1 + i, ay, TAB_BAR[i] || ' ', fg, BG);
+        const inLeft = i < HALF;
+        const ch     = (inLeft ? leftStr : rightStr)[inLeft ? i : i - HALF] || ' ';
+        const active = (inLeft && isUpg) || (!inLeft && !isUpg);
+        display.draw(BOX_X + 1 + i, ay, ch, active ? LC : DC, BG);
       }
     }
 
@@ -2534,11 +2554,12 @@ function showOfficeMenu() {
     { const ay = BOX_Y + 15; border(ay);
       for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '─', DC, BG); }
 
-    if (activeTab === 0) {
+    if (state.officeTab === 'upgrades') {
       // UPGRADES tab — content rows 16-36 (PAGE_ROWS = 21)
       const pages = getPages();
-      const pg    = pages[page] || [];
       const total = pages.length;
+      if (state.officeUpgradesPage > total) state.officeUpgradesPage = 1;
+      const pg    = pages[state.officeUpgradesPage - 1] || [];
 
       for (let i = 0; i < pg.length && i < PAGE_ROWS; i++) {
         const row = pg[i];
@@ -2570,13 +2591,15 @@ function showOfficeMenu() {
       if (state.phase < 2)  { statusText = 'Upgrades unlock at 100cr earned.'; statusFg = DC; }
       else if (allOwned)    { statusText = 'All available upgrades owned.'; statusFg = '#66cc66'; }
       else                  { statusText = 'Purchase upgrades with credits.'; statusFg = DC; }
-      const footer = total > 1 ? `TAB: page ${page+1}/${total} → WORKERS` : `TAB: switch to WORKERS tab`;
+      const footer = total > 1
+        ? `[ page ${state.officeUpgradesPage}/${total} — TAB for next page ]`
+        : `[ ← → switch tabs ]`;
       const footerFg = DC;
       { const ay = BOX_Y + 38; border(ay);
         const centered = menuPad(footer.length < IW ? ' '.repeat(Math.floor((IW - footer.length) / 2)) + footer : footer, IW);
         for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, centered[i] || ' ', footerFg, BG); }
 
-    } else {
+    } else { // state.officeTab === 'workers'
       // WORKERS tab — content rows 16-36 (PAGE_ROWS = 21)
       const apprentices = state.workers.apprentices;
       const n           = apprentices.length;
@@ -2621,7 +2644,7 @@ function showOfficeMenu() {
 
       // Row 38: footer
       { const ay = BOX_Y + 38; border(ay);
-        const footer = n > 0 ? 'Number keys toggle worker pause.  TAB: back to UPGRADES.' : 'TAB: back to UPGRADES tab.';
+        const footer = n > 0 ? 'Number keys toggle worker pause.  ← → to switch tabs.' : '← → to switch to UPGRADES tab.';
         const centered = menuPad(footer.length < IW ? ' '.repeat(Math.floor((IW - footer.length) / 2)) + footer : footer, IW);
         for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, centered[i] || ' ', DC, BG); }
     }
@@ -2647,21 +2670,19 @@ function showOfficeMenu() {
 
   function officeKeyHandler(e) {
     if (e.key === 'Escape') { closeOffice(); return; }
-    if (e.key === 'ArrowRight') { e.preventDefault(); if (activeTab === 0) { activeTab = 1; page = 0; redraw(); } return; }
-    if (e.key === 'ArrowLeft')  { e.preventDefault(); if (activeTab === 1) { activeTab = 0; page = 0; redraw(); } return; }
+    if (e.key === 'ArrowRight') { e.preventDefault(); if (state.officeTab === 'upgrades') { state.officeTab = 'workers'; redraw(); } return; }
+    if (e.key === 'ArrowLeft')  { e.preventDefault(); if (state.officeTab === 'workers')  { state.officeTab = 'upgrades'; redraw(); } return; }
     if (e.key === 'Tab') {
       e.preventDefault();
-      if (activeTab === 0) {
-        const pages = getPages();
-        page = (page + 1) % Math.max(1, pages.length);
-        if (page === 0) activeTab = 1;
-      } else {
-        activeTab = 0;
-        page = 0;
+      if (state.officeTab === 'upgrades') {
+        const total = Math.max(1, getPages().length);
+        state.officeUpgradesPage = (state.officeUpgradesPage % total) + 1;
+        redraw();
       }
-      redraw(); return;
+      // TAB does nothing on WORKERS tab
+      return;
     }
-    if (activeTab === 1) {
+    if (state.officeTab === 'workers') {
       // WORKERS tab — number keys toggle apprentice pause
       const apprentices = state.workers.apprentices;
       const idx = parseInt(e.key) - 1;
