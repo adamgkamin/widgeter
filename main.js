@@ -101,6 +101,8 @@ const state = {
   officeUnlocked: false,
   storage: { widgets: 0, rm: 0, widgetCap: 50, rmCap: 50 },
   workbenchWidgets:  0,
+  workbenchHammerFrame: 0,
+  workbenchHammerTick:  0,
   productionHalted:  false,
   wbFullLogged:      false,
   rmPurchasedToday:  0,
@@ -929,7 +931,9 @@ function resetState() {
   state.rocketAnimFrame    = 0;
   state.officeUnlocked = false;
   state.storage = { widgets: 0, rm: 0, widgetCap: 50, rmCap: 50 };
-  state.workbenchWidgets = 0;
+  state.workbenchWidgets    = 0;
+  state.workbenchHammerFrame = 0;
+  state.workbenchHammerTick  = 0;
   state.productionHalted = false;
   state.wbFullLogged     = false;
   state.rmPurchasedToday = 0;
@@ -1510,6 +1514,7 @@ function startCrafting(n, ticks = CRAFT_TICKS, remote = false) {
 
 function cancelCrafting() {
   craftQueue = 0; craftProgress = 0;
+  state.workbenchHammerFrame = 0; state.workbenchHammerTick = 0;
   if (!craftingRemote) {
     WB_LABEL_TILES.forEach(([x, y]) => { markDirty(x, y); });
     renderDirty();
@@ -1549,7 +1554,47 @@ function openWorkbenchMenu(isRemote = false) {
     '  ++      ++  ',
   ];
 
+  const HAMMER_FRAMES = [
+    // Frame 0 — hammer raised, held high
+    ['   _____      ', '  |     |     ', '  |_____|     ', '     |        ', '     |        '],
+    // Frame 1 — hammer descending fast
+    ['              ', '   _____      ', '  |     |     ', '  |_____|     ', '     |        '],
+    // Frame 2 — impact
+    ['  * . * . *   ', '  _________   ', ' |_________|  ', '  - - - - -   ', '     | |      '],
+    // Frame 3 — rebound
+    ['              ', '   _____      ', '  |     |     ', '  |_____|     ', '     |        '],
+  ];
+
+  // Per-frame, per-rowIdx (0-4) base color; null = per-char (spark row)
+  const HAMMER_COLORS = [
+    ['#aaaaaa', '#aaaaaa', '#aaaaaa', '#cc6600', '#cc6600'], // frame 0
+    ['#aaaaaa', '#aaaaaa', '#aaaaaa', '#aaaaaa', '#cc6600'], // frame 1
+    [null,      '#ffffff', '#ffffff', '#ff9933', '#cc6600'], // frame 2 (row 0 = per-char sparks)
+    ['#aaaaaa', '#aaaaaa', '#aaaaaa', '#aaaaaa', '#cc6600'], // frame 3
+  ];
+
+  function drawHammerRow(r, ay) {
+    const frame  = state.workbenchHammerFrame;
+    const rowIdx = r - 2;
+    const s      = HAMMER_FRAMES[frame][rowIdx];
+    const base   = HAMMER_COLORS[frame][rowIdx];
+    for (let i = 0; i < AW; i++) {
+      const ch = s[i] || ' ';
+      let fg;
+      if (base === null) { // spark row (frame 2, rowIdx 0)
+        fg = ch === '*' ? '#ffd633' : ch === '.' ? '#ff9933' : '#aaaaaa';
+      } else {
+        fg = base;
+      }
+      display.draw(BOX_X + 1 + i, ay, ch, fg, BG);
+    }
+  }
+
   function drawArtRow(r, ay) {
+    if (state.gameState === 'crafting' && r >= 2 && r <= 6) {
+      drawHammerRow(r, ay);
+      return;
+    }
     const s = WB_ART[r];
     for (let i = 0; i < AW; i++) {
       let fg = '#aaaaaa';
@@ -1640,14 +1685,25 @@ function openWorkbenchMenu(isRemote = false) {
 
     // Action rows 14-17
     if (isCrafting) {
-      const filled   = Math.floor((craftProgress / CRAFT_TICKS) * 10);
-      const bar      = '█'.repeat(filled) + '░'.repeat(10 - filled);
-      const secsLeft = CRAFT_TICKS - craftProgress;
-      const queueLeft = craftQueue + 1;
-      irow(BOX_Y + 14, `[${bar}]  ${queueLeft} widget${queueLeft !== 1 ? 's' : ''} remaining`, '#ff9933');
-      irow(BOX_Y + 15, `${secsLeft}s until next widget`, '#ff9933');
-      irow(BOX_Y + 16, 'ESC to cancel  (current widget lost)', '#ff5555');
-      irow(BOX_Y + 17, '', '#555555');
+      const BAR_W    = 20;
+      const filled   = Math.floor((craftProgress / activeCraftTicks) * BAR_W);
+      const secsLeft = activeCraftTicks - craftProgress;
+      const widgetNum = craftTotal - craftQueue;
+      irow(BOX_Y + 14, `Crafting widget ${widgetNum} of ${craftTotal}`, '#f0f0f0');
+      { const ay = BOX_Y + 15;
+        border(ay);
+        let bx = BOX_X + 1;
+        display.draw(bx++, ay, '[', '#555555', BG);
+        for (let i = 0; i < BAR_W; i++) {
+          display.draw(bx++, ay, i < filled ? '█' : '░', i < filled ? '#ff9933' : '#333333', BG);
+        }
+        display.draw(bx++, ay, ']', '#555555', BG);
+        const secsStr = `  ${secsLeft}s`;
+        for (let i = 0; i < secsStr.length; i++) display.draw(bx++, ay, secsStr[i], '#f0f0f0', BG);
+        while (bx < BOX_X + 1 + IW) display.draw(bx++, ay, ' ', BRIGHT_WHITE, BG);
+      }
+      irow(BOX_Y + 16, '', BRIGHT_WHITE);
+      irow(BOX_Y + 17, 'ESC to cancel (widget lost)', '#ff5555');
     } else {
       arow(BOX_Y + 14, '1. Craft 1', `1 RM → 1 widget, ${craftTime}s`, canCraft1 ? '#66cc66' : '#ff5555');
       arow(BOX_Y + 15, `2. Craft max  (${maxCraft})`, '', canCraft1 && maxCraft > 0 ? '#66cc66' : '#ff5555');
@@ -2577,11 +2633,11 @@ function handlePonder() {
   // Phase 5 — rocket hints
   if (state.phase >= 5) {
     const rw = state.rocketWidgets;
-    if (rw >= 1000000) { hint = 'The rocket is ready. [launch sequence coming soon]'; }
+    if (rw >= 50000) { hint = 'The rocket is ready. [launch sequence coming soon]'; }
     else if (state.courierDestination === 'market') { hint = 'The rocket waits. Credits won\'t matter where it\'s going.'; }
-    else if (rw >= 900000) { hint = 'Almost. Everything you built was for this.'; }
-    else if (rw >= 500000) { hint = 'Over halfway. You can feel something building.'; }
-    else if (rw >= 100000) { hint = 'You are committed now.'; }
+    else if (rw >= 45000) { hint = 'Almost. Everything you built was for this.'; }
+    else if (rw >= 25000) { hint = 'Over halfway. You can feel something building.'; }
+    else if (rw >= 5000)  { hint = 'You are committed now.'; }
     else                   { hint = 'The rocket is loading. This will take time.'; }
     wrapLog(hint, '#ff5555'); return;
   }
@@ -4675,15 +4731,15 @@ function openLFMenu() {
     rpt(4,  'WIDGETS LOADED', WC);
 
     // Large digit display (rows 5-9, 5 rows tall)
-    const rw     = Math.min(state.rocketWidgets, 1000000);
+    const rw     = Math.min(state.rocketWidgets, 50000);
     const numStr = rw.toLocaleString('en-US');
-    const numFg  = rw >= 900000 ? '#ff5555' : rw >= 500000 ? '#ff9933' : '#ffd633';
+    const numFg  = rw >= 45000 ? '#ff5555' : rw >= 25000 ? '#ff9933' : '#ffd633';
     renderLargeNumber(display, RP, BOX_Y + 5, numStr, numFg);
 
-    rpt(10, '/ 1,000,000', WC);
+    rpt(10, '/ 50,000', WC);
 
     // Progress bar (row 12)
-    const pct      = rw / 1000000;
+    const pct      = rw / 50000;
     const BAR_W    = 28;
     const filled   = Math.round(pct * BAR_W);
     const pctStr   = (pct * 100).toFixed(1) + '%';
@@ -4775,7 +4831,7 @@ function openLFMenu() {
     if (e.key === 'Escape') { closeLF(); return; }
     if (e.key === ' ') {
       e.preventDefault();
-      if (state.rocketWidgets < 1000000) {
+      if (state.rocketWidgets < 50000) {
         state.courierDestination = state.courierDestination === 'market' ? 'rocket' : 'market';
         redraw();
       }
@@ -5344,13 +5400,13 @@ function tickCouriers() {
       if (near(c, destDoor)) {
         if (isHeadingToLF(c)) {
           // Deliver to Launch Facility
-          if (c.carryWidgets > 0 && state.rocketWidgets < 1000000) {
-            const toLoad = Math.min(c.carryWidgets, 1000000 - state.rocketWidgets);
+          if (c.carryWidgets > 0 && state.rocketWidgets < 50000) {
+            const toLoad = Math.min(c.carryWidgets, 50000 - state.rocketWidgets);
             state.rocketWidgets += toLoad;
             c.carryWidgets -= toLoad;
-            addLog(`Courier loaded ${toLoad} widget${toLoad !== 1 ? 's' : ''}. Total: ${state.rocketWidgets.toLocaleString()} / 1,000,000.`, '#ff5555');
+            addLog(`Courier loaded ${toLoad} widget${toLoad !== 1 ? 's' : ''}. Total: ${state.rocketWidgets.toLocaleString()} / 50,000.`, '#ff5555');
             drawStatusBar();
-            if (!state.rocketFull && state.rocketWidgets >= 1000000) {
+            if (!state.rocketFull && state.rocketWidgets >= 50000) {
               state.rocketFull = true;
               addLog('The rocket is ready. [launch sequence coming soon]', '#ff5555');
             }
@@ -5769,6 +5825,26 @@ setInterval(() => {
   drawTimeIndicator();
 
   if (state.gameState === 'crafting') {
+    // Advance hammer animation frame
+    const HAMMER_SCHEDULE = [5, 2, 1, 3]; // ticks held per frame
+    state.workbenchHammerTick++;
+    if (state.workbenchHammerTick >= HAMMER_SCHEDULE[state.workbenchHammerFrame]) {
+      const prevFrame = state.workbenchHammerFrame;
+      state.workbenchHammerTick = 0;
+      state.workbenchHammerFrame = (state.workbenchHammerFrame + 1) % 4;
+      // Door tile spark: draw on entry to impact frame, restore on exit
+      const wbDef = STATION_DEFS.find(s => s.label === 'WB');
+      if (wbDef) {
+        const doorX = wbDef.x + 1, doorY = wbDef.y + 2;
+        if (state.workbenchHammerFrame === 2) {
+          display.draw(doorX, doorY, '*', '#ffd633', BG);
+        } else if (prevFrame === 2) {
+          markDirty(doorX, doorY);
+          renderDirty();
+        }
+      }
+    }
+
     const secsLeft = activeCraftTicks - craftProgress;
     drawRow(LOG_END_ROW, `> Crafting — ${secsLeft}s remaining`, '#ff9933');
     craftProgress++;
@@ -5789,6 +5865,7 @@ setInterval(() => {
       } else {
         addLog(`Done. ${craftTotal} widget${craftTotal !== 1 ? 's' : ''} crafted.`, '#66cc66');
         craftingRemote = false;
+        state.workbenchHammerFrame = 0; state.workbenchHammerTick = 0;
         state.gameState = 'playing';
         if (wbMenuCloseFn) { wbMenuCloseFn(); wbMenuRedrawFn = null; wbMenuCloseFn = null; }
       }

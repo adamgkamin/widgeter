@@ -715,6 +715,7 @@ These are decisions deliberately not made yet. Each should be answered before th
 2. **Pricing formula (Option A vs. Option B in §5.4).** Implement as a swappable function; pick during playtest.
 3. **Sound design specifics.** Hooks defined (§12); actual audio assets and triggers to be tuned later by the player (you).
 4. **Number tuning across all phases.** Every constant in this doc is a starting value subject to playtest revision. Track in changelog.
+   - **Rocket widget target (Phase 5):** 50,000 widgets. Target is 50,000 widgets — tunable after playtesting. At max production (~6.25 widgets/second) this takes roughly 2 hours of active rocket-loading, which is the intended endgame session length.
 
 ---
 
