@@ -117,6 +117,14 @@ const state = {
   bank: { deposit: 0, loan: null },
   audio: { muted: false },
   workers: { apprentices: [], couriers: [] },
+  stats: {
+    rmLastTen:        [],
+    widgetsLastTen:   [],
+    creditsLastTen:   [],
+    widgetsMadeToday: 0,
+    revenueToday:     0,
+    costsToday:       0,
+  },
   skills: {
     apprentice:   0,
     courier:      0,
@@ -185,6 +193,7 @@ function saveGame() {
     bank:                 state.bank,
     audio:                state.audio,
     workers:              state.workers,
+    stats:                state.stats,
     skills:               state.skills,
   };
   localStorage.setItem(SAVE_KEY, JSON.stringify(data));
@@ -245,6 +254,13 @@ function loadGame() {
     state.audio                = data.audio               ?? { muted: false };
     state.workers              = data.workers           ?? { apprentices: [], couriers: [] };
     state.workers.couriers     = state.workers.couriers ?? []; // normalise old saves
+    state.stats                = data.stats ?? { rmLastTen: [], widgetsLastTen: [], creditsLastTen: [], widgetsMadeToday: 0, revenueToday: 0, costsToday: 0 };
+    state.stats.rmLastTen      = state.stats.rmLastTen      ?? [];
+    state.stats.widgetsLastTen = state.stats.widgetsLastTen ?? [];
+    state.stats.creditsLastTen = state.stats.creditsLastTen ?? [];
+    state.stats.widgetsMadeToday = state.stats.widgetsMadeToday ?? 0;
+    state.stats.revenueToday   = state.stats.revenueToday   ?? 0;
+    state.stats.costsToday     = state.stats.costsToday     ?? 0;
     state.skills               = data.skills            ?? { apprentice: 0, courier: 0, workerCarry: 0, workerSpeed: 0, courierCarry: 0, courierSpeed: 0, storageExp1: 0, storageExp2: 0, reducedCarry: 0, discountDump: 0 };
     // normalise old saves missing phase-3 skill keys
     state.skills.storageExp1    = state.skills.storageExp1    ?? 0;
@@ -473,26 +489,6 @@ function buildTileMap() {
   for (let x = 15; x <= 62; x++) tileMap[x][14] = mk(':', pc, true);
   for (let x = 15; x <= 62; x++) tileMap[x][28] = mk(':', pc, true);
   for (let y = 14; y <= 28; y++) tileMap[62][y] = mk(':', pc, true);
-
-  // Phase 2 paths — static when already unlocked (animated on first unlock)
-  if (state.phase >= 2) {
-    for (const [px, py] of [
-      [14,28],[13,28],[12,28],[11,28],[11,29],[11,30],[11,31], // to Factory
-      [24,29],[24,30],[24,31],                                  // to Storage
-    ]) tileMap[px][py] = mk(':', pc, true);
-  }
-
-  // Phase 3 paths — static when already unlocked (animated on first unlock)
-  if (state.phase >= 3) {
-    for (const [px, py] of [[62,13],[62,12],[62,11],[62,10],[62,9],[62,8],[62,7]])
-      tileMap[px][py] = mk(':', pc, true);
-  }
-
-  // Phase 4 paths — to Derivatives Terminal
-  if (state.phase >= 4) {
-    for (const [px, py] of [[61,17],[60,17]])
-      tileMap[px][py] = mk(':', pc, true);
-  }
 
   // Trees — §4.5
   for (let y = 1; y < WORLD_ROWS - 1; y++) {
@@ -907,6 +903,7 @@ function resetState() {
   state.bank                 = { deposit: 0, loan: null };
   state.audio            = { muted: false };
   state.workers = { apprentices: [], couriers: [] };
+  state.stats = { rmLastTen: [], widgetsLastTen: [], creditsLastTen: [], widgetsMadeToday: 0, revenueToday: 0, costsToday: 0 };
   state.skills = { apprentice: 0, courier: 0, workerCarry: 0, workerSpeed: 0, courierCarry: 0, courierSpeed: 0, storageExp1: 0, storageExp2: 0, reducedCarry: 0, discountDump: 0, demandHistory: 0, forecast: 0, bulkRM: 0, futures: 0, optionsBuy: 0, optionsWrite: 0, volatilitySurface: 0 };
   const fcDef = STATION_DEFS.find(s => s.label === 'FC');
   const stDef = STATION_DEFS.find(s => s.label === 'ST');
@@ -1339,23 +1336,6 @@ function colorInStation(label, wc, lc) {
   display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
 }
 
-function animatePhase2Paths() {
-  const pc = '#3a3530';
-  const pathTiles = [
-    [14,28],[13,28],[12,28],[11,28],[11,29],[11,30],[11,31],
-    [24,29],[24,30],[24,31],
-  ];
-  let i = 0;
-  const iv = setInterval(() => {
-    if (i >= pathTiles.length) { clearInterval(iv); return; }
-    const [px, py] = pathTiles[i++];
-    tileMap[px][py] = { glyph: ':', fg: pc, bg: BG, walkable: true };
-    markDirty(px, py);
-    renderDirty();
-    display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
-  }, 2000);
-}
-
 function checkPhase2Trigger() {
   if (state.lifetimeCreditsEarned >= 100 && state.phase === 1) {
     state.phase = 2;
@@ -1368,7 +1348,6 @@ function checkPhase2Trigger() {
       addLog('The Factory and Storage Warehouse are now available.', '#cc66cc');
       colorInStation('FC', '#555555', '#ff9933');
       colorInStation('ST', '#555555', '#66ccff');
-      setTimeout(animatePhase2Paths, 1000);
     }, 4000);
   }
 }
@@ -1401,10 +1380,7 @@ function checkPhase3Trigger() {
     calculateDailyDemand();
     addLog('The bank lights come on for the first time.', '#66cc66');
     setTimeout(() => addLog('New possibilities are available.', '#66cc66'), 2000);
-    setTimeout(() => {
-      colorInStation('BK', '#555555', '#66cc66');
-      setTimeout(animateBankPath, 1000);
-    }, 4000);
+    setTimeout(() => colorInStation('BK', '#555555', '#66cc66'), 4000);
   }
 }
 
@@ -1418,35 +1394,8 @@ function checkPhase4Trigger() {
     setTimeout(() => {
       addLog('The Derivatives Terminal is now open.', '#cc66cc');
       colorInStation('DV', '#555555', '#cc66cc');
-      setTimeout(animateDVPath, 1000);
     }, 4000);
   }
-}
-
-function animateDVPath() {
-  const pc = '#3a3530';
-  const mk = (glyph, fg, walkable) => ({ glyph, fg, bg: BG, walkable });
-  const tiles = [[61,17],[60,17]];
-  tiles.forEach(([px, py], i) => {
-    setTimeout(() => {
-      tileMap[px][py] = mk(':', pc, true);
-      markDirty(px, py);
-      renderDirty();
-    }, i * 200);
-  });
-}
-
-function animateBankPath() {
-  const pc = '#3a3530';
-  const mk = (glyph, fg, walkable) => ({ glyph, fg, bg: BG, walkable });
-  const tiles = [[62,13],[62,12],[62,11],[62,10],[62,9],[62,8],[62,7]];
-  tiles.forEach(([px, py], i) => {
-    setTimeout(() => {
-      tileMap[px][py] = mk(':', pc, true);
-      markDirty(px, py);
-      renderDirty();
-    }, i * 200);
-  });
 }
 
 function sellWidgets(n) {
@@ -1467,6 +1416,7 @@ function sellWidgets(n) {
   state.player.credits           += earned;
   state.player.inventory.widgets -= n;
   state.lifetimeCreditsEarned    += earned;
+  state.stats.revenueToday        = Math.round((state.stats.revenueToday + earned) * 10) / 10;
   if (state.phase >= 3) state.widgetsSoldToday += n;
   addLog(`Sold ${n} widget${n !== 1 ? 's' : ''} for ${formatCredits(earned)}cr.`, BRIGHT_CYAN);
   if (isFirstSale) addLog('> First sale. There\'s something to this.', '#cc66cc');
@@ -1623,76 +1573,152 @@ const OFFICE_NODES = [
 function showOfficeMenu() {
   state.gameState = 'menu';
 
-  const visibleNodes = OFFICE_NODES.filter(n => state.phase >= n.minPhase);
-  const BOX_W  = 68;
-  const BOX_H  = 7 + visibleNodes.length + 5; // header(5) + nodes + footer(5) + 2 borders
+  // Section definitions — each item has display key and OFFICE_NODES key field
+  const SECTIONS = [
+    { header: 'LOGISTICS', items: [
+      { k: '1', nk: 'apprentice'   },
+      { k: '2', nk: 'workerCarry'  },
+      { k: '3', nk: 'workerSpeed'  },
+    ]},
+    { header: 'WAREHOUSING', items: [
+      { k: null, label: 'Build Factory', cost: 'FREE', specialFn: () => state.phase >= 2 },
+      { k: '4',  nk: 'storageExp1'  },
+      { k: '5',  nk: 'storageExp2'  },
+      { k: '6',  nk: 'reducedCarry' },
+      { k: '7',  nk: 'discountDump' },
+    ]},
+    { header: 'TRANSPORT', items: [
+      { k: '8', nk: 'courier'       },
+      { k: '9', nk: 'courierCarry'  },
+      { k: 'a', nk: 'courierSpeed'  },
+    ]},
+    { header: 'MARKETING', items: [
+      { k: 'b', nk: 'bulkRM'        },
+      { k: 'c', nk: 'demandHistory' },
+      { k: 'd', nk: 'forecast'      },
+    ]},
+    { header: 'TRADING', items: [
+      { k: 'e', nk: 'futures'           },
+      { k: 'f', nk: 'optionsBuy'        },
+      { k: 'g', nk: 'optionsWrite'      },
+      { k: 'h', nk: 'volatilitySurface' },
+    ]},
+  ];
+
+  const IW   = 50;        // inner width
+  const BOX_W  = IW + 4; // 54
+  const BOX_H  = 31;
   const BOX_X  = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
-  const BOX_Y  = Math.max(10, Math.floor((WORLD_ROWS  - BOX_H) / 2));
+  const BOX_Y  = Math.max(1, Math.floor((WORLD_ROWS - BOX_H) / 2));
   const CONT_X = BOX_X + 2;
-  const CONT_W = BOX_W - 4; // 64 chars
   const WC     = '#555555';
+  const PAGE_ROWS = 25; // content rows available per page
+  let page = 0;
+
+  function nodeStatus(nk) {
+    const node  = OFFICE_NODES.find(n => n.key === nk);
+    if (!node) return { fg: WC, status: '[unknown]' };
+    const level = state.skills[nk] || 0;
+    if (!state.officeUnlocked || state.phase < node.minPhase) return { fg: WC, status: `[phase ${node.minPhase}]` };
+    if (node.requires && !state.skills[node.requires]) return { fg: WC, status: `[needs ${node.requiresLabel}]` };
+    if (level >= node.max) return { fg: '#888888', status: node.max === 1 ? '[owned]' : '[max]' };
+    if (state.player.credits < node.cost) return { fg: '#ff5555', status: `[${Math.ceil(node.cost - state.player.credits)}cr more]` };
+    return { fg: '#66cc66', status: '[available]' };
+  }
+
+  function buildSectionRows(sec) {
+    const rows = [];
+    const hasAvail = sec.items.some(item => {
+      if (!item.nk) return false;
+      const { fg } = nodeStatus(item.nk);
+      return fg === '#66cc66';
+    });
+    rows.push({ type: 'hdr', text: `[${sec.header}]`, fg: hasAvail ? '#ffd633' : '#333333' });
+    for (const item of sec.items) {
+      if (item.nk) {
+        const node  = OFFICE_NODES.find(n => n.key === item.nk);
+        if (!node) continue;
+        const level = state.skills[item.nk] || 0;
+        const { fg, status } = nodeStatus(item.nk);
+        let label = node.name;
+        if (node.max > 1 && level > 0) label += ` (${level}/${node.max})`;
+        rows.push({ type: 'node', k: item.k, label, cost: `${node.cost}cr`, fg, status });
+      } else {
+        const owned = item.specialFn();
+        rows.push({ type: 'node', k: null, label: item.label, cost: item.cost, fg: owned ? '#888888' : WC, status: owned ? '[owned]' : '[locked]' });
+      }
+    }
+    rows.push({ type: 'blank' });
+    return rows;
+  }
+
+  function getPages() {
+    const pages = [];
+    let cur = [];
+    for (const sec of SECTIONS) {
+      const sRows = buildSectionRows(sec);
+      if (cur.length > 0 && cur.length + sRows.length > PAGE_ROWS) { pages.push(cur); cur = []; }
+      cur.push(...sRows);
+    }
+    if (cur.length > 0) pages.push(cur);
+    return pages;
+  }
+
+  function menuLine(k, label, cost, status) {
+    const kp  = (k ? `${k}. ` : '   ').padEnd(4);
+    const st  = (status.length > 12 ? status.slice(0, 11) + '.' : status).padEnd(12);
+    const co  = cost.padStart(7);
+    const lbl = (label.length > 23 ? label.slice(0, 20) + '...' : label).padEnd(23);
+    return (kp + lbl + ' ' + co + ' ' + st).slice(0, IW).padEnd(IW);
+  }
+
+  function drawLine(y, text, fg) {
+    for (let j = 0; j < IW; j++) display.draw(CONT_X+j, y, text[j] ?? ' ', fg, BG);
+  }
 
   function redraw() {
+    const pages = getPages();
+    const pg    = pages[page] || [];
+    const total = pages.length;
     // Frame + clear
-    display.draw(BOX_X, BOX_Y, '+', WC, BG);
-    display.draw(BOX_X + BOX_W - 1, BOX_Y, '+', WC, BG);
-    for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, BOX_Y, '-', WC, BG);
+    display.draw(BOX_X, BOX_Y, '+', WC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y, '+', WC, BG);
+    for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, BOX_Y, '-', WC, BG);
     const botY = BOX_Y + BOX_H - 1;
-    display.draw(BOX_X, botY, '+', WC, BG);
-    display.draw(BOX_X + BOX_W - 1, botY, '+', WC, BG);
-    for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, botY, '-', WC, BG);
-    for (let y = 1; y < BOX_H - 1; y++) {
-      display.draw(BOX_X, BOX_Y + y, '|', WC, BG);
-      display.draw(BOX_X + BOX_W - 1, BOX_Y + y, '|', WC, BG);
-      for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, BOX_Y + y, ' ', BRIGHT_WHITE, BG);
+    display.draw(BOX_X, botY, '+', WC, BG); display.draw(BOX_X+BOX_W-1, botY, '+', WC, BG);
+    for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, botY, '-', WC, BG);
+    for (let y = 1; y < BOX_H-1; y++) {
+      display.draw(BOX_X, BOX_Y+y, '|', WC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y+y, '|', WC, BG);
+      for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, BOX_Y+y, ' ', BRIGHT_WHITE, BG);
     }
-
-    // Title centered
+    // Header
     const TITLE = '– THE OFFICE –';
-    const titleX = CONT_X + Math.floor((CONT_W - TITLE.length) / 2);
-    for (let i = 0; i < TITLE.length; i++) display.draw(titleX + i, BOX_Y + 2, TITLE[i], BRIGHT_CYAN, BG);
-
-    // Subtitle
-    const sub = 'Upgrades are purchased with credits.';
-    for (let i = 0; i < sub.length; i++) display.draw(CONT_X + i, BOX_Y + 3, sub[i], WC, BG);
-
-    // Nodes (start at BOX_Y + 5)
-    const unlocked = state.officeUnlocked;
-    for (let i = 0; i < visibleNodes.length; i++) {
-      const node  = visibleNodes[i];
-      const level = state.skills[node.key] || 0;
-      const costStr = `${node.cost}cr`.padEnd(7);
-      let label = node.name;
-      if (node.max > 1 && level > 0) label += `  (level ${level})`;
-      let fg, suffix;
-      if (!unlocked) {
-        fg = WC; suffix = '[LOCKED — reach Phase 2]';
-      } else if (node.requires && !state.skills[node.requires]) {
-        fg = WC; suffix = `[Requires ${node.requiresLabel}]`;
-      } else if (level >= node.max) {
-        fg = WC; suffix = node.max === 1 ? '[Purchased]' : '[Max level]';
-      } else if (state.player.credits < node.cost) {
-        fg = '#ff5555'; suffix = `[Need ${node.cost - state.player.credits}cr more]`;
+    const tx = CONT_X + Math.floor((IW - TITLE.length) / 2);
+    for (let i = 0; i < TITLE.length; i++) display.draw(tx+i, BOX_Y+1, TITLE[i], BRIGHT_CYAN, BG);
+    const sub = 'Upgrades purchased with credits.';
+    for (let i = 0; i < sub.length; i++) display.draw(CONT_X+i, BOX_Y+2, sub[i], WC, BG);
+    // Content rows (start at row 4)
+    for (let i = 0; i < pg.length && i < PAGE_ROWS; i++) {
+      const row = pg[i];
+      const y   = BOX_Y + 4 + i;
+      if (row.type === 'blank') continue;
+      if (row.type === 'hdr') {
+        drawLine(y, row.text.padEnd(IW), row.fg);
       } else {
-        fg = '#66cc66'; suffix = '[Available]';
+        drawLine(y, menuLine(row.k, row.label, row.cost, row.status), row.fg);
       }
-      const keyDisp = node.inputKey ? `${node.inputKey}.` : `${node.num === 10 ? '0' : node.num}.`;
-      const line = `${keyDisp} ${label.padEnd(26)} ${costStr} ${suffix}`;
-      for (let j = 0; j < line.length; j++) display.draw(CONT_X + j, BOX_Y + 5 + i, line[j], fg, BG);
     }
-
-    // ESC hint centered at second-to-last row
-    const ESC = 'ESC to close';
-    const escX = CONT_X + Math.floor((CONT_W - ESC.length) / 2);
-    for (let i = 0; i < ESC.length; i++) display.draw(escX + i, BOX_Y + BOX_H - 2, ESC[i], WC, BG);
+    // Footer
+    const footer = total > 1 ? `[ page ${page+1}/${total} — TAB for next ]` : 'ESC to close';
+    const fx = CONT_X + Math.floor((IW - footer.length) / 2);
+    for (let i = 0; i < footer.length; i++) display.draw(fx+i, BOX_Y+BOX_H-2, footer[i], WC, BG);
   }
 
   redraw();
 
   function closeOffice() {
     window.removeEventListener('keydown', officeKeyHandler);
-    for (let y = BOX_Y; y < BOX_Y + BOX_H; y++)
-      for (let x = BOX_X; x < BOX_X + BOX_W; x++)
+    for (let y = BOX_Y; y < BOX_Y+BOX_H; y++)
+      for (let x = BOX_X; x < BOX_X+BOX_W; x++)
         if (x >= 0 && x < DISPLAY_WIDTH && y >= 0 && y < WORLD_ROWS) markDirty(x, y);
     renderDirty();
     display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
@@ -1701,51 +1727,40 @@ function showOfficeMenu() {
 
   function officeKeyHandler(e) {
     if (e.key === 'Escape') { closeOffice(); return; }
-    const node = visibleNodes.find(n => {
-      if (n.inputKey) return e.key === n.inputKey;
-      const pressedNum = e.key === '0' ? 10 : parseInt(e.key);
-      return n.num === pressedNum;
-    });
-    if (!node) return;
-    if (!state.officeUnlocked) return;
-    if (node.requires && !state.skills[node.requires]) return;
-    const level = state.skills[node.key] || 0;
-    if (level >= node.max) return;
-    if (state.player.credits < node.cost) return;
-    state.player.credits -= node.cost;
-    state.skills[node.key] = level + 1;
-    if (node.key === 'apprentice') {
-      const ofDef = STATION_DEFS.find(s => s.label === 'OF');
-      state.workers.apprentices.push({
-        x: ofDef.x + 1, y: ofDef.y + 2,
-        workerState: 'idle',
-        carryRM: 0, carryWidgets: 0,
-        target: { x: 0, y: 0 },
-        craftTimer: 0,
-        paused: false,
-      });
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      const pages = getPages();
+      page = (page + 1) % Math.max(1, pages.length);
+      redraw(); return;
     }
-    if (node.key === 'courier') {
-      const ofDef = STATION_DEFS.find(s => s.label === 'OF');
-      state.workers.couriers.push({
-        x: ofDef.x + 1, y: ofDef.y + 2,
-        courierState: 'idle',
-        carryWidgets: 0,
-        target: { x: 0, y: 0 },
-      });
-      state.couriersOwned++;
+    // Find matching item across all sections
+    for (const sec of SECTIONS) {
+      for (const item of sec.items) {
+        if (!item.k || item.k !== e.key || !item.nk) continue;
+        const node  = OFFICE_NODES.find(n => n.key === item.nk);
+        if (!node || !state.officeUnlocked || state.phase < node.minPhase) return;
+        if (node.requires && !state.skills[node.requires]) return;
+        const level = state.skills[item.nk] || 0;
+        if (level >= node.max || state.player.credits < node.cost) return;
+        state.player.credits  -= node.cost;
+        state.skills[item.nk]  = level + 1;
+        if (item.nk === 'apprentice') {
+          const ofDef = STATION_DEFS.find(s => s.label === 'OF');
+          state.workers.apprentices.push({ x: ofDef.x+1, y: ofDef.y+2, workerState: 'idle', carryRM: 0, carryWidgets: 0, target: {x:0,y:0}, craftTimer: 0, paused: false });
+        }
+        if (item.nk === 'courier') {
+          const ofDef = STATION_DEFS.find(s => s.label === 'OF');
+          state.workers.couriers.push({ x: ofDef.x+1, y: ofDef.y+2, courierState: 'idle', carryWidgets: 0, target: {x:0,y:0} });
+          state.couriersOwned++;
+        }
+        if (item.nk === 'storageExp1') { state.storage.widgetCap = 100; state.storage.rmCap = 100; }
+        if (item.nk === 'storageExp2') { state.storage.widgetCap = 200; state.storage.rmCap = 200; }
+        addLog(`${node.name} purchased.`, '#cc66cc');
+        drawStatusBar();
+        redraw();
+        return;
+      }
     }
-    if (node.key === 'storageExp1') {
-      state.storage.widgetCap = 100;
-      state.storage.rmCap     = 100;
-    }
-    if (node.key === 'storageExp2') {
-      state.storage.widgetCap = 200;
-      state.storage.rmCap     = 200;
-    }
-    addLog(`${node.name} purchased.`, '#cc66cc');
-    drawStatusBar();
-    redraw();
   }
   window.addEventListener('keydown', officeKeyHandler);
 }
@@ -2312,7 +2327,8 @@ function calculateVolatility() {
 }
 
 // Module-level handle so tick loop can refresh the positions dashboard
-let dashboardRedrawFn = null;
+let dashboardRedrawFn  = null;
+let inventoryRedrawFn  = null;
 
 function checkAbstractionCollapse() {
   if (state.endingTriggered || state.derivatives.totalPnL < 50000) return;
@@ -2842,109 +2858,193 @@ function handleInteract() {
 
 function showInventory() {
   state.gameState = 'inventory';
+  let tab          = 'stocks'; // 'stocks' | 'ops'
+  let workerScroll = 0;
 
-  const BOX_W  = 40;
-  const BOX_H  = state.phase >= 3 ? 18 : 16;
+  const BOX_W  = 54;
+  const BOX_H  = 24;
   const BOX_X  = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
-  const BOX_Y  = Math.max(10, Math.floor((WORLD_ROWS  - BOX_H) / 2));
+  const BOX_Y  = Math.max(2, Math.floor((WORLD_ROWS - BOX_H) / 2));
   const CONT_X = BOX_X + 2;
-  const CONT_W = BOX_W - 4; // 36
+  const CONT_W = BOX_W - 4; // 50
   const WC     = '#555555';
 
-  // Frame
-  display.draw(BOX_X, BOX_Y, '+', WC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y, '+', WC, BG);
-  for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, BOX_Y, '-', WC, BG);
-  const botY = BOX_Y + BOX_H - 1;
-  display.draw(BOX_X, botY, '+', WC, BG); display.draw(BOX_X+BOX_W-1, botY, '+', WC, BG);
-  for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, botY, '-', WC, BG);
-  for (let y = 1; y < BOX_H-1; y++) {
-    display.draw(BOX_X, BOX_Y+y, '|', WC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y+y, '|', WC, BG);
-    for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, BOX_Y+y, ' ', BRIGHT_WHITE, BG);
+  function drawFrame() {
+    display.draw(BOX_X, BOX_Y, '+', WC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y, '+', WC, BG);
+    for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, BOX_Y, '-', WC, BG);
+    const botY = BOX_Y + BOX_H - 1;
+    display.draw(BOX_X, botY, '+', WC, BG); display.draw(BOX_X+BOX_W-1, botY, '+', WC, BG);
+    for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, botY, '-', WC, BG);
+    for (let y = 1; y < BOX_H-1; y++) {
+      display.draw(BOX_X, BOX_Y+y, '|', WC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y+y, '|', WC, BG);
+      for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, BOX_Y+y, ' ', BRIGHT_WHITE, BG);
+    }
   }
 
-  // Column layout (relative to CONT_X):
-  //  0–14  label (15 chars)
-  //    15  [ or space
-  // 16–25  bar fill or symbol fill (10 chars)
-  //    26  ] or space
-  // 27–33  count / value (7 chars, right-aligned)
+  function t(row, col, text, fg) {
+    for (let i = 0; i < text.length && col + i < CONT_W; i++)
+      display.draw(CONT_X + col + i, BOX_Y + row, text[i], fg, BG);
+  }
+  function tc(row, text, fg) { t(row, Math.floor((CONT_W - text.length) / 2), text, fg); }
+  function divRow(row) { for (let i = 0; i < CONT_W; i++) display.draw(CONT_X+i, BOX_Y+row, '.', WC, BG); }
+
+  function drawTabBar(row) {
+    const stocks = tab === 'stocks';
+    t(row, 0, '[ < ', WC);
+    t(row, 4, 'STOCKS', stocks ? BRIGHT_CYAN : WC);
+    t(row, 10, '    ', WC);
+    t(row, 14, 'OPERATIONS', stocks ? WC : BRIGHT_CYAN);
+    t(row, 24, ' > ]', WC);
+  }
 
   function drawBar(row, label, current, max, barFg, labelFg) {
-    const BAR_W  = 10;
+    const BAR_W  = 12;
     const filled = max > 0 ? Math.min(Math.round(current / max * BAR_W), BAR_W) : 0;
-    const lbl    = label.padEnd(15);
-    const count  = `${current} / ${max}`.padStart(7);
-    for (let i = 0; i < 15; i++) display.draw(CONT_X+i, BOX_Y+row, lbl[i], labelFg, BG);
-    display.draw(CONT_X+15, BOX_Y+row, '[', WC, BG);
-    for (let i = 0; i < BAR_W; i++) {
-      const ch = i < filled ? '=' : ' ';
-      display.draw(CONT_X+16+i, BOX_Y+row, ch, i < filled ? barFg : WC, BG);
-    }
-    display.draw(CONT_X+26, BOX_Y+row, ']', WC, BG);
-    for (let i = 0; i < count.length; i++) display.draw(CONT_X+27+i, BOX_Y+row, count[i], labelFg, BG);
+    t(row, 0, label.padEnd(16), labelFg);
+    display.draw(CONT_X+16, BOX_Y+row, '[', WC, BG);
+    for (let i = 0; i < BAR_W; i++)
+      display.draw(CONT_X+17+i, BOX_Y+row, i < filled ? '=' : ' ', i < filled ? barFg : WC, BG);
+    display.draw(CONT_X+29, BOX_Y+row, ']', WC, BG);
+    t(row, 30, `${current}/${max}`.padStart(9), labelFg);
   }
 
   function drawSymRow(row, label, sym, symFg, value, valFg) {
-    const SYM_W = 10;
+    const SYM_W = 20;
     const syms  = Math.min(Math.floor(value / 10), SYM_W);
-    const lbl   = label.padEnd(15);
-    const val   = `${formatCredits(value)}cr`.padStart(7);
-    for (let i = 0; i < 15; i++) display.draw(CONT_X+i, BOX_Y+row, lbl[i], WC, BG);
-    for (let i = 0; i < SYM_W; i++) {
+    t(row, 0, label.padEnd(16), WC);
+    for (let i = 0; i < SYM_W; i++)
       display.draw(CONT_X+16+i, BOX_Y+row, i < syms ? sym : ' ', i < syms ? symFg : WC, BG);
-    }
-    for (let i = 0; i < val.length; i++) display.draw(CONT_X+27+i, BOX_Y+row, val[i], valFg, BG);
+    const valStr = `${formatCredits(value)}cr`;
+    t(row, CONT_W - valStr.length, valStr, valFg);
   }
 
-  const inv = state.player.inventory;
-  const cap = state.player.inventoryCaps;
-
-  // Row 1 — title
-  const TITLE = '-- INVENTORY --';
-  const titleX = CONT_X + Math.floor((CONT_W - TITLE.length) / 2);
-  for (let i = 0; i < TITLE.length; i++) display.draw(titleX+i, BOX_Y+1, TITLE[i], BRIGHT_CYAN, BG);
-
-  // Rows 3–4 — fill bars
-  drawBar(3, 'Raw Materials', inv.rm,      cap.rm,      '#66cc66', '#ff9933');
-  drawBar(4, 'Widgets',       inv.widgets, cap.widgets, '#66cc66', BRIGHT_WHITE);
-
-  // Row 6 — divider
-  for (let i = 0; i < CONT_W; i++) display.draw(CONT_X+i, BOX_Y+6, '.', WC, BG);
-
-  // Rows 8–9 — credits and lifetime
-  drawSymRow(8, 'Credits',  '$', '#ffd633', state.player.credits,            '#ffd633');
-  drawSymRow(9, 'Lifetime', '~', WC,        state.lifetimeCreditsEarned,     WC);
-
-  // Row 11 — day / market status
-  const ms   = state.marketOpen ? 'OPEN' : 'CLOSED';
-  const mFg  = state.marketOpen ? BRIGHT_YELLOW : WC;
-  const mRem = state.marketOpen ? (180 - state.dayTick) : (240 - state.dayTick);
-  const pre  = `Day ${state.day}   Market: `;
-  const post = `   ${mRem}s left`;
-  let sx = CONT_X;
-  for (const ch of pre)  { display.draw(sx++, BOX_Y+11, ch, BRIGHT_WHITE, BG); }
-  for (const ch of ms)   { display.draw(sx++, BOX_Y+11, ch, mFg,          BG); }
-  for (const ch of post) { display.draw(sx++, BOX_Y+11, ch, BRIGHT_WHITE, BG); }
-
-  // Row 13 — storage cost (phase 3+) or ESC hint
-  if (state.phase >= 3) {
-    const mult      = state.skills.reducedCarry ? 0.1 : 0.2;
-    const costPerDay = Math.round(state.storage.widgets * mult * 10) / 10;
-    const costLine  = `Storage cost/day: ${costPerDay}cr`;
-    for (let i = 0; i < costLine.length; i++) display.draw(CONT_X+i, BOX_Y+13, costLine[i], '#ff5555', BG);
-    if (state.debt > 0) {
-      const debtLine = `Debt: ${formatCredits(state.debt)}cr`;
-      for (let i = 0; i < debtLine.length; i++) display.draw(CONT_X+i, BOX_Y+14, debtLine[i], '#ff5555', BG);
+  function redrawStocks() {
+    const inv = state.player.inventory;
+    const cap = state.player.inventoryCaps;
+    tc(1, '-- INVENTORY [STOCKS] --', BRIGHT_CYAN);
+    drawTabBar(2);
+    drawBar(4, 'Raw Materials', inv.rm,      cap.rm,      '#66cc66', '#ff9933');
+    drawBar(5, 'Widgets',       inv.widgets, cap.widgets, '#66cc66', BRIGHT_WHITE);
+    divRow(7);
+    drawSymRow(9,  'Credits',         '$', '#ffd633', state.player.credits,        '#ffd633');
+    drawSymRow(10, 'Lifetime earned', '~', WC,        state.lifetimeCreditsEarned, WC);
+    divRow(12);
+    if (state.phase >= 3) {
+      t(14, 0, 'MARKET REPORT', BRIGHT_CYAN);
+      const dl = demandLabel(state.demand);
+      t(15, 0, `Demand today:   ${String(state.demand).padStart(3)} widgets   (${dl.text})`, dl.fg);
+      t(16, 0, `Price today:    ${state.marketPrice}cr`, BRIGHT_WHITE);
+      t(17, 0, `Sold today:     ${state.widgetsSoldToday} / ${state.demand}`, BRIGHT_WHITE);
+      t(18, 0, `Remaining:      ${Math.max(0, state.demand - state.widgetsSoldToday)} widgets`, BRIGHT_WHITE);
+    } else {
+      t(14, 0, 'MARKET REPORT — available in Phase 3', WC);
     }
+    const ms  = state.marketOpen ? 'OPEN' : 'CLOSED';
+    const mFg = state.marketOpen ? BRIGHT_YELLOW : WC;
+    const mRem = state.marketOpen ? (180 - state.dayTick) : (240 - state.dayTick);
+    const pre  = `Day ${state.day}    Market: `;
+    t(20, 0, pre, BRIGHT_WHITE);
+    t(20, pre.length, ms, mFg);
+    t(20, pre.length + ms.length, `    ${mRem}s left`, BRIGHT_WHITE);
+    tc(22, '[ ESC to close ]', WC);
   }
 
-  // Row 15 (or 13 in phase <3) — ESC hint centered
-  const escRow = state.phase >= 3 ? 15 : 13;
-  const ESC = '[ ESC to close ]';
-  const escX = CONT_X + Math.floor((CONT_W - ESC.length) / 2);
-  for (let i = 0; i < ESC.length; i++) display.draw(escX+i, BOX_Y+escRow, ESC[i], WC, BG);
+  const LP_W   = 23; // left pane width
+  const SEP    = 23; // separator col
+  const RP_OFF = 24; // right pane start col
+  const RP_W   = CONT_W - RP_OFF; // 26
+
+  function lp(row, col, text, fg) {
+    for (let i = 0; i < text.length && col + i < LP_W; i++)
+      display.draw(CONT_X + col + i, BOX_Y + row, text[i], fg, BG);
+  }
+  function rp(row, col, text, fg) {
+    for (let i = 0; i < text.length && RP_OFF + col + i < CONT_W; i++)
+      display.draw(CONT_X + RP_OFF + col + i, BOX_Y + row, text[i], fg, BG);
+  }
+
+  function redrawOps() {
+    tc(1, '-- INVENTORY [OPERATIONS] --', BRIGHT_CYAN);
+    drawTabBar(2);
+    for (let r = 3; r <= 21; r++) display.draw(CONT_X + SEP, BOX_Y + r, '|', WC, BG);
+
+    // Left pane — production stats
+    lp(3,  0, 'PRODUCTION STATS', '#ffd633');
+    const avg = arr => arr.length ? arr.reduce((s, v) => s + v, 0) / arr.length : 0;
+    const rateRM  = avg(state.stats.rmLastTen);
+    const rateWg  = avg(state.stats.widgetsLastTen);
+    const rateCr  = avg(state.stats.creditsLastTen);
+    const crFg    = rateCr >= 0 ? '#66cc66' : '#ff5555';
+    const crSign  = rateCr >= 0 ? '+' : '';
+    lp(5,  0, `RM/sec    ${Math.abs(rateRM).toFixed(1)}`, BRIGHT_WHITE);
+    lp(6,  0, `Wdgt/sec  ${rateWg.toFixed(1)}`, BRIGHT_WHITE);
+    lp(7,  0, `Cr/sec  ${crSign}${rateCr.toFixed(1)}cr`, crFg);
+    for (let i = 0; i < LP_W; i++) display.draw(CONT_X+i, BOX_Y+9, '.', WC, BG);
+    lp(11, 0, 'Today', BRIGHT_WHITE);
+    lp(12, 0, `RM purch'd${String(state.rmPurchasedToday).padStart(LP_W-10)}`, BRIGHT_WHITE);
+    lp(13, 0, `Wdgts made${String(state.stats.widgetsMadeToday).padStart(LP_W-10)}`, BRIGHT_WHITE);
+    lp(14, 0, `Wdgts sold${String(state.widgetsSoldToday).padStart(LP_W-10)}`, BRIGHT_WHITE);
+    lp(15, 0, `Revenue${(formatCredits(state.stats.revenueToday)+'cr').padStart(LP_W-7)}`, '#66cc66');
+    lp(16, 0, `Costs  ${(formatCredits(state.stats.costsToday)+'cr').padStart(LP_W-7)}`, '#ff5555');
+    const net    = Math.round((state.stats.revenueToday - state.stats.costsToday) * 10) / 10;
+    const netS   = (net >= 0 ? '+' : '') + formatCredits(net) + 'cr';
+    lp(17, 0, `Net${netS.padStart(LP_W-3)}`, net >= 0 ? '#66cc66' : '#ff5555');
+
+    // Right pane — workers
+    const allW = [
+      ...state.workers.apprentices.map((w, i) => ({ type: 'appr', idx: i, w })),
+      ...state.workers.couriers.map((c, i)    => ({ type: 'cour', idx: i, w: c })),
+    ];
+    if (allW.length === 0) {
+      rp(10, 0, 'No workers', WC);
+      rp(11, 0, 'hired yet.', WC);
+    } else {
+      const LINES_PER = 5;
+      const maxVis    = Math.floor(18 / LINES_PER); // 3
+      workerScroll = Math.min(workerScroll, Math.max(0, allW.length - maxVis));
+      if (workerScroll > 0)                  rp(3,  RP_W - 2, '▲', WC);
+      if (workerScroll + maxVis < allW.length) rp(20, RP_W - 2, '▼', WC);
+      let row = 4;
+      for (let wi = workerScroll; wi < Math.min(workerScroll + maxVis, allW.length); wi++) {
+        const { type, idx, w } = allW[wi];
+        if (type === 'appr') {
+          const st = w.paused ? 'idle' : w.workerState;
+          let fFg, fig2, stLbl, taskLbl;
+          if (st === 'crafting')                         { fFg = '#ff9933'; fig2 = '[=]'; stLbl = 'CRAFTING';   taskLbl = 'making widget'; }
+          else if (st === 'fetching' || st === 'returning') { fFg = '#66ccff'; fig2 = '\\|/'; stLbl = 'WORKING';    taskLbl = st === 'fetching' ? 'RM → WB' : 'WB → RM'; }
+          else                                           { fFg = WC;        fig2 = '...'; stLbl = w.paused ? 'PAUSED' : 'IDLE'; taskLbl = 'waiting'; }
+          rp(row,   0, '[o]', fFg);   rp(row,   4, `Appr. ${idx+1}`, BRIGHT_WHITE);
+          rp(row+1, 0, fig2, fFg);    rp(row+1, 4, stLbl, fFg);
+          rp(row+2, 0, ' | ', fFg);   rp(row+2, 4, taskLbl, WC);
+          rp(row+3, 0, '/ \\', fFg);
+        } else {
+          const st = w.courierState;
+          let fFg, fig2, stLbl, taskLbl;
+          if      (st === 'loading')    { fFg = '#cc66cc'; fig2 = '/=\\'; stLbl = 'LOADING';    taskLbl = 'at STG'; }
+          else if (st === 'delivering') { fFg = '#ffd633'; fig2 = '>>>'; stLbl = 'DELIVERING'; taskLbl = 'STG→MKT'; }
+          else if (st === 'returning')  { fFg = WC;        fig2 = '<<<'; stLbl = 'RETURNING';  taskLbl = 'MKT→STG'; }
+          else                          { fFg = WC;        fig2 = '/=\\'; stLbl = 'IDLE';       taskLbl = 'waiting'; }
+          rp(row,   0, '[>]', fFg);  rp(row,   4, `Cour. ${idx+1}`, BRIGHT_WHITE);
+          rp(row+1, 0, fig2, fFg);   rp(row+1, 4, stLbl, fFg);
+          rp(row+2, 0, '   ', fFg);  rp(row+2, 4, taskLbl, WC);
+          rp(row+3, 0, '   ', fFg);
+        }
+        row += LINES_PER;
+      }
+    }
+    tc(22, '[ ESC to close ]', WC);
+  }
+
+  function redraw() {
+    drawFrame();
+    if (tab === 'stocks') redrawStocks(); else redrawOps();
+  }
+
+  inventoryRedrawFn = redraw;
+  redraw();
 
   function closeInventory() {
+    inventoryRedrawFn = null;
     window.removeEventListener('keydown', invKeyHandler);
     for (let y = BOX_Y; y < BOX_Y + BOX_H; y++)
       for (let x = BOX_X; x < BOX_X + BOX_W; x++)
@@ -2955,7 +3055,13 @@ function showInventory() {
   }
 
   function invKeyHandler(e) {
-    if (e.key === 'Escape' || e.key === 'i') closeInventory();
+    if (e.key === 'Escape' || e.key === 'i') { closeInventory(); return; }
+    if (e.key === 'ArrowLeft')  { tab = 'stocks'; workerScroll = 0; redraw(); return; }
+    if (e.key === 'ArrowRight') { tab = 'ops'; redraw(); return; }
+    if (tab === 'ops') {
+      if (e.key === 'ArrowUp')   { workerScroll = Math.max(0, workerScroll - 1); redraw(); }
+      if (e.key === 'ArrowDown') { workerScroll++; redraw(); }
+    }
   }
   window.addEventListener('keydown', invKeyHandler);
 }
@@ -3049,6 +3155,7 @@ function tickApprentices() {
         if (w.craftTimer <= 0) {
           if (stUnlocked) state.storage.widgets++;
           else             state.workbenchWidgets++;
+          state.stats.widgetsMadeToday++;
           w.carryRM--;
           if (w.carryRM > 0) { w.craftTimer = 3; }
           else                { w.workerState = 'idle'; }
@@ -3114,6 +3221,7 @@ function tickCouriers() {
           const earned = n * PRICE;
           state.player.credits += earned;
           state.lifetimeCreditsEarned += earned;
+          state.stats.revenueToday = Math.round((state.stats.revenueToday + earned) * 10) / 10;
           if (state.phase >= 3) state.widgetsSoldToday += n;
           c.carryWidgets -= n;
           addLog(`Courier sold ${n} widget${n !== 1 ? 's' : ''} for ${formatCredits(earned)}cr.`, '#66cc66');
@@ -3335,11 +3443,16 @@ function _applyDayNightStage() {
 // ── Tick loop — 1 tick/second (§7.1) ─────────────────────────────────────────
 
 setInterval(() => {
-  if (state.gameState !== 'playing' && state.gameState !== 'crafting' && state.gameState !== 'dashboard') return;
+  if (state.gameState !== 'playing' && state.gameState !== 'crafting' && state.gameState !== 'dashboard' && state.gameState !== 'inventory') return;
+
+  // Stats: snapshot before tick for delta computation
+  const _sCr = state.player.credits;
+  const _sRM = state.player.inventory.rm + state.storage.rm;
+  const _sWg = state.player.inventory.widgets + state.storage.widgets;
 
   state.tick++;
   state.dayTick++;
-  if (state.dayTick >= 240) { state.dayTick = 0; state.day++; state.bellFiredToday = false; state.rmPurchasedToday = 0; state.rmLimitLogged = false; state.widgetsSoldToday = 0; state.demandMetLogged = false; }
+  if (state.dayTick >= 240) { state.dayTick = 0; state.day++; state.bellFiredToday = false; state.rmPurchasedToday = 0; state.rmLimitLogged = false; state.widgetsSoldToday = 0; state.demandMetLogged = false; state.stats.widgetsMadeToday = 0; state.stats.revenueToday = 0; state.stats.costsToday = 0; }
   const prevMarketOpen = state.marketOpen;
   state.marketOpen = state.dayTick < 180;
   if (state.marketOpen !== prevMarketOpen) startDayNightFlash(state.marketOpen ? 'open' : 'close');
@@ -3448,6 +3561,7 @@ setInterval(() => {
       craftProgress = 0;
       state.player.inventory.widgets++;
       state.widgetsMade++;
+      state.stats.widgetsMadeToday++;
       drawStatusBar();
       { const wbD = STATION_DEFS.find(s => s.label === 'WB'); if (wbD) effectsManager.sparkBurst(wbD.x + 1, wbD.y + 1, state.widgetsMade); }
       if (craftQueue > 0) {
@@ -3494,6 +3608,7 @@ setInterval(() => {
     const mult      = state.skills.reducedCarry ? 0.1 : 0.2;
     const carryCost = Math.round(state.storage.widgets * mult * 10) / 10;
     if (carryCost > 0) {
+      state.stats.costsToday = Math.round((state.stats.costsToday + carryCost) * 10) / 10;
       if (state.player.credits >= carryCost) {
         state.player.credits = Math.round((state.player.credits - carryCost) * 10) / 10;
         addLog(`Storage cost: ${carryCost}cr for ${state.storage.widgets} widgets held.`, '#ff5555');
@@ -3517,6 +3632,7 @@ setInterval(() => {
     if (state.bank.loan) {
       const lInterest = Math.round(state.bank.loan.remaining * state.bank.loan.rate * 10) / 10;
       state.bank.loan.remaining = Math.round((state.bank.loan.remaining + lInterest) * 10) / 10;
+      state.stats.costsToday = Math.round((state.stats.costsToday + lInterest) * 10) / 10;
       addLog(`Loan interest: ${lInterest}cr. Total owed: ${state.bank.loan.remaining.toFixed(1)}cr.`, '#ff5555');
     }
     if (state.bank.deposit > 0 || state.bank.loan) drawStatusBar();
@@ -3555,6 +3671,17 @@ setInterval(() => {
 
   // Live-refresh positions dashboard
   if (state.gameState === 'dashboard' && dashboardRedrawFn) dashboardRedrawFn();
+
+  // Live-refresh inventory
+  if (state.gameState === 'inventory' && inventoryRedrawFn) inventoryRedrawFn();
+
+  // Stats: compute and store per-tick deltas (rolling 10-tick window)
+  const crDelta = Math.round((state.player.credits - _sCr) * 10) / 10;
+  const rmDelta = (state.player.inventory.rm + state.storage.rm) - _sRM;
+  const wgDelta = (state.player.inventory.widgets + state.storage.widgets) - _sWg;
+  state.stats.creditsLastTen.push(crDelta); if (state.stats.creditsLastTen.length > 10) state.stats.creditsLastTen.shift();
+  state.stats.rmLastTen.push(rmDelta);      if (state.stats.rmLastTen.length > 10) state.stats.rmLastTen.shift();
+  state.stats.widgetsLastTen.push(wgDelta); if (state.stats.widgetsLastTen.length > 10) state.stats.widgetsLastTen.shift();
 
   // Abstraction collapse check
   if (state.phase >= 4 && !state.endingTriggered) checkAbstractionCollapse();
