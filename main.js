@@ -133,6 +133,7 @@ function fullRedraw() {
     if (lfMenuRedrawFn)      lfMenuRedrawFn();
     if (dashboardRedrawFn)   dashboardRedrawFn();
     if (inventoryRedrawFn)   inventoryRedrawFn();
+    if (officeMenuRedrawFn)  officeMenuRedrawFn();
   }
   if (pauseMenuRedrawFn) pauseMenuRedrawFn();
 }
@@ -271,6 +272,9 @@ const state = {
   },
   craftingTimeRemote: 10,
 };
+
+// Transient animation state — not saved to localStorage
+state.officeAnim = { apprenticeFlash: 0, courierFlash: 0 };
 
 // ── Save / load (§8) ─────────────────────────────────────────────────────────
 
@@ -1155,6 +1159,7 @@ function resetState() {
   state.stats.pondStepsWalked = 0;
   state.cottage = { owned: false, mapX: 40, mapY: 21, playerX: 10, playerY: 5, furniture: {}, visited: false, catX: 9, catY: 7, matLoggedThisVisit: false };
   state.bookshelfLog = [];
+  state.officeAnim = { apprenticeFlash: 0, courierFlash: 0 };
   const lfDef = STATION_DEFS.find(s => s.label === 'LF');
   const stDef = STATION_DEFS.find(s => s.label === 'ST');
   const bkDef = STATION_DEFS.find(s => s.label === 'BK');
@@ -2500,8 +2505,8 @@ const OFFICE_NODES = [
   { key: 'apprentice4', name: 'Hire Apprentice 4', cost:  500, minPhase: 3, countKey: 'apprenticeCount', tier: 4 },
   { key: 'apprentice5', name: 'Hire Apprentice 5', cost: 1000, minPhase: 3, countKey: 'apprenticeCount', tier: 5 },
   // Worker upgrades — scaling repeatable (costs array indexed by current level)
-  { key: 'workerCarry', name: 'Worker Carry', levelKey: 'workerCarryLevel', costs: [40, 60, 100, 160, 250], max: 5, minPhase: 2 },
-  { key: 'workerSpeed', name: 'Worker Speed', levelKey: 'workerSpeedLevel', costs: [60, 100, 160, 250],     max: 4, minPhase: 2 },
+  { key: 'workerCarry', name: 'Increase Apprentice Inventory', levelKey: 'workerCarryLevel', costs: [40, 60, 100, 160, 250], max: 5, minPhase: 2 },
+  { key: 'workerSpeed', name: 'Train Apprentice Speed',        levelKey: 'workerSpeedLevel', costs: [60, 100, 160, 250],     max: 4, minPhase: 2 },
   // Storage (unchanged)
   { key: 'storageExp1',  name: 'Storage Expansion I',  cost: 200, max: 1, minPhase: 3 },
   { key: 'storageExp2',  name: 'Storage Expansion II', cost: 500, max: 1, minPhase: 3, requires: 'storageExp1', requiresLabel: 'Expansion I' },
@@ -2512,9 +2517,9 @@ const OFFICE_NODES = [
   { key: 'courier2', name: 'Build Courier 2', widgetCost:  50, minPhase: 2, countKey: 'courierCount', tier: 2 },
   { key: 'courier3', name: 'Build Courier 3', widgetCost: 100, minPhase: 2, countKey: 'courierCount', tier: 3 },
   { key: 'courier4', name: 'Build Courier 4', widgetCost: 200, minPhase: 2, countKey: 'courierCount', tier: 4 },
-  // Courier upgrades — scaling repeatable
-  { key: 'courierCarry', name: 'Courier Carry', levelKey: 'courierCarryLevel', costs: [80, 150, 280, 500],  max: 4, minPhase: 2 },
-  { key: 'courierSpeed', name: 'Courier Speed', levelKey: 'courierSpeedLevel', costs: [100, 200, 350, 600], max: 4, minPhase: 2 },
+  // Courier upgrades — widget cost (not credits)
+  { key: 'courierCarry', name: 'Increase Courier Inventory', levelKey: 'courierCarryLevel', costs: [15, 30, 60, 100],  max: 4, minPhase: 2, widgetUpgrade: true },
+  { key: 'courierSpeed', name: 'Overclock Courier Speed',    levelKey: 'courierSpeedLevel', costs: [20, 40, 80, 150],  max: 4, minPhase: 2, widgetUpgrade: true },
   // Marketing
   { key: 'bulkRM',        name: 'Bulk RM Contract', cost:  500, max: 1, minPhase: 3 },
   { key: 'demandHistory', name: 'Demand History',   cost:   50, max: 1, minPhase: 3 },
@@ -2559,30 +2564,15 @@ function showOfficeMenu() {
     '  _|_____|_   ',
   ];
 
+  // LOGISTICS and TRANSPORT sections are rendered on page 1 (custom dual-panel).
+  // Page 2+ uses only these sections:
   const SECTIONS = [
-    { header: 'LOGISTICS', items: [
-      { k: '1', nk: 'apprentice1' },
-      { k: '2', nk: 'apprentice2' },
-      { k: '3', nk: 'apprentice3' },
-      { k: '4', nk: 'apprentice4' },
-      { k: '5', nk: 'apprentice5' },
-      { k: '6', nk: 'workerCarry' },
-      { k: '7', nk: 'workerSpeed' },
-    ]},
     { header: 'WAREHOUSING', items: [
       { k: null, label: 'Launch Facility', cost: 'AUTO', specialFn: () => state.phase >= 5 },
       { k: '8', nk: 'storageExp1'  },
       { k: '9', nk: 'storageExp2'  },
       { k: 'a', nk: 'reducedCarry' },
       { k: 'b', nk: 'discountDump' },
-    ]},
-    { header: 'TRANSPORT', items: [
-      { k: 'c', nk: 'courier1'     },
-      { k: 'd', nk: 'courier2'     },
-      { k: 'e', nk: 'courier3'     },
-      { k: 'f', nk: 'courier4'     },
-      { k: 'g', nk: 'courierCarry' },
-      { k: 'h', nk: 'courierSpeed' },
     ]},
     { header: 'MARKETING', items: [
       { k: 'j', nk: 'bulkRM'        },
@@ -2729,6 +2719,206 @@ function showOfficeMenu() {
     return (kp + lbl + ' ' + co + ' ' + st).slice(0, IW).padEnd(IW);
   }
 
+  // ── Page 1 dual-panel render (§5.3) ──────────────────────────────────────────
+  function renderOfficePage1(rowBase) {
+    const LW = 25, RW = 26, DIV = 25;
+
+    // Uniform-color dual row
+    function dualRow(ay, lStr, lFg, rStr, rFg) {
+      border(ay);
+      const lp = menuPad(lStr, LW);
+      for (let i = 0; i < LW; i++) display.draw(BOX_X + 1 + i, ay, lp[i] || ' ', lFg, BG);
+      display.draw(BOX_X + 1 + DIV, ay, '│', DC, BG);
+      const rp = menuPad(rStr, RW);
+      for (let i = 0; i < RW; i++) display.draw(BOX_X + 1 + DIV + 1 + i, ay, rp[i] || ' ', rFg, BG);
+    }
+
+    // Split-color dual row: label in one color, value in another
+    function splitRow(ay, lLbl, lVal, lLFg, lVFg, rLbl, rVal, rLFg, rVFg) {
+      border(ay);
+      const lFull = menuPad(lLbl + lVal, LW);
+      for (let i = 0; i < LW; i++)
+        display.draw(BOX_X + 1 + i, ay, lFull[i] || ' ', i < lLbl.length ? lLFg : lVFg, BG);
+      display.draw(BOX_X + 1 + DIV, ay, '│', DC, BG);
+      const rFull = menuPad(rLbl + rVal, RW);
+      for (let i = 0; i < RW; i++)
+        display.draw(BOX_X + 1 + DIV + 1 + i, ay, rFull[i] || ' ', i < rLbl.length ? rLFg : rVFg, BG);
+    }
+
+    // Raw per-cell dual row (for art rows)
+    function rawRow(ay, lCells, rCells) {
+      border(ay);
+      for (let i = 0; i < LW; i++) {
+        const c = lCells[i] || { ch: ' ', fg: DC };
+        display.draw(BOX_X + 1 + i, ay, c.ch, c.fg, BG);
+      }
+      display.draw(BOX_X + 1 + DIV, ay, '│', DC, BG);
+      for (let i = 0; i < RW; i++) {
+        const c = rCells[i] || { ch: ' ', fg: DC };
+        display.draw(BOX_X + 1 + DIV + 1 + i, ay, c.ch, c.fg, BG);
+      }
+    }
+
+    // Figure art strings (5 chars each, row 0=head/top row 1=body row 2=legs)
+    const APP_FIG = {
+      working: [' o   ', '/|\\  ', '/ \\  '],
+      idle:    [' o   ', ' |   ', '/ \\  '],
+      empty:   [' _   ', '[ ]  ', '     '],
+    };
+    const COU_FIG = {
+      delivering: ['[=]  ', '>>=  ', '===  '],
+      idle:       ['[=]  ', ' |   ', '===  '],
+      empty:      [' _   ', '[ ]  ', '     '],
+    };
+
+    // Flash colors: 3=#fff 2=theme 1=theme@60% 0=normal
+    const aFlash = state.officeAnim.apprenticeFlash;
+    const aFlashC = aFlash === 3 ? '#ffffff' : aFlash === 2 ? '#66ccff' : aFlash === 1 ? '#3d7a99' : null;
+    const cFlash = state.officeAnim.courierFlash;
+    const cFlashC = cFlash === 3 ? '#ffffff' : cFlash === 2 ? '#cc66cc' : cFlash === 1 ? '#7a3d7a' : null;
+
+    const FIG_POS = [1, 9, 17]; // figure start columns within panel
+
+    function buildAppFigRow(ri) {
+      const cells = Array.from({ length: LW }, () => ({ ch: ' ', fg: '#222222' }));
+      for (let s = 0; s < 3; s++) {
+        const w = state.workers.apprentices[s];
+        let type, color;
+        if (!w) {
+          type = 'empty'; color = '#222222';
+        } else if (w.paused || w.workerState === 'idle') {
+          type = 'idle'; color = aFlashC || '#333333';
+        } else {
+          type = 'working'; color = aFlashC || '#66ccff';
+        }
+        const str = APP_FIG[type][ri];
+        for (let ci = 0; ci < 5; ci++) cells[FIG_POS[s] + ci] = { ch: str[ci] || ' ', fg: color };
+      }
+      return cells;
+    }
+
+    function buildCouFigRow(ri) {
+      const cells = Array.from({ length: RW }, () => ({ ch: ' ', fg: '#222222' }));
+      for (let s = 0; s < 3; s++) {
+        const c = state.workers.couriers[s];
+        let type, color;
+        if (!c) {
+          type = 'empty'; color = '#222222';
+        } else {
+          const dlv = c.courierState === 'delivering';
+          type = dlv ? 'delivering' : 'idle';
+          if (cFlashC) {
+            color = cFlashC;
+          } else if (dlv) {
+            color = ri === 0 ? '#cc66cc' : ri === 1 ? '#ffd633' : '#aaaaaa';
+          } else {
+            color = '#555555';
+          }
+        }
+        const str = COU_FIG[type][ri];
+        for (let ci = 0; ci < 5; ci++) cells[FIG_POS[s] + ci] = { ch: str[ci] || ' ', fg: color };
+      }
+      return cells;
+    }
+
+    // Upgrade option info helpers — returns { n, nfg, c, cfg }
+    const appCount = state.workers.apprentices.length;
+    const courCount = state.workers.couriers.length;
+
+    function appHireInfo() {
+      if (appCount >= 5) return { n: '[+] Hire Another Appr.', nfg: '#555555', c: '[MAX]', cfg: '#555555' };
+      const node = OFFICE_NODES.find(nd => nd.countKey === 'apprenticeCount' && nd.tier === appCount + 1);
+      if (!node || state.phase < node.minPhase) return { n: '[ locked ]', nfg: '#222222', c: '          ', cfg: '#222222' };
+      const lbl = appCount === 0 ? '[+] Hire Apprentice' : '[+] Hire Another Appr.';
+      const ok = state.player.credits >= node.cost;
+      return { n: lbl, nfg: ok ? '#66cc66' : '#ff5555', c: `    Cost: ${node.cost}cr`, cfg: '#555555' };
+    }
+    function appCarryInfo() {
+      const node = OFFICE_NODES.find(nd => nd.key === 'workerCarry');
+      const lv = state.skills.workerCarryLevel || 0;
+      if (state.phase < node.minPhase) return { n: '[ locked ]', nfg: '#222222', c: '          ', cfg: '#222222' };
+      if (lv >= node.max) return { n: '[^] Appr. Inventory', nfg: '#555555', c: '[MAX]', cfg: '#555555' };
+      const cost = node.costs[lv];
+      const ok = state.player.credits >= cost;
+      return { n: '[^] Appr. Inventory', nfg: ok ? '#66cc66' : '#ff5555', c: `    Cost: ${cost}cr (${lv}/${node.max})`, cfg: '#555555' };
+    }
+    function appSpeedInfo() {
+      const node = OFFICE_NODES.find(nd => nd.key === 'workerSpeed');
+      const lv = state.skills.workerSpeedLevel || 0;
+      if (state.phase < node.minPhase) return { n: '[ locked ]', nfg: '#222222', c: '          ', cfg: '#222222' };
+      if (lv >= node.max) return { n: '[>] Train Speed', nfg: '#555555', c: '[MAX]', cfg: '#555555' };
+      const cost = node.costs[lv];
+      const ok = state.player.credits >= cost;
+      return { n: '[>] Train Speed', nfg: ok ? '#66cc66' : '#ff5555', c: `    Cost: ${cost}cr (${lv}/${node.max})`, cfg: '#555555' };
+    }
+    function courBuildInfo() {
+      if (courCount >= 4) return { n: '[+] Build Another Courier', nfg: '#555555', c: '[MAX]', cfg: '#555555' };
+      const node = OFFICE_NODES.find(nd => nd.countKey === 'courierCount' && nd.tier === courCount + 1);
+      if (!node || state.phase < node.minPhase) return { n: '[ locked ]', nfg: '#222222', c: '           ', cfg: '#222222' };
+      const lbl = courCount === 0 ? '[+] Build Courier' : '[+] Build Another Courier';
+      const wg = state.storage.widgets;
+      const ok = wg >= node.widgetCost;
+      const c = ok ? `    Cost: ${node.widgetCost} WG` : `Need ${node.widgetCost} WG (have ${wg})`;
+      return { n: lbl, nfg: ok ? '#66cc66' : '#ff5555', c, cfg: ok ? '#555555' : '#ff5555' };
+    }
+    function courCarryInfo() {
+      const node = OFFICE_NODES.find(nd => nd.key === 'courierCarry');
+      const lv = state.skills.courierCarryLevel || 0;
+      if (state.phase < node.minPhase) return { n: '[ locked ]', nfg: '#222222', c: '           ', cfg: '#222222' };
+      if (lv >= node.max) return { n: '[^] Courier Inv.', nfg: '#555555', c: '[MAX]', cfg: '#555555' };
+      const cost = node.costs[lv];
+      const wg = state.storage.widgets;
+      const ok = wg >= cost;
+      const c = ok ? `    Cost: ${cost} WG(${lv}/${node.max})` : `Need ${cost} WG (have ${wg})`;
+      return { n: '[^] Courier Inv.', nfg: ok ? '#66cc66' : '#ff5555', c, cfg: ok ? '#555555' : '#ff5555' };
+    }
+    function courSpeedInfo() {
+      const node = OFFICE_NODES.find(nd => nd.key === 'courierSpeed');
+      const lv = state.skills.courierSpeedLevel || 0;
+      if (state.phase < node.minPhase) return { n: '[ locked ]', nfg: '#222222', c: '           ', cfg: '#222222' };
+      if (lv >= node.max) return { n: '[~] Overclock Speed', nfg: '#555555', c: '[MAX]', cfg: '#555555' };
+      const cost = node.costs[lv];
+      const wg = state.storage.widgets;
+      const ok = wg >= cost;
+      const c = ok ? `    Cost: ${cost} WG(${lv}/${node.max})` : `Need ${cost} WG (have ${wg})`;
+      return { n: '[~] Overclock Speed', nfg: ok ? '#66cc66' : '#ff5555', c, cfg: ok ? '#555555' : '#ff5555' };
+    }
+
+    let r = rowBase;
+    // Row 0: panel headers
+    dualRow(r++, 'APPRENTICES', '#66ccff', 'COURIERS', '#cc66cc');
+    // Row 1: rules
+    dualRow(r++, '─'.repeat(LW), DC, '─'.repeat(RW), DC);
+    // Rows 2–4: ASCII figure art (3 rows)
+    for (let ai = 0; ai < 3; ai++) rawRow(r++, buildAppFigRow(ai), buildCouFigRow(ai));
+    // Row 5: blank separator
+    dualRow(r++, '', DC, '', DC);
+    // Rows 6–8: live stats
+    const appCarryVal = WORKER_CARRY_CAPS[state.skills.workerCarryLevel || 0];
+    const appSpdVal   = WORKER_SPEEDS[state.skills.workerSpeedLevel || 0];
+    const courCarryVal = COURIER_CARRY_CAPS[state.skills.courierCarryLevel || 0];
+    const courSpdVal   = COURIER_SPEEDS[state.skills.courierSpeedLevel || 0];
+    splitRow(r++, 'Hired:  ', `${appCount} / 5`,          '#555555', '#66ccff', 'Built:  ', `${courCount} / 4`,       '#555555', '#cc66cc');
+    splitRow(r++, 'Carry:  ', `${appCarryVal} widgets`,   '#555555', '#66ccff', 'Carry:  ', `${courCarryVal} widgets`, '#555555', '#cc66cc');
+    splitRow(r++, 'Speed:  ', `${appSpdVal.toFixed(1)} t/s`, '#555555', '#66ccff', 'Speed:  ', `${courSpdVal.toFixed(1)} t/s`, '#555555', '#cc66cc');
+    // Row 9: stats separator rule
+    dualRow(r++, '─'.repeat(LW), DC, '─'.repeat(RW), DC);
+    // Rows 10–15: upgrade options (3 per panel × 2 rows each)
+    const aH = appHireInfo(), aC = appCarryInfo(), aS = appSpeedInfo();
+    const cB = courBuildInfo(), cI = courCarryInfo(), cSp = courSpeedInfo();
+    dualRow(r++, aH.n, aH.nfg, cB.n, cB.nfg);
+    dualRow(r++, aH.c, aH.cfg, cB.c, cB.cfg);
+    dualRow(r++, aC.n, aC.nfg, cI.n, cI.nfg);
+    dualRow(r++, aC.c, aC.cfg, cI.c, cI.cfg);
+    dualRow(r++, aS.n, aS.nfg, cSp.n, cSp.nfg);
+    dualRow(r++, aS.c, aS.cfg, cSp.c, cSp.cfg);
+    // Row 16: bottom rule
+    dualRow(r++, '─'.repeat(LW), DC, '─'.repeat(RW), DC);
+    // Row 17: key hints
+    dualRow(r++, '1:hire  2:carry  3:speed', DC, '4:build  5:inv  6:spd', DC);
+    // r is now rowBase + 18
+  }
+
   function redraw() {
     // Clear interior
     for (let r = 1; r < BOX_H - 1; r++)
@@ -2738,7 +2928,7 @@ function showOfficeMenu() {
     display.draw(BOX_X, BOX_Y, '╔', TC, BG); display.draw(BOX_X + BOX_W - 1, BOX_Y, '╗', TC, BG);
     for (let i = 1; i < BOX_W - 1; i++) display.draw(BOX_X + i, BOX_Y, '═', TC, BG);
 
-    // Row 1: header — shows current tab and page
+    // Row 1: header
     { const ay = BOX_Y + 1;
       border(ay);
       const tabLabel = state.officeTab === 'upgrades'
@@ -2756,14 +2946,14 @@ function showOfficeMenu() {
     { const ay = BOX_Y + 2; border(ay);
       for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '═', DC, BG); }
 
-    // Row 3: tab bar — active tab gets >> << indicators
+    // Row 3: tab bar
     { const ay = BOX_Y + 3;
       border(ay);
       const isUpg    = state.officeTab === 'upgrades';
       const pg       = state.officeUpgradesPage;
       const upgLabel = isUpg ? `>> [ UPGRADES p.${pg} ] <<` : `[ UPGRADES ]`;
       const wrkLabel = !isUpg ? `>> [ WORKERS ] <<`           : `[ WORKERS ]`;
-      const HALF     = Math.floor(IW / 2); // 26
+      const HALF     = Math.floor(IW / 2);
       const center   = (str, w) => { const pad = Math.max(0, w - str.length); const l = Math.floor(pad/2); return ' '.repeat(l) + str + ' '.repeat(pad - l); };
       const leftStr  = center(upgLabel, HALF);
       const rightStr = center(wrkLabel, IW - HALF);
@@ -2779,13 +2969,10 @@ function showOfficeMenu() {
     { const ay = BOX_Y + 4; border(ay);
       for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '─', DC, BG); }
 
-    // Rows 5-14: art + divider + info
+    // Rows 5-14: building art + info pane
     for (let r = 0; r < 10; r++) crow(BOX_Y + 5 + r, r);
-
-    // Info pane
     drp(BOX_Y + 6, 'THE OFFICE', LC);
     drp(BOX_Y + 7, 'Credits available:', '#555555');
-    // Large number — 5 rows tall, starts at +8, ends at +12
     const crStr = String(Math.floor(state.player.credits));
     if (crStr.length * 6 <= IPW) {
       renderLargeNumber(display, RPX, BOX_Y + 8, crStr, '#ffd633');
@@ -2800,52 +2987,60 @@ function showOfficeMenu() {
       for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '─', DC, BG); }
 
     if (state.officeTab === 'upgrades') {
-      // UPGRADES tab — content rows 16-36 (PAGE_ROWS = 21)
-      const pages = getPages();
-      const total = pages.length;
-      if (state.officeUpgradesPage > total) state.officeUpgradesPage = 1;
-      const pg    = pages[state.officeUpgradesPage - 1] || [];
-
-      for (let i = 0; i < pg.length && i < PAGE_ROWS; i++) {
-        const row = pg[i];
-        const ay  = BOX_Y + 16 + i;
-        if (row.type === 'blank') { border(ay); continue; }
-        if (row.type === 'hdr') {
-          irow(ay, row.text, row.fg);
-        } else {
-          irow(ay, menuLine(row.k, row.label, row.cost, row.status), row.fg);
+      if (state.officeUpgradesPage === 1) {
+        // Custom dual-panel page 1
+        renderOfficePage1(BOX_Y + 16);
+        // Blank remaining PAGE_ROWS rows (18 used of 21)
+        for (let i = 18; i < PAGE_ROWS; i++) {
+          const ay = BOX_Y + 16 + i;
+          border(ay);
+          for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, ay, ' ', BRIGHT_WHITE, BG);
         }
-      }
-      for (let i = pg.length; i < PAGE_ROWS; i++) {
-        const ay = BOX_Y + 16 + i;
-        border(ay);
-        for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, ay, ' ', BRIGHT_WHITE, BG);
+      } else {
+        // Pages 2+ — SECTIONS-based (WAREHOUSING, MARKETING, TRADING)
+        const pages = getPages();
+        const secPageCount = pages.length;
+        if (state.officeUpgradesPage > 1 + secPageCount) state.officeUpgradesPage = 2;
+        const pg = pages[state.officeUpgradesPage - 2] || [];
+
+        for (let i = 0; i < pg.length && i < PAGE_ROWS; i++) {
+          const row = pg[i];
+          const ay  = BOX_Y + 16 + i;
+          if (row.type === 'blank') { border(ay); continue; }
+          if (row.type === 'hdr')   { irow(ay, row.text, row.fg); }
+          else                      { irow(ay, menuLine(row.k, row.label, row.cost, row.status), row.fg); }
+        }
+        for (let i = pg.length; i < PAGE_ROWS; i++) {
+          const ay = BOX_Y + 16 + i;
+          border(ay);
+          for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, ay, ' ', BRIGHT_WHITE, BG);
+        }
       }
 
       // Row 37: ─ separator
       { const ay = BOX_Y + 37; border(ay);
         for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '─', DC, BG); }
 
-      // Row 38: status / pagination
-      const allOwned = SECTIONS.every(sec => sec.items.every(item => {
-        if (!item.nk) return true;
-        const { fg } = nodeStatus(item.nk);
-        return fg === '#888888';
-      }));
-      let statusText, statusFg;
-      if (state.phase < 2)  { statusText = 'Upgrades unlock at 100cr earned.'; statusFg = DC; }
-      else if (allOwned)    { statusText = 'All available upgrades owned.'; statusFg = '#66cc66'; }
-      else                  { statusText = 'Purchase upgrades with credits.'; statusFg = DC; }
-      const footer = total > 1
-        ? `[ page ${state.officeUpgradesPage}/${total} — TAB for next page ]`
-        : `[ ← → switch tabs ]`;
-      const footerFg = DC;
+      // Row 38: footer
+      const secPageCount2 = Math.max(1, getPages().length);
+      const totalPages    = 1 + secPageCount2;
+      let footer;
+      if (state.officeUpgradesPage === 1) {
+        footer = `[ page 1/${totalPages} — TAB for next page ]`;
+      } else {
+        const allOwned = SECTIONS.every(sec => sec.items.every(item => {
+          if (!item.nk) return true;
+          return nodeStatus(item.nk).fg === '#888888';
+        }));
+        footer = allOwned
+          ? `[ page ${state.officeUpgradesPage}/${totalPages} — All complete. TAB to cycle ]`
+          : `[ page ${state.officeUpgradesPage}/${totalPages} — TAB to cycle ]`;
+      }
       { const ay = BOX_Y + 38; border(ay);
         const centered = menuPad(footer.length < IW ? ' '.repeat(Math.floor((IW - footer.length) / 2)) + footer : footer, IW);
-        for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, centered[i] || ' ', footerFg, BG); }
+        for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, centered[i] || ' ', DC, BG); }
 
-    } else { // state.officeTab === 'workers'
-      // WORKERS tab — content rows 16-36 (PAGE_ROWS = 21)
+    } else { // WORKERS tab
       const apprentices = state.workers.apprentices;
       const n           = apprentices.length;
       const carryMax    = WORKER_CARRY_CAPS[state.skills.workerCarryLevel || 0];
@@ -2859,16 +3054,13 @@ function showOfficeMenu() {
       } else {
         let row = 0;
         for (let i = 0; i < n && row < PAGE_ROWS; i++) {
-          const w       = apprentices[i];
-          const stStr   = (w.paused ? 'PAUSED' : w.workerState.toUpperCase()).padEnd(9);
-          const stFg    = w.paused ? '#ff5555' : '#66cc66';
-          const carry   = `carry: ${w.carryRM}/${carryMax} RM`;
-          const pos     = `pos: (${w.x}, ${w.y})`;
-          irow(BOX_Y + 16 + row, `Apprentice ${i+1}: ${stStr}   ${carry}   ${pos}`, BRIGHT_WHITE);
+          const w     = apprentices[i];
+          const stStr = (w.paused ? 'PAUSED' : w.workerState.toUpperCase()).padEnd(9);
+          const stFg  = w.paused ? '#ff5555' : '#66cc66';
+          irow(BOX_Y + 16 + row, `Apprentice ${i+1}: ${stStr}   carry: ${w.carryRM}/${carryMax} RM   pos: (${w.x}, ${w.y})`, BRIGHT_WHITE);
           row++;
           if (row < PAGE_ROWS) {
-            const mode = w.paused ? 'AUTO' : 'IDLE';
-            irow(BOX_Y + 16 + row, `  [${i+1}] Toggle → ${mode}`, stFg);
+            irow(BOX_Y + 16 + row, `  [${i+1}] Toggle → ${w.paused ? 'AUTO' : 'IDLE'}`, stFg);
             row++;
           }
           if (row < PAGE_ROWS) {
@@ -2883,11 +3075,8 @@ function showOfficeMenu() {
         }
       }
 
-      // Row 37: ─ separator
       { const ay = BOX_Y + 37; border(ay);
         for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '─', DC, BG); }
-
-      // Row 38: footer
       { const ay = BOX_Y + 38; border(ay);
         const footer = n > 0 ? 'Number keys toggle worker pause.  ← → to switch tabs.' : '← → to switch to UPGRADES tab.';
         const centered = menuPad(footer.length < IW ? ' '.repeat(Math.floor((IW - footer.length) / 2)) + footer : footer, IW);
@@ -2899,9 +3088,11 @@ function showOfficeMenu() {
     for (let i = 1; i < BOX_W - 1; i++) display.draw(BOX_X + i, BOX_Y + 39, '═', TC, BG);
   }
 
+  officeMenuRedrawFn = redraw;
   redraw();
 
   function closeOffice() {
+    officeMenuRedrawFn = null;
     window.removeEventListener('keydown', officeKeyHandler);
     for (let y = BOX_Y; y < BOX_Y + BOX_H; y++)
       for (let x = BOX_X; x < BOX_X + BOX_W; x++)
@@ -2920,15 +3111,15 @@ function showOfficeMenu() {
     if (e.key === 'Tab') {
       e.preventDefault();
       if (state.officeTab === 'upgrades') {
-        const total = Math.max(1, getPages().length);
-        state.officeUpgradesPage = (state.officeUpgradesPage % total) + 1;
+        const secPageCount = Math.max(1, getPages().length);
+        const totalPages   = 1 + secPageCount;
+        state.officeUpgradesPage = (state.officeUpgradesPage % totalPages) + 1;
         redraw();
       }
-      // TAB does nothing on WORKERS tab
       return;
     }
+
     if (state.officeTab === 'workers') {
-      // WORKERS tab — number keys toggle apprentice pause
       const apprentices = state.workers.apprentices;
       const idx = parseInt(e.key) - 1;
       if (!isNaN(idx) && idx >= 0 && idx < apprentices.length) {
@@ -2938,50 +3129,109 @@ function showOfficeMenu() {
       }
       return;
     }
-    // UPGRADES tab key handlers
+
+    // ── UPGRADES tab ──────────────────────────────────────────────────────────
+    if (state.officeTab === 'upgrades' && state.officeUpgradesPage === 1) {
+      // Page 1: keys 1-6 for apprentice/courier actions
+      if (e.key === '1') {
+        const count = state.skills.apprenticeCount;
+        if (count >= 5) return;
+        const node = OFFICE_NODES.find(n => n.countKey === 'apprenticeCount' && n.tier === count + 1);
+        if (!node || !state.officeUnlocked || state.phase < node.minPhase) return;
+        if (state.player.credits < node.cost) return;
+        state.player.credits -= node.cost;
+        state.skills.apprenticeCount = count + 1;
+        const ofDef = STATION_DEFS.find(s => s.label === 'OF');
+        state.workers.apprentices.push({ x: ofDef.x+1, y: ofDef.y+2, workerState: 'idle', carryRM: 0, carryWidgets: 0, target: {x:0,y:0}, craftTimer: 0, paused: false });
+        addLog('Apprentice hired.', '#cc66cc');
+        state.officeAnim.apprenticeFlash = 3;
+        drawStatusBar(); redraw(); return;
+      }
+      if (e.key === '2') {
+        const node = OFFICE_NODES.find(n => n.key === 'workerCarry');
+        if (!state.officeUnlocked || state.phase < node.minPhase) return;
+        const lv = state.skills.workerCarryLevel || 0;
+        if (lv >= node.max) return;
+        const cost = node.costs[lv];
+        if (state.player.credits < cost) return;
+        state.player.credits -= cost;
+        state.skills.workerCarryLevel = lv + 1;
+        addLog(`> Increase Apprentice Inventory level ${lv + 1}.`, '#cc66cc');
+        state.officeAnim.apprenticeFlash = 3;
+        drawStatusBar(); redraw(); return;
+      }
+      if (e.key === '3') {
+        const node = OFFICE_NODES.find(n => n.key === 'workerSpeed');
+        if (!state.officeUnlocked || state.phase < node.minPhase) return;
+        const lv = state.skills.workerSpeedLevel || 0;
+        if (lv >= node.max) return;
+        const cost = node.costs[lv];
+        if (state.player.credits < cost) return;
+        state.player.credits -= cost;
+        state.skills.workerSpeedLevel = lv + 1;
+        addLog(`> Train Apprentice Speed level ${lv + 1}.`, '#cc66cc');
+        state.officeAnim.apprenticeFlash = 3;
+        drawStatusBar(); redraw(); return;
+      }
+      if (e.key === '4') {
+        const count = state.skills.courierCount;
+        if (count >= 4) return;
+        const node = OFFICE_NODES.find(n => n.countKey === 'courierCount' && n.tier === count + 1);
+        if (!node || !state.officeUnlocked || state.phase < node.minPhase) return;
+        if (state.storage.widgets < node.widgetCost) {
+          addLog(`Not enough widgets. Need ${node.widgetCost} WG.`, '#ff5555');
+          redraw(); return;
+        }
+        state.storage.widgets -= node.widgetCost;
+        state.skills.courierCount = count + 1;
+        const ofDef = STATION_DEFS.find(s => s.label === 'OF');
+        state.workers.couriers.push({ x: ofDef.x+1, y: ofDef.y+2, courierState: 'idle', carryWidgets: 0, target: {x:0,y:0} });
+        state.couriersOwned++;
+        addLog(`> ${node.widgetCost} widgets consumed. Courier built.`, '#cc66cc');
+        state.officeAnim.courierFlash = 3;
+        drawStatusBar(); redraw(); return;
+      }
+      if (e.key === '5') {
+        const node = OFFICE_NODES.find(n => n.key === 'courierCarry');
+        if (!state.officeUnlocked || state.phase < node.minPhase) return;
+        const lv = state.skills.courierCarryLevel || 0;
+        if (lv >= node.max) return;
+        const cost = node.costs[lv];
+        if (state.storage.widgets < cost) {
+          addLog(`Not enough widgets. Need ${cost} WG.`, '#ff5555');
+          redraw(); return;
+        }
+        state.storage.widgets -= cost;
+        state.skills.courierCarryLevel = lv + 1;
+        addLog(`> ${cost} widgets consumed. Increase Courier Inventory purchased.`, '#cc66cc');
+        state.officeAnim.courierFlash = 3;
+        drawStatusBar(); redraw(); return;
+      }
+      if (e.key === '6') {
+        const node = OFFICE_NODES.find(n => n.key === 'courierSpeed');
+        if (!state.officeUnlocked || state.phase < node.minPhase) return;
+        const lv = state.skills.courierSpeedLevel || 0;
+        if (lv >= node.max) return;
+        const cost = node.costs[lv];
+        if (state.storage.widgets < cost) {
+          addLog(`Not enough widgets. Need ${cost} WG.`, '#ff5555');
+          redraw(); return;
+        }
+        state.storage.widgets -= cost;
+        state.skills.courierSpeedLevel = lv + 1;
+        addLog(`> ${cost} widgets consumed. Overclock Courier Speed purchased.`, '#cc66cc');
+        state.officeAnim.courierFlash = 3;
+        drawStatusBar(); redraw(); return;
+      }
+      return; // page 1 consumes all keys — don't fall through
+    }
+
+    // Pages 2+: SECTIONS-based key handlers
     for (const sec of SECTIONS) {
       for (const item of sec.items) {
         if (!item.k || item.k !== e.key || !item.nk) continue;
         const node = OFFICE_NODES.find(n => n.key === item.nk);
         if (!node || !state.officeUnlocked || state.phase < node.minPhase) return;
-
-        // Count-tracked nodes — apprentice (credit) or courier (widget)
-        if (node.countKey) {
-          const count = state.skills[node.countKey] || 0;
-          if (count >= node.tier || count < node.tier - 1) return;
-          if (node.widgetCost != null) {
-            if (state.storage.widgets < node.widgetCost) {
-              addLog(`Not enough widgets in storage. Need ${node.widgetCost} widgets.`, '#ff5555');
-              redraw(); return;
-            }
-            state.storage.widgets -= node.widgetCost;
-            state.skills.courierCount = count + 1;
-            const ofDef = STATION_DEFS.find(s => s.label === 'OF');
-            state.workers.couriers.push({ x: ofDef.x+1, y: ofDef.y+2, courierState: 'idle', carryWidgets: 0, target: {x:0,y:0} });
-            state.couriersOwned++;
-            addLog(`${node.widgetCost} widgets consumed from storage. Courier built.`, '#cc66cc');
-          } else {
-            if (state.player.credits < node.cost) return;
-            state.player.credits -= node.cost;
-            state.skills.apprenticeCount = count + 1;
-            const ofDef = STATION_DEFS.find(s => s.label === 'OF');
-            state.workers.apprentices.push({ x: ofDef.x+1, y: ofDef.y+2, workerState: 'idle', carryRM: 0, carryWidgets: 0, target: {x:0,y:0}, craftTimer: 0, paused: false });
-            addLog(`${node.name} hired.`, '#cc66cc');
-          }
-          drawStatusBar(); redraw(); return;
-        }
-
-        // Scaling repeatable nodes
-        if (node.levelKey) {
-          const level = state.skills[node.levelKey] || 0;
-          if (level >= node.max) return;
-          const cost = node.costs[level];
-          if (state.player.credits < cost) return;
-          state.player.credits -= cost;
-          state.skills[node.levelKey] = level + 1;
-          addLog(`${node.name} upgraded to level ${level + 1}.`, '#cc66cc');
-          drawStatusBar(); redraw(); return;
-        }
 
         // Standard flat-cost nodes
         if (node.requires && !state.skills[node.requires]) return;
@@ -4037,6 +4287,7 @@ let mtMenuBlinkOn      = true;
 let storageMenuRedrawFn = null;
 let bankMenuRedrawFn    = null;
 let gsMenuRedrawFn      = null;
+let officeMenuRedrawFn  = null;
 
 function checkAbstractionCollapse() {
   if (state.endingTriggered || state.derivatives.totalPnL < 50000) return;
@@ -6683,6 +6934,16 @@ function _advanceDayNightWave() {
 // ── Tick loop — 1 tick/second (§7.1) ─────────────────────────────────────────
 
 setInterval(() => {
+  // Flash animation counters tick regardless of menu state (§5.3)
+  if (state.officeAnim.apprenticeFlash > 0) {
+    state.officeAnim.apprenticeFlash--;
+    if (officeMenuRedrawFn && state.officeTab === 'upgrades' && state.officeUpgradesPage === 1) officeMenuRedrawFn();
+  }
+  if (state.officeAnim.courierFlash > 0) {
+    state.officeAnim.courierFlash--;
+    if (officeMenuRedrawFn && state.officeTab === 'upgrades' && state.officeUpgradesPage === 1) officeMenuRedrawFn();
+  }
+
   if (state.gameState !== 'playing' && state.gameState !== 'crafting' && state.gameState !== 'dashboard' && state.gameState !== 'inventory' && state.gameState !== 'lf_menu' && state.gameState !== 'rm_menu' && state.gameState !== 'wb_menu' && state.gameState !== 'mt_menu' && state.gameState !== 'dv_menu' && state.gameState !== 'cottage') return;
 
   // Stats: snapshot before tick for delta computation
