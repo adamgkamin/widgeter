@@ -102,6 +102,15 @@ const state = {
   rocketFull:          false,
   courierDestination:  'market',  // 'market' | 'rocket'
   rocketAnimFrame:     0,
+  cottage: {
+    owned:    false,
+    mapX:     40,
+    mapY:     21,
+    playerX:  10,
+    playerY:  10,
+    furniture: [],
+    visited:   false,
+  },
   officeUnlocked:      false,
   officeTab:           'upgrades', // 'upgrades' | 'workers'
   officeUpgradesPage:  1,          // 1-indexed page within UPGRADES tab
@@ -220,6 +229,7 @@ function saveGame() {
     courierDestination:   state.courierDestination,
     skills:               state.skills,
     craftingTimeRemote:   state.craftingTimeRemote,
+    cottage:              state.cottage,
   };
   localStorage.setItem(SAVE_KEY, JSON.stringify(data));
 }
@@ -332,6 +342,14 @@ function loadGame() {
     }
     state.craftingTimeRemote = data.craftingTimeRemote ?? 10;
     state.stats.pondStepsWalked = state.stats.pondStepsWalked ?? 0;
+    state.cottage = data.cottage ?? { owned: false, mapX: 40, mapY: 21, playerX: 10, playerY: 10, furniture: [], visited: false };
+    state.cottage.owned     = state.cottage.owned     ?? false;
+    state.cottage.mapX      = state.cottage.mapX      ?? 40;
+    state.cottage.mapY      = state.cottage.mapY      ?? 21;
+    state.cottage.playerX   = state.cottage.playerX   ?? 10;
+    state.cottage.playerY   = state.cottage.playerY   ?? 10;
+    state.cottage.furniture = state.cottage.furniture ?? [];
+    state.cottage.visited   = state.cottage.visited   ?? false;
   } catch (_) {
     // corrupt save — start fresh
   }
@@ -638,6 +656,29 @@ function buildTileMap() {
         tileMap[x][y] = mk('_', '#3a3020', true);
       }
     }
+  }
+
+  // Cottage — §4.2
+  if (state.cottage.owned) {
+    const cx = state.cottage.mapX, cy = state.cottage.mapY;
+    const RC = '#cc3333', WC_COT = '#886633';
+    const ROOF = [' ', '/', '\\', '/', '\\', ' '];
+    for (let i = 0; i < 6; i++) tileMap[cx+i][cy] = mk(ROOF[i], RC, true);
+    tileMap[cx  ][cy+1] = mk('+', WC_COT, false);
+    tileMap[cx+1][cy+1] = mk('-', WC_COT, false);
+    tileMap[cx+2][cy+1] = mk('-', WC_COT, false);
+    tileMap[cx+3][cy+1] = mk('-', WC_COT, false);
+    tileMap[cx+4][cy+1] = mk('-', WC_COT, false);
+    tileMap[cx+5][cy+1] = mk('+', WC_COT, false);
+    tileMap[cx  ][cy+2] = mk('|', WC_COT, false);
+    for (let i = 1; i <= 4; i++) tileMap[cx+i][cy+2] = mk(' ', WC_COT, false);
+    tileMap[cx+5][cy+2] = mk('|', WC_COT, false);
+    tileMap[cx  ][cy+3] = mk('+', WC_COT, false);
+    tileMap[cx+1][cy+3] = mk('-', WC_COT, false);
+    tileMap[cx+2][cy+3] = mk('-', WC_COT, false);
+    tileMap[cx+3][cy+3] = mk('.', WC_COT, true); // door
+    tileMap[cx+4][cy+3] = mk('-', WC_COT, false);
+    tileMap[cx+5][cy+3] = mk('+', WC_COT, false);
   }
 
   // Border — §4.1 (overwrites edge floor)
@@ -995,6 +1036,7 @@ function resetState() {
   state.skills = { apprenticeCount: 0, courierCount: 0, workerCarryLevel: 0, workerSpeedLevel: 0, courierCarryLevel: 0, courierSpeedLevel: 0, storageExp1: 0, storageExp2: 0, reducedCarry: 0, discountDump: 0, demandHistory: 0, forecast: 0, bulkRM: 0, futures: 0, optionsBuy: 0, optionsWrite: 0, volatilitySurface: 0, endurance: { pips: 0 }, aquatics: { purchased: false }, interfacing: { pips: 0 } };
   state.craftingTimeRemote = 10;
   state.stats.pondStepsWalked = 0;
+  state.cottage = { owned: false, mapX: 40, mapY: 21, playerX: 10, playerY: 10, furniture: [], visited: false };
   const lfDef = STATION_DEFS.find(s => s.label === 'LF');
   const stDef = STATION_DEFS.find(s => s.label === 'ST');
   const bkDef = STATION_DEFS.find(s => s.label === 'BK');
@@ -1099,6 +1141,25 @@ window.addEventListener('keydown', onAnyKey);
 // ── Arrow key movement (§3.5) ─────────────────────────────────────────────────
 
 window.addEventListener('keydown', (e) => {
+  if (state.gameState === 'cottage') {
+    const DIRS = { ArrowLeft: [-1,0], ArrowRight: [1,0], ArrowUp: [0,-1], ArrowDown: [0,1] };
+    const d = DIRS[e.key];
+    if (d) {
+      e.preventDefault();
+      const nx = state.cottage.playerX + d[0];
+      const ny = state.cottage.playerY + d[1];
+      if (nx >= 1 && nx <= 18 && ny >= 1 && ny <= 10) {
+        state.cottage.playerX = nx;
+        state.cottage.playerY = ny;
+        drawCottageInterior();
+      } else if (d[1] === 1 && state.cottage.playerY === 10) {
+        exitCottage();
+      }
+    } else if (e.key === ' ') {
+      e.preventDefault(); exitCottage();
+    }
+    return;
+  }
   if (state.gameState === 'crafting' && e.key === 'Escape') { cancelCrafting(); return; }
   if (state.gameState === 'crafting') {
     const ARROW = { ArrowLeft: true, ArrowRight: true, ArrowUp: true, ArrowDown: true };
@@ -2835,6 +2896,9 @@ function handlePonder() {
     hint = "You're finding a rhythm. The Office door looks less dusty than it did.";
   } else if (state.player.credits >= 500 && !(state.skills.endurance?.pips) && !(state.skills.aquatics?.purchased) && !(state.skills.interfacing?.pips)) {
     hint = 'You wonder if there\'s more to you than widgets.';
+  } else if (state.cottage.owned && !state.cottage.visited) {
+    hint = 'Your cottage is waiting. The door is open.';
+    wrapLog(hint, '#aa66ff'); return;
   } else if (state.phase >= 2 && state.player.color === '#f0f0f0' && state.player.credits >= 100) {
     hint = 'The shop on the south-west corner has its light on.';
     wrapLog(hint, '#aa66ff'); return;
@@ -2869,15 +2933,17 @@ function openGeneralStoreMenu() {
   const TC    = '#aa66ff';
   const DC    = '#333333';
   const LC    = '#ffffff';
-  const AC    = '#cc99ff'; // accent (label text)
+  const AC    = '#cc99ff';
   const BOX_W = 54;
   const IW    = 52;
   const AW    = 14;
   const IPW   = 37;
-  const BOX_H = 22;
+  const BOX_H = 24;
   const BOX_X = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
   const BOX_Y = Math.max(1, Math.floor((WORLD_ROWS - BOX_H) / 2));
   const RPX   = BOX_X + 1 + AW + 1;
+
+  let gsTab = 'clothing'; // 'clothing' | 'home_goods'
 
   const GS_ART = [
     '  +--------+  ',
@@ -2897,15 +2963,9 @@ function openGeneralStoreMenu() {
     for (let i = 0; i < AW; i++) {
       const ch = s[i] || ' ';
       let fg = TC;
-      // "GENERAL" row 1 positions 4-10
       if (r === 1 && i >= 4 && i <= 10) fg = AC;
-      // "STORE" row 2 positions 5-9
-      if (r === 2 && i >= 5 && i <= 9) fg = AC;
-      // ~~~~ shimmer in rows 4-6 at positions 5-8
-      if (r >= 4 && r <= 6 && i >= 5 && i <= 8) {
-        const outfitIdx = (state.tick + (r - 4)) % OUTFITS.length;
-        fg = OUTFITS[outfitIdx].color;
-      }
+      if (r === 2 && i >= 5 && i <= 9)  fg = AC;
+      if (r >= 4 && r <= 6 && i >= 5 && i <= 8) fg = OUTFITS[(state.tick + (r - 4)) % OUTFITS.length].color;
       display.draw(BOX_X + 1 + i, ay, ch, fg, BG);
     }
   }
@@ -2913,12 +2973,6 @@ function openGeneralStoreMenu() {
   function border(ay) {
     display.draw(BOX_X, ay, '║', TC, BG);
     display.draw(BOX_X + BOX_W - 1, ay, '║', TC, BG);
-  }
-
-  function irow(ay, text, fg) {
-    border(ay);
-    const p = menuPad(text, IW);
-    for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, p[i] || ' ', fg, BG);
   }
 
   function crow(ay, r) {
@@ -2934,20 +2988,16 @@ function openGeneralStoreMenu() {
   }
 
   function drawOutfitCell(cx, ay, outfit, idx) {
-    // 23-char cell: "X)  [@ NAME_padded_13 M ]"
-    const letter   = 'abcdefghij'[idx];
-    const owned    = state.player.ownedOutfits.includes(outfit.key);
-    const equipped = state.player.colorName === outfit.name;
+    const letter    = 'abcdefghij'[idx];
+    const owned     = state.player.ownedOutfits.includes(outfit.key);
+    const equipped  = state.player.colorName === outfit.name;
     const canAfford = state.player.credits >= 100;
-
     let marker = ' ', markerFg = BRIGHT_WHITE;
     let bracketFg = canAfford ? TC : DC;
     if (equipped) { marker = '»'; markerFg = LC; bracketFg = LC; }
     else if (owned) { marker = '✓'; markerFg = '#66cc66'; bracketFg = TC; }
-
-    const nameFg  = equipped ? LC : (owned ? '#aaaaaa' : (canAfford ? '#aaaaaa' : '#555555'));
-    const name13  = outfit.name.padEnd(13);
-
+    const nameFg = equipped ? LC : (owned ? '#aaaaaa' : (canAfford ? '#aaaaaa' : '#555555'));
+    const name13 = outfit.name.padEnd(13);
     display.draw(cx,    ay, letter, equipped ? LC : '#555555', BG);
     display.draw(cx+1,  ay, ')',    '#555555', BG);
     display.draw(cx+2,  ay, ' ',   BRIGHT_WHITE, BG);
@@ -2963,7 +3013,6 @@ function openGeneralStoreMenu() {
   }
 
   function redraw() {
-    // Clear interior
     for (let r = 1; r < BOX_H - 1; r++)
       for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, BOX_Y + r, ' ', BRIGHT_WHITE, BG);
 
@@ -2972,8 +3021,7 @@ function openGeneralStoreMenu() {
     for (let i = 1; i < BOX_W - 1; i++) display.draw(BOX_X + i, BOX_Y, '═', TC, BG);
 
     // Row 1: header
-    { const ay = BOX_Y + 1;
-      border(ay);
+    { const ay = BOX_Y + 1; border(ay);
       const title = 'GENERAL STORE', hint = 'press esc to exit';
       for (let i = 0; i < IW; i++) {
         const ch = i < title.length ? title[i] : (i >= IW - hint.length ? hint[i-(IW-hint.length)] : ' ');
@@ -2986,50 +3034,102 @@ function openGeneralStoreMenu() {
     { const ay = BOX_Y + 2; border(ay);
       for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '═', DC, BG); }
 
-    // Rows 3-12: art + divider + info
-    for (let r = 0; r < 10; r++) crow(BOX_Y + 3 + r, r);
-
-    // Right pane content
-    drp(BOX_Y + 4, 'CLOTHING SHOP', TC);
-    drp(BOX_Y + 5, 'Change your look.', '#555555');
-    drp(BOX_Y + 7, 'Each item: 100cr', '#555555');
-    drp(BOX_Y + 9, 'Current look:', '#555555');
-    { const ay = BOX_Y + 10;
-      const cn = (state.player.colorName === 'DEFAULT') ? 'default white' : state.player.colorName.toLowerCase();
-      drp(ay, `@ ${cn}`, '#555555');
-      display.draw(RPX, ay, '@', state.player.color || BRIGHT_WHITE, BG);
+    // Row 3: tab bar — 25 + │ + 26 = 52
+    { const ay = BOX_Y + 3; border(ay);
+      // left tab "[ CLOTHING ]" centered in 25
+      const LEFT  = '[ CLOTHING ]';   // 12
+      const RIGHT = '[ HOME GOODS ]'; // 14
+      const leftPad  = Math.floor((25 - LEFT.length)  / 2);
+      const rightPad = Math.floor((26 - RIGHT.length) / 2);
+      for (let i = 0; i < 25; i++) {
+        const ci = i - leftPad;
+        const ch = (ci >= 0 && ci < LEFT.length) ? LEFT[ci] : ' ';
+        const fg = (gsTab === 'clothing') ? (ch !== ' ' ? TC : DC) : DC;
+        display.draw(BOX_X + 1 + i, ay, ch, fg, BG);
+      }
+      display.draw(BOX_X + 1 + 25, ay, '│', DC, BG);
+      for (let i = 0; i < 26; i++) {
+        const ci = i - rightPad;
+        const ch = (ci >= 0 && ci < RIGHT.length) ? RIGHT[ci] : ' ';
+        const fg = (gsTab === 'home_goods') ? (ch !== ' ' ? TC : DC) : DC;
+        display.draw(BOX_X + 1 + 26 + i, ay, ch, fg, BG);
+      }
     }
 
-    // Row 13: ─ separator
-    { const ay = BOX_Y + 13; border(ay);
+    // Row 4: ─ separator (below tabs)
+    { const ay = BOX_Y + 4; border(ay);
       for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '─', DC, BG); }
 
-    // Rows 14-18: 2-column clothing grid (5 rows × 2 outfits)
-    for (let row = 0; row < 5; row++) {
-      const ay = BOX_Y + 14 + row;
-      border(ay);
-      // 2 spaces left + cell(23) + 2 spaces gap + cell(23) + 2 spaces right = 52
-      let cx = BOX_X + 1 + 2;
-      cx = drawOutfitCell(cx, ay, OUTFITS[row * 2],     row * 2);
-      cx += 2; // gap
-      cx = drawOutfitCell(cx, ay, OUTFITS[row * 2 + 1], row * 2 + 1);
-      // fill right padding
-      while (cx < BOX_X + 1 + IW) display.draw(cx++, ay, ' ', BRIGHT_WHITE, BG);
+    // Rows 5-14: art rows
+    for (let r = 0; r < 10; r++) crow(BOX_Y + 5 + r, r);
+
+    // Right pane content — changes by tab
+    if (gsTab === 'clothing') {
+      drp(BOX_Y + 6,  'CLOTHING SHOP', TC);
+      drp(BOX_Y + 7,  'Change your look.', '#555555');
+      drp(BOX_Y + 9,  'Each item: 100cr', '#555555');
+      drp(BOX_Y + 11, 'Current look:', '#555555');
+      { const ay = BOX_Y + 12;
+        const cn = (state.player.colorName === 'DEFAULT') ? 'default white' : state.player.colorName.toLowerCase();
+        drp(ay, `@ ${cn}`, '#555555');
+        display.draw(RPX, ay, '@', state.player.color || BRIGHT_WHITE, BG);
+      }
+    } else {
+      // HOME GOODS tab
+      drp(BOX_Y + 6,  'HOME GOODS', TC);
+      drp(BOX_Y + 7,  'Furniture for a larger life.', '#555555');
+      drp(BOX_Y + 9,  'RURAL COTTAGE', '#ddcc99');
+      drp(BOX_Y + 10, 'A small house, south of', '#555555');
+      drp(BOX_Y + 11, 'the path. Quiet inside.', '#555555');
+      drp(BOX_Y + 12, '50,000cr', '#555555');
+      if (state.cottage.owned) {
+        drp(BOX_Y + 14, '[a] visit your cottage', TC);
+      } else {
+        const canAfford = state.player.credits >= 50000;
+        drp(BOX_Y + 14, '[a] purchase  50,000cr', canAfford ? TC : DC);
+      }
     }
 
-    // Row 19: ═ separator
-    { const ay = BOX_Y + 19; border(ay);
-      for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '═', DC, BG); }
+    // Row 15: ─ separator
+    { const ay = BOX_Y + 15; border(ay);
+      for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '─', DC, BG); }
 
-    // Row 20: footer
-    { const ay = BOX_Y + 20; border(ay);
-      const txt = 'a–j: buy or equip outfit.  ESC to exit.';
-      const centered = menuPad(txt.length < IW ? ' '.repeat(Math.floor((IW - txt.length) / 2)) + txt : txt, IW);
-      for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, centered[i] || ' ', '#555555', BG); }
+    if (gsTab === 'clothing') {
+      // Rows 16-20: 2-column clothing grid (5 rows × 2 outfits)
+      for (let row = 0; row < 5; row++) {
+        const ay = BOX_Y + 16 + row;
+        border(ay);
+        let cx = BOX_X + 1 + 2;
+        cx = drawOutfitCell(cx, ay, OUTFITS[row * 2],     row * 2);
+        cx += 2;
+        cx = drawOutfitCell(cx, ay, OUTFITS[row * 2 + 1], row * 2 + 1);
+        while (cx < BOX_X + 1 + IW) display.draw(cx++, ay, ' ', BRIGHT_WHITE, BG);
+      }
+      // Row 21: ═ separator
+      { const ay = BOX_Y + 21; border(ay);
+        for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '═', DC, BG); }
+      // Row 22: footer
+      { const ay = BOX_Y + 22; border(ay);
+        const txt = 'a–j: buy or equip   Tab: home goods   ESC: exit';
+        const padded = menuPad(' '.repeat(Math.floor((IW - txt.length) / 2)) + txt, IW);
+        for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, padded[i] || ' ', '#555555', BG); }
+    } else {
+      for (let row = 0; row < 5; row++) {
+        const ay = BOX_Y + 16 + row;
+        border(ay);
+        for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, ' ', BRIGHT_WHITE, BG);
+      }
+      { const ay = BOX_Y + 21; border(ay);
+        for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '═', DC, BG); }
+      { const ay = BOX_Y + 22; border(ay);
+        const txt = 'a: purchase / visit   Tab: clothing   ESC: exit';
+        const padded = menuPad(' '.repeat(Math.floor((IW - txt.length) / 2)) + txt, IW);
+        for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, padded[i] || ' ', '#555555', BG); }
+    }
 
-    // Row 21: ╚═╝
-    display.draw(BOX_X, BOX_Y + 21, '╚', TC, BG); display.draw(BOX_X + BOX_W - 1, BOX_Y + 21, '╝', TC, BG);
-    for (let i = 1; i < BOX_W - 1; i++) display.draw(BOX_X + i, BOX_Y + 21, '═', TC, BG);
+    // Row 23: ╚═╝
+    display.draw(BOX_X, BOX_Y + 23, '╚', TC, BG); display.draw(BOX_X + BOX_W - 1, BOX_Y + 23, '╝', TC, BG);
+    for (let i = 1; i < BOX_W - 1; i++) display.draw(BOX_X + i, BOX_Y + 23, '═', TC, BG);
   }
 
   gsMenuRedrawFn = redraw;
@@ -3048,6 +3148,32 @@ function openGeneralStoreMenu() {
 
   function gsKeyHandler(e) {
     if (e.key === 'Escape') { closeGS(); return; }
+
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      gsTab = gsTab === 'clothing' ? 'home_goods' : 'clothing';
+      redraw(); return;
+    }
+
+    if (gsTab === 'home_goods') {
+      if (e.key === 'a') {
+        if (state.cottage.owned) {
+          closeGS();
+          enterCottage();
+        } else if (state.player.credits >= 50000) {
+          state.player.credits -= 50000;
+          state.cottage.owned = true;
+          addLog('You purchase the cottage. The deed changes hands.', '#ddcc99');
+          drawStatusBar();
+          redraw();
+        } else {
+          addLog("You can't afford the cottage yet.", '#ff5555');
+        }
+      }
+      return;
+    }
+
+    // CLOTHING tab: a–j
     const letterIdx = 'abcdefghij'.indexOf(e.key);
     if (letterIdx < 0) return;
     const outfit = OUTFITS[letterIdx];
@@ -3056,10 +3182,7 @@ function openGeneralStoreMenu() {
     const owned    = state.player.ownedOutfits.includes(outfit.key);
     const equipped = state.player.colorName === outfit.name;
 
-    if (equipped) {
-      addLog("You're already wearing that.", '#555555');
-      return;
-    }
+    if (equipped) { addLog("You're already wearing that.", '#555555'); return; }
     if (owned) {
       state.player.color     = outfit.color;
       state.player.colorName = outfit.name;
@@ -3069,10 +3192,7 @@ function openGeneralStoreMenu() {
       addLog(`You change into something ${outfit.name.toLowerCase()}.`, outfit.color);
       redraw(); return;
     }
-    if (state.player.credits < 100) {
-      addLog("You can't afford that.", '#ff5555');
-      return;
-    }
+    if (state.player.credits < 100) { addLog("You can't afford that.", '#ff5555'); return; }
     state.player.credits -= 100;
     state.player.ownedOutfits.push(outfit.key);
     state.player.color     = outfit.color;
@@ -5240,6 +5360,76 @@ function openLFMenu() {
   window.addEventListener('keydown', lfKeyHandler);
 }
 
+// ── Cottage interior (§4.2) ───────────────────────────────────────────────────
+
+function drawCottageInterior() {
+  const OX = 30, OY = 15; // overlay: cols 30-49, rows 15-26
+  const W = 20, H = 12;
+  const TC = '#886633';
+  const FC = '#1a1208';  // dark floor
+  const IW = W - 2;      // 18 inner cols
+
+  display.draw(OX, OY, '╔', TC, BG);
+  for (let i = 1; i < W-1; i++) display.draw(OX+i, OY, '═', TC, BG);
+  display.draw(OX+W-1, OY, '╗', TC, BG);
+
+  // Interior rows: y=1..10 map to screen rows OY+1..OY+10
+  for (let iy = 1; iy <= 10; iy++) {
+    const sy = OY + iy;
+    display.draw(OX, sy, '║', TC, BG);
+    for (let ix = 1; ix <= IW; ix++) {
+      const sx = OX + ix;
+      if (iy === 1) {
+        // header row
+        const HEADER = '  YOUR COTTAGE  ';
+        const ch = ix <= HEADER.length ? HEADER[ix-1] : ' ';
+        display.draw(sx, sy, ch || ' ', ix >= 3 && ix <= 14 ? '#ddcc99' : '#555555', BG);
+      } else if (iy === 10) {
+        // bottom floor row with door indicator at ix=10
+        display.draw(sx, sy, ix === 10 ? '.' : '.', ix === 10 ? '#cc9933' : FC, BG);
+      } else {
+        display.draw(sx, sy, '.', FC, BG);
+      }
+    }
+    display.draw(OX+W-1, sy, '║', TC, BG);
+  }
+
+  display.draw(OX, OY+H-1, '╚', TC, BG);
+  for (let i = 1; i < W-1; i++) display.draw(OX+i, OY+H-1, '═', TC, BG);
+  display.draw(OX+W-1, OY+H-1, '╝', TC, BG);
+
+  // Player @
+  display.draw(OX + state.cottage.playerX, OY + state.cottage.playerY, '@', state.player.color || BRIGHT_WHITE, BG);
+
+  // Hint at row below box
+  const hint = '[ arrows: move | space: exit ]';
+  for (let i = 0; i < W*2; i++) display.draw(OX+i, OY+H, i < hint.length ? hint[i] : ' ', '#444444', BG);
+}
+
+function enterCottage() {
+  state.cottage.playerX = 10;
+  state.cottage.playerY = 5;
+  state.gameState = 'cottage';
+  clearScreen();
+  drawCottageInterior();
+  drawStatusBar();
+  if (!state.cottage.visited) {
+    state.cottage.visited = true;
+    addLog('You step inside. It smells of pine and old dust.', '#886633');
+    renderLog();
+  }
+}
+
+function exitCottage() {
+  state.gameState = 'playing';
+  // Place player just below the cottage door
+  state.player.x = state.cottage.mapX + 3;
+  state.player.y = state.cottage.mapY + 4;
+  drawWorld();
+  drawStatusBar();
+  renderLog();
+}
+
 function handleInteract() {
   const rm = STATION_DEFS.find(s => s.label === 'RM');
   if (rm && isAdjacentToStation(rm)) { openRMShedMenu(); return; }
@@ -5262,6 +5452,12 @@ function handleInteract() {
   if (trStation && isAdjacentToStation(trStation)) { openDerivativesMenu(); return; }
   const lfStation = STATION_DEFS.find(s => s.label === 'LF');
   if (lfStation && isAdjacentToStation(lfStation) && state.stations.launch_facility?.unlocked) { openLFMenu(); return; }
+  // Cottage door entry
+  if (state.cottage.owned) {
+    const doorX = state.cottage.mapX + 3, doorY = state.cottage.mapY + 3;
+    const px = state.player.x, py = state.player.y;
+    if (Math.abs(px - doorX) <= 1 && Math.abs(py - doorY) <= 1) { enterCottage(); return; }
+  }
   // Remote crafting via INTERFACING skill (not adjacent to workbench)
   if ((state.skills.interfacing?.pips || 0) >= 1 && state.player.inventory.rm > 0) {
     openWorkbenchMenu(true); return;
@@ -6125,7 +6321,7 @@ function _advanceDayNightWave() {
 // ── Tick loop — 1 tick/second (§7.1) ─────────────────────────────────────────
 
 setInterval(() => {
-  if (state.gameState !== 'playing' && state.gameState !== 'crafting' && state.gameState !== 'dashboard' && state.gameState !== 'inventory' && state.gameState !== 'lf_menu' && state.gameState !== 'rm_menu' && state.gameState !== 'wb_menu' && state.gameState !== 'mt_menu' && state.gameState !== 'dv_menu') return;
+  if (state.gameState !== 'playing' && state.gameState !== 'crafting' && state.gameState !== 'dashboard' && state.gameState !== 'inventory' && state.gameState !== 'lf_menu' && state.gameState !== 'rm_menu' && state.gameState !== 'wb_menu' && state.gameState !== 'mt_menu' && state.gameState !== 'dv_menu' && state.gameState !== 'cottage') return;
 
   // Stats: snapshot before tick for delta computation
   const _sCr = state.player.credits;
@@ -6389,6 +6585,7 @@ setInterval(() => {
   if (storageMenuRedrawFn) storageMenuRedrawFn();
   if (bankMenuRedrawFn) bankMenuRedrawFn();
   if (gsMenuRedrawFn) gsMenuRedrawFn();
+  if (state.gameState === 'cottage') drawCottageInterior();
 
   // Live-refresh LF menu + rocket animation frame
   if (state.gameState === 'lf_menu') {
