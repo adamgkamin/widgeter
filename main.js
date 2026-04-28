@@ -3,6 +3,7 @@ import {
   STATUS_ROW, LOG_START_ROW, LOG_END_ROW, HINT_ROW,
   BG, BRIGHT_WHITE, BRIGHT_YELLOW, BRIGHT_CYAN, BRIGHT_MAGENTA, DIM_GRAY,
   LOG_SCROLL_SPEED,
+  COLOR_LF_FRAME, COLOR_LF_LABEL,
 } from './constants.js';
 import { EffectsManager } from './src/effects.js';
 
@@ -640,19 +641,19 @@ function buildTileMap() {
   // Apply phase unlock colors before stamping stations
   if (state.phase >= 2) {
     const st2 = STATION_DEFS.find(s => s.label === 'ST');
-    if (st2) { st2.wc = '#555555'; st2.lc = '#66ccff'; }
+    if (st2) { st2.wc = '#66ccff'; st2.lc = '#aaddff'; }
   }
   if (state.phase >= 3) {
     const bk3 = STATION_DEFS.find(s => s.label === 'BK');
-    if (bk3) { bk3.wc = '#555555'; bk3.lc = '#66cc66'; }
+    if (bk3) { bk3.wc = '#66cc66'; bk3.lc = '#aaffaa'; }
   }
   if (state.phase >= 4) {
     const dv4 = STATION_DEFS.find(s => s.label === 'DV');
-    if (dv4) { dv4.wc = '#555555'; dv4.lc = '#cc66cc'; }
+    if (dv4) { dv4.wc = '#cc66cc'; dv4.lc = '#cc66cc'; }
   }
   if (state.phase >= 5) {
     const lf5 = STATION_DEFS.find(s => s.label === 'LF');
-    if (lf5) { lf5.wc = '#ff5555'; lf5.lc = '#ff5555'; }
+    if (lf5) { lf5.wc = COLOR_LF_FRAME; lf5.lc = COLOR_LF_LABEL; lf5.dc = '#cc3333'; }
   }
 
   // Stations — §3.5 (overwrites floor/trees in their footprint)
@@ -691,7 +692,7 @@ function buildTileMap() {
     tileMap[s.x+2][s.y+1] = mk(s.label[1], s.lc, false);
     tileMap[s.x+3][s.y+1] = mk('|',        s.wc, false);
     tileMap[s.x  ][s.y+2] = mk('+',        s.wc, false);
-    tileMap[s.x+1][s.y+2] = mk('.',        s.wc, true);  // door — walkable
+    tileMap[s.x+1][s.y+2] = mk('.',        s.dc || s.wc, true);  // door — walkable
     tileMap[s.x+2][s.y+2] = mk('-',        s.wc, false);
     tileMap[s.x+3][s.y+2] = mk('+',        s.wc, false);
     const sd = STATION_DESCS[s.label];
@@ -1735,17 +1736,18 @@ function openWorkbenchMenu(isRemote = false) {
   window.addEventListener('keydown', wbKeyHandler);
 }
 
-function colorInStation(label, wc, lc) {
+function colorInStation(label, wc, lc, dc) {
   const s = STATION_DEFS.find(sd => sd.label === label);
   if (!s) return;
-  s.wc = wc; s.lc = lc;
+  const doorColor = dc || wc;
+  s.wc = wc; s.lc = lc; s.dc = dc;
   const tiles = [
-    [s.x,   s.y,   '+', wc, false], [s.x+1, s.y,   '-', wc, false],
-    [s.x+2, s.y,   '-', wc, false], [s.x+3, s.y,   '+', wc, false],
-    [s.x,   s.y+1, '|', wc, false], [s.x+1, s.y+1, s.label[0], lc, false],
-    [s.x+2, s.y+1, s.label[1], lc, false], [s.x+3, s.y+1, '|', wc, false],
-    [s.x,   s.y+2, '+', wc, false], [s.x+1, s.y+2, '.', wc, true],
-    [s.x+2, s.y+2, '-', wc, false], [s.x+3, s.y+2, '+', wc, false],
+    [s.x,   s.y,   '+', wc,        false], [s.x+1, s.y,   '-', wc,        false],
+    [s.x+2, s.y,   '-', wc,        false], [s.x+3, s.y,   '+', wc,        false],
+    [s.x,   s.y+1, '|', wc,        false], [s.x+1, s.y+1, s.label[0], lc, false],
+    [s.x+2, s.y+1, s.label[1], lc, false], [s.x+3, s.y+1, '|', wc,        false],
+    [s.x,   s.y+2, '+', wc,        false], [s.x+1, s.y+2, '.', doorColor,  true],
+    [s.x+2, s.y+2, '-', wc,        false], [s.x+3, s.y+2, '+', wc,        false],
   ];
   for (const [tx, ty, g, fg, w] of tiles) {
     tileMap[tx][ty] = { glyph: g, fg, bg: BG, walkable: w };
@@ -1753,6 +1755,8 @@ function colorInStation(label, wc, lc) {
   }
   renderDirty();
   display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
+  for (const w of state.workers.apprentices) display.draw(w.x, w.y, 'a', '#66ccff', BG);
+  for (const c of state.workers.couriers)    display.draw(c.x, c.y, 'c', '#cc66cc', BG);
 }
 
 function checkPhase2Trigger() {
@@ -1764,7 +1768,7 @@ function checkPhase2Trigger() {
     setTimeout(() => addLog('You can afford to hire help.', '#cc66cc'), 2000);
     setTimeout(() => {
       addLog('The Storage Warehouse is now available.', '#cc66cc');
-      colorInStation('ST', '#555555', '#66ccff');
+      colorInStation('ST', '#66ccff', '#aaddff');
     }, 4000);
   }
 }
@@ -1797,7 +1801,7 @@ function checkPhase3Trigger() {
     calculateDailyDemand();
     addLog('The bank lights come on for the first time.', '#66cc66');
     setTimeout(() => addLog('New possibilities are available.', '#66cc66'), 2000);
-    setTimeout(() => colorInStation('BK', '#555555', '#66cc66'), 4000);
+    setTimeout(() => colorInStation('BK', '#66cc66', '#aaffaa'), 4000);
   }
 }
 
@@ -1810,7 +1814,7 @@ function checkPhase4Trigger() {
     setTimeout(() => addLog("He offers you a contract. Lock in tomorrow's price, he says.", '#cc66cc'), 2000);
     setTimeout(() => {
       addLog('The Derivatives Terminal is now open.', '#cc66cc');
-      colorInStation('DV', '#555555', '#cc66cc');
+      colorInStation('DV', '#cc66cc', '#cc66cc');
     }, 4000);
   }
 }
@@ -1822,7 +1826,7 @@ function checkPhase5Trigger() {
     setTimeout(() => addLog('The structure in the corner. You always wondered.', '#cc66cc'), 3000);
     setTimeout(() => {
       addLog('The Launch Facility is ready.', '#cc66cc');
-      colorInStation('LF', '#ff5555', '#ff5555');
+      colorInStation('LF', COLOR_LF_FRAME, COLOR_LF_LABEL, '#cc3333');
       state.stations.launch_facility.unlocked = true;
       state.rocketWidgets = 0;
       state.courierDestination = 'market';
@@ -3634,7 +3638,7 @@ function openLFMenu() {
   const BOX_X  = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
   const BOX_Y  = Math.max(2, Math.floor((WORLD_ROWS - BOX_H) / 2));
   const IW     = BOX_W - 2; // 62 inner width
-  const RC     = '#ff5555'; // rocket red (border color)
+  const RC     = COLOR_LF_FRAME; // rocket red (border color)
   const WC     = '#555555';
   const DC     = '#333333';
 
@@ -4527,12 +4531,12 @@ function devJumpToPhase(n) {
     state.officeUnlocked = true;
     state.stations.storage.unlocked = true;
     const stD = STATION_DEFS.find(s => s.label === 'ST');
-    if (stD) { stD.wc = '#555555'; stD.lc = '#66ccff'; }
+    if (stD) { stD.wc = '#66ccff'; stD.lc = '#aaddff'; }
   }
   if (n >= 3) {
     state.stations.bank = { unlocked: true };
     const bkD = STATION_DEFS.find(s => s.label === 'BK');
-    if (bkD) { bkD.wc = '#555555'; bkD.lc = '#66cc66'; }
+    if (bkD) { bkD.wc = '#66cc66'; bkD.lc = '#aaffaa'; }
     calculateDailyDemand();
     state.widgetsSoldToday = 0;
   }
@@ -4540,14 +4544,14 @@ function devJumpToPhase(n) {
     state.stations.derivatives = { unlocked: true };
     state.derivativesUnlocked  = true;
     const dvD = STATION_DEFS.find(s => s.label === 'DV');
-    if (dvD) { dvD.wc = '#555555'; dvD.lc = '#cc66cc'; }
+    if (dvD) { dvD.wc = '#cc66cc'; dvD.lc = '#cc66cc'; }
   }
   if (n >= 5) {
     state.stations.launch_facility = { unlocked: true };
     state.rocketWidgets     = 0;
     state.courierDestination = 'market';
     const lfD = STATION_DEFS.find(s => s.label === 'LF');
-    if (lfD) { lfD.wc = '#ff5555'; lfD.lc = '#ff5555'; }
+    if (lfD) { lfD.wc = COLOR_LF_FRAME; lfD.lc = COLOR_LF_LABEL; lfD.dc = '#cc3333'; }
   }
   state.gameState = 'playing';
   clearScreen();
@@ -4560,7 +4564,7 @@ function showPauseMenu() {
   state.gameState = 'paused';
 
   const BOX_W  = 54;
-  const BOX_H  = 12;
+  const BOX_H  = 14;
   const BOX_X  = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
   const BOX_Y  = Math.max(5, Math.floor((WORLD_ROWS - BOX_H) / 2));
   const CONT_X = BOX_X + 2;
@@ -4615,8 +4619,10 @@ function showPauseMenu() {
       line(6, '3. Jump to Phase 3  (2000cr, bank unlocked)',       BRIGHT_WHITE);
       line(7, '4. Jump to Phase 4  (5000cr, derivatives unlocked)',BRIGHT_WHITE);
       line(8, '5. Jump to Phase 5  (10000cr, LF unlocked)',        BRIGHT_WHITE);
-      line(9, '6. Back',            BRIGHT_WHITE);
-      centered(10, 'ESC to go back', WC);
+      line(9,  '6. Give credits',   BRIGHT_WHITE);
+      line(10, '7. Give widgets',   BRIGHT_WHITE);
+      line(11, '8. Back',           BRIGHT_WHITE);
+      centered(12, 'ESC to go back', WC);
     }
   }
 
@@ -4652,7 +4658,36 @@ function showPauseMenu() {
       if (num >= 1 && num <= 5) {
         window.removeEventListener('keydown', pauseKeyHandler);
         devJumpToPhase(num);
-      } else if (e.key === '6' || e.key === 'Escape') { screen = 'settings'; render(); }
+      } else if (e.key === '6') {
+        window.removeEventListener('keydown', pauseKeyHandler);
+        showNumericPrompt('Give credits (any amount)', 9999999,
+          (v) => {
+            state.player.credits += v;
+            state.lifetimeCreditsEarned += v;
+            drawStatusBar();
+            addLog(`> DEV: +${v}cr added.`, '#ff5555');
+            state.gameState = prevState;
+            showPauseMenu();
+          },
+          () => { state.gameState = prevState; showPauseMenu(); }
+        );
+      } else if (e.key === '7') {
+        window.removeEventListener('keydown', pauseKeyHandler);
+        showNumericPrompt('Give widgets (any amount)', 9999999,
+          (v) => {
+            const cap   = state.player.inventoryCaps.widgets;
+            const space = cap - state.player.inventory.widgets;
+            const add   = Math.min(v, space);
+            state.player.inventory.widgets += add;
+            if (add < v) addLog(`> DEV: Inventory full. Added ${add} widgets.`, '#ff5555');
+            else         addLog(`> DEV: +${add} widgets added.`, '#ff5555');
+            drawStatusBar();
+            state.gameState = prevState;
+            showPauseMenu();
+          },
+          () => { state.gameState = prevState; showPauseMenu(); }
+        );
+      } else if (e.key === '8' || e.key === 'Escape') { screen = 'settings'; render(); }
     }
   }
   window.addEventListener('keydown', pauseKeyHandler);
