@@ -778,27 +778,7 @@ function buildTileMap() {
   }
 
   // Cottage — §4.2
-  if (state.cottage.owned) {
-    const cx = state.cottage.mapX, cy = state.cottage.mapY;
-    const RC = '#cc3333', WC_COT = '#886633';
-    const ROOF = [' ', '/', '\\', '/', '\\', ' '];
-    for (let i = 0; i < 6; i++) tileMap[cx+i][cy] = mk(ROOF[i], RC, true);
-    tileMap[cx  ][cy+1] = mk('+', WC_COT, false);
-    tileMap[cx+1][cy+1] = mk('-', WC_COT, false);
-    tileMap[cx+2][cy+1] = mk('-', WC_COT, false);
-    tileMap[cx+3][cy+1] = mk('-', WC_COT, false);
-    tileMap[cx+4][cy+1] = mk('-', WC_COT, false);
-    tileMap[cx+5][cy+1] = mk('+', WC_COT, false);
-    tileMap[cx  ][cy+2] = mk('|', WC_COT, false);
-    for (let i = 1; i <= 4; i++) tileMap[cx+i][cy+2] = mk(' ', WC_COT, false);
-    tileMap[cx+5][cy+2] = mk('|', WC_COT, false);
-    tileMap[cx  ][cy+3] = mk('+', WC_COT, false);
-    tileMap[cx+1][cy+3] = mk('-', WC_COT, false);
-    tileMap[cx+2][cy+3] = mk('-', WC_COT, false);
-    tileMap[cx+3][cy+3] = mk('.', WC_COT, true); // door
-    tileMap[cx+4][cy+3] = mk('-', WC_COT, false);
-    tileMap[cx+5][cy+3] = mk('+', WC_COT, false);
-  }
+  if (state.cottage.owned) placeCottageTiles();
 
   // Border — §4.1 (overwrites edge floor)
   for (let x = 0; x < DISPLAY_WIDTH; x++) {
@@ -893,6 +873,35 @@ function buildTileMap() {
   }
 }
 
+// Inject cottage tiles into the live tileMap and mark them dirty.
+// Called from buildTileMap() and immediately after purchase so the cottage
+// appears without waiting for the next full drawWorld() call.
+function placeCottageTiles() {
+  const cx = state.cottage.mapX, cy = state.cottage.mapY;
+  const RC = '#cc3333', WC_COT = '#886633';
+  const mk = (g, fg, w) => ({ glyph: g, fg, bg: BG, walkable: w });
+  const ROOF = [' ', '/', '\\', '/', '\\', ' '];
+  for (let i = 0; i < 6; i++) tileMap[cx+i][cy] = mk(ROOF[i], RC, true);
+  tileMap[cx  ][cy+1] = mk('+', WC_COT, false);
+  tileMap[cx+1][cy+1] = mk('-', WC_COT, false);
+  tileMap[cx+2][cy+1] = mk('-', WC_COT, false);
+  tileMap[cx+3][cy+1] = mk('-', WC_COT, false);
+  tileMap[cx+4][cy+1] = mk('-', WC_COT, false);
+  tileMap[cx+5][cy+1] = mk('+', WC_COT, false);
+  tileMap[cx  ][cy+2] = mk('|', WC_COT, false);
+  for (let i = 1; i <= 4; i++) tileMap[cx+i][cy+2] = mk(' ', WC_COT, false);
+  tileMap[cx+5][cy+2] = mk('|', WC_COT, false);
+  tileMap[cx  ][cy+3] = mk('+', WC_COT, false);
+  tileMap[cx+1][cy+3] = mk('-', WC_COT, false);
+  tileMap[cx+2][cy+3] = mk('-', WC_COT, false);
+  tileMap[cx+3][cy+3] = mk('.', WC_COT, true); // door
+  tileMap[cx+4][cy+3] = mk('-', WC_COT, false);
+  tileMap[cx+5][cy+3] = mk('+', WC_COT, false);
+  // Mark all cottage tile positions dirty so the next renderDirty() shows them
+  for (let dx = 0; dx < 6; dx++)
+    for (let dy = 0; dy < 4; dy++)
+      markDirty(cx + dx, cy + dy);
+}
 
 // ── §3.4 Phase-in transition ──────────────────────────────────────────────────
 
@@ -3489,7 +3498,7 @@ function openGeneralStoreMenu() {
     { const ay=BOX_Y+22; border(ay); for(let i=0;i<IW;i++) display.draw(BOX_X+1+i,ay,'═',DC,BG); }
     // Row 23: footer
     { const ay=BOX_Y+23; border(ay);
-      const txt=gsTab==='clothing'?'a–j: buy/equip  Tab: home goods  ESC: exit':'a–l: buy/visit  Tab: clothing  ESC: exit';
+      const txt=gsTab==='clothing'?'a–j: buy/equip  →: home goods  ESC: exit':'a–l: buy/visit  ←: clothing  ESC: exit';
       const pad=' '.repeat(Math.max(0,Math.floor((IW-txt.length)/2)));
       const padded=menuPad(pad+txt,IW);
       for(let i=0;i<IW;i++) display.draw(BOX_X+1+i,ay,padded[i]||' ','#555555',BG); }
@@ -3512,7 +3521,8 @@ function openGeneralStoreMenu() {
 
   function gsKeyHandler(e) {
     if (e.key === 'Escape') { closeGS(); return; }
-    if (e.key === 'Tab') { e.preventDefault(); gsTab=gsTab==='clothing'?'home_goods':'clothing'; redraw(); return; }
+    if (e.key === 'ArrowRight') { e.preventDefault(); if (gsTab === 'clothing') { gsTab = 'home_goods'; redraw(); } return; }
+    if (e.key === 'ArrowLeft')  { e.preventDefault(); if (gsTab === 'home_goods') { gsTab = 'clothing'; redraw(); } return; }
 
     if (gsTab === 'home_goods') {
       const idx = 'abcdefghijkl'.indexOf(e.key);
@@ -3530,6 +3540,8 @@ function openGeneralStoreMenu() {
       state.player.credits -= item.price;
       if (isCottage) {
         state.cottage.owned = true;
+        placeCottageTiles();
+        renderDirty();
         logHistory('Bought a cottage.');
         addLog('You purchase the cottage. The deed changes hands.', '#ddcc99');
       } else {
