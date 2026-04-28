@@ -2514,6 +2514,8 @@ function showOfficeMenu() {
 
   function officeKeyHandler(e) {
     if (e.key === 'Escape') { closeOffice(); return; }
+    if (e.key === 'ArrowRight') { e.preventDefault(); if (activeTab === 0) { activeTab = 1; page = 0; redraw(); } return; }
+    if (e.key === 'ArrowLeft')  { e.preventDefault(); if (activeTab === 1) { activeTab = 0; page = 0; redraw(); } return; }
     if (e.key === 'Tab') {
       e.preventDefault();
       if (activeTab === 0) {
