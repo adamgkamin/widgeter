@@ -2,6 +2,7 @@ import {
   DISPLAY_WIDTH, DISPLAY_HEIGHT, WORLD_ROWS,
   STATUS_ROW, LOG_START_ROW, LOG_END_ROW, HINT_ROW,
   BG, BRIGHT_WHITE, BRIGHT_YELLOW, BRIGHT_CYAN, BRIGHT_MAGENTA, DIM_GRAY,
+  LOG_SCROLL_SPEED,
 } from './constants.js';
 import { EffectsManager } from './src/effects.js';
 
@@ -40,6 +41,10 @@ function drawRow(y, text, fg) {
     const ch = x < text.length ? text[x] : ' ';
     display.draw(x, y, ch, fg, BG);
   }
+}
+
+function formatCredits(n) {
+  return (Math.round(n * 10) / 10).toFixed(1);
 }
 
 function wordWrap(text, maxWidth) {
@@ -320,9 +325,15 @@ let blinkInterval = setInterval(() => {
 
 // ── Event log (§3.8) ──────────────────────────────────────────────────────────
 
+let logQueue   = []; // lines waiting to scroll in: [{text, color}]
+let pendingLine = null; // line currently scrolling in: {text, color, charsRevealed}
+
 function addLog(message, color) {
-  state.logLines.push({ text: message, color });
-  if (state.logLines.length > 5) state.logLines.shift();
+  if (pendingLine !== null || logQueue.length > 0) {
+    logQueue.push({ text: message, color });
+  } else {
+    pendingLine = { text: message, color, charsRevealed: 0 };
+  }
   renderLog();
 }
 
@@ -339,12 +350,20 @@ function wrapLog(text, color) {
 
 function renderLog() {
   for (let i = 0; i < 5; i++) {
-    const row   = LOG_START_ROW + i;
-    const entry = state.logLines[state.logLines.length - 5 + i];
-    if (entry) {
-      drawRow(row, '> ' + entry.text, entry.color);
+    const row = LOG_START_ROW + i;
+    // During crafting, the tick loop draws directly to LOG_END_ROW — skip that slot
+    if (state.gameState === 'crafting' && i === 4) continue;
+
+    if (pendingLine && i === 4) {
+      drawRow(row, '> ' + pendingLine.text.substring(0, pendingLine.charsRevealed), pendingLine.color);
     } else {
-      drawRow(row, '>', DIM_GRAY);
+      const lineIdx = pendingLine ? (state.logLines.length - 4 + i) : (state.logLines.length - 5 + i);
+      const entry = state.logLines[lineIdx];
+      if (entry) {
+        drawRow(row, '> ' + entry.text, entry.color);
+      } else {
+        drawRow(row, '>', DIM_GRAY);
+      }
     }
   }
 }
@@ -376,7 +395,7 @@ function drawStatusBar() {
   if (state.phase >= 2) {
     const activeW = state.workers.apprentices.filter(w => w.workerState !== 'idle' && !w.paused).length;
     const activeC = state.workers.couriers.filter(c => c.courierState === 'delivering' || c.courierState === 'loading').length;
-    sx = seg(sx, `CR:${state.player.credits}`,            '#ffd633') + 1;
+    sx = seg(sx, `CR:${formatCredits(state.player.credits)}`,            '#ffd633') + 1;
     sx = seg(sx, `RM:${inv.rm}`,                           '#ff9933') + 1;
     sx = seg(sx, `WG:${inv.widgets}/${cap.widgets}`,       widgetFg)  + 1;
     sx = seg(sx, `D:${state.rmPurchasedToday}/${state.skills.bulkRM ? 200 : 100}`, '#ff9933') + 1;
@@ -391,7 +410,7 @@ function drawStatusBar() {
       }
     }
   } else {
-    sx = seg(sx, `Credits: ${state.player.credits}`,       '#ffd633') + 4;
+    sx = seg(sx, `Credits: ${formatCredits(state.player.credits)}`,       '#ffd633') + 4;
     sx = seg(sx, `Raw: ${inv.rm}`,                         '#ff9933') + 4;
     sx = seg(sx, `Widgets: ${inv.widgets}/${cap.widgets}`, widgetFg)  + 4;
          seg(sx, `Day ${state.day}`,                       BRIGHT_WHITE);
@@ -1381,7 +1400,7 @@ function checkPhase3Trigger() {
     state.stations.bank = { unlocked: true };
     calculateDailyDemand();
     addLog('The bank lights come on for the first time.', '#66cc66');
-    setTimeout(() => addLog('New options are becoming available.', '#66cc66'), 2000);
+    setTimeout(() => addLog('New possibilities are available.', '#66cc66'), 2000);
     setTimeout(() => {
       colorInStation('BK', '#555555', '#66cc66');
       setTimeout(animateBankPath, 1000);
@@ -1449,7 +1468,7 @@ function sellWidgets(n) {
   state.player.inventory.widgets -= n;
   state.lifetimeCreditsEarned    += earned;
   if (state.phase >= 3) state.widgetsSoldToday += n;
-  addLog(`Sold ${n} widget${n !== 1 ? 's' : ''} for ${earned}cr.`, BRIGHT_CYAN);
+  addLog(`Sold ${n} widget${n !== 1 ? 's' : ''} for ${formatCredits(earned)}cr.`, BRIGHT_CYAN);
   if (isFirstSale) addLog('> First sale. There\'s something to this.', '#cc66cc');
   drawStatusBar();
   { const mtD = STATION_DEFS.find(s => s.label === 'MT'); if (mtD) effectsManager.creditRain(mtD.x + 1, mtD.y + 2, n, isFirstSale, earned); }
@@ -2119,7 +2138,7 @@ function openBankMenu() {
     line(14, `6. Refinance loan          ${can6 ? '[within refi window]' : (!loan ? '[no loan]' : (loan.rate >= 0.05 ? '[rate cap reached]' : '[>5 days to deadline]'))}`, can6 ? '#ff9933' : WC);
 
     if (state.debt > 0) {
-      line(16, `Outstanding debt: ${state.debt}cr`, '#ff5555');
+      line(16, `Outstanding debt: ${formatCredits(state.debt)}cr`, '#ff5555');
     }
 
     centered(BOX_H-2, 'ESC to close', WC);
@@ -2869,7 +2888,7 @@ function showInventory() {
     const SYM_W = 10;
     const syms  = Math.min(Math.floor(value / 10), SYM_W);
     const lbl   = label.padEnd(15);
-    const val   = `${value}cr`.padStart(7);
+    const val   = `${formatCredits(value)}cr`.padStart(7);
     for (let i = 0; i < 15; i++) display.draw(CONT_X+i, BOX_Y+row, lbl[i], WC, BG);
     for (let i = 0; i < SYM_W; i++) {
       display.draw(CONT_X+16+i, BOX_Y+row, i < syms ? sym : ' ', i < syms ? symFg : WC, BG);
@@ -2914,7 +2933,7 @@ function showInventory() {
     const costLine  = `Storage cost/day: ${costPerDay}cr`;
     for (let i = 0; i < costLine.length; i++) display.draw(CONT_X+i, BOX_Y+13, costLine[i], '#ff5555', BG);
     if (state.debt > 0) {
-      const debtLine = `Debt: ${state.debt}cr`;
+      const debtLine = `Debt: ${formatCredits(state.debt)}cr`;
       for (let i = 0; i < debtLine.length; i++) display.draw(CONT_X+i, BOX_Y+14, debtLine[i], '#ff5555', BG);
     }
   }
@@ -3097,7 +3116,7 @@ function tickCouriers() {
           state.lifetimeCreditsEarned += earned;
           if (state.phase >= 3) state.widgetsSoldToday += n;
           c.carryWidgets -= n;
-          addLog(`Courier sold ${n} widget${n !== 1 ? 's' : ''} for ${earned}cr.`, '#66cc66');
+          addLog(`Courier sold ${n} widget${n !== 1 ? 's' : ''} for ${formatCredits(earned)}cr.`, '#66cc66');
           drawStatusBar();
           { const mtD = STATION_DEFS.find(s => s.label === 'MT'); if (mtD) effectsManager.creditRain(mtD.x + 1, mtD.y + 2, n, false, earned); }
           checkPhase2Trigger();
@@ -3286,6 +3305,33 @@ function showPauseMenu() {
   window.addEventListener('keydown', pauseKeyHandler);
 }
 
+// ── Day/night full-screen flash (§3.4) ───────────────────────────────────────
+
+let dayNightFlash = null; // { stages:[{glyph,color,frames}], stageIdx, frameCt }
+
+function startDayNightFlash(type) {
+  const dawn = type === 'open';
+  dayNightFlash = {
+    stages: [
+      { glyph: '░', color: dawn ? '#ffd633'   : '#334466',   frames: 4 },
+      { glyph: '·', color: dawn ? '#ffdd6644' : '#33446644', frames: 4 },
+      { glyph: '░', color: dawn ? '#ffdd6622' : '#33446622', frames: 4 },
+    ],
+    stageIdx: 0,
+    frameCt:  0,
+  };
+  _applyDayNightStage();
+}
+
+function _applyDayNightStage() {
+  if (!dayNightFlash) return;
+  const s = dayNightFlash.stages[dayNightFlash.stageIdx];
+  if (!s) return;
+  for (let y = 0; y < WORLD_ROWS; y++)
+    for (let x = 0; x < DISPLAY_WIDTH; x++)
+      display.draw(x, y, s.glyph, s.color, BG);
+}
+
 // ── Tick loop — 1 tick/second (§7.1) ─────────────────────────────────────────
 
 setInterval(() => {
@@ -3296,7 +3342,7 @@ setInterval(() => {
   if (state.dayTick >= 240) { state.dayTick = 0; state.day++; state.bellFiredToday = false; state.rmPurchasedToday = 0; state.rmLimitLogged = false; state.widgetsSoldToday = 0; state.demandMetLogged = false; }
   const prevMarketOpen = state.marketOpen;
   state.marketOpen = state.dayTick < 180;
-  if (state.marketOpen !== prevMarketOpen) effectsManager.dayNightSweep(state.marketOpen ? 'open' : 'close');
+  if (state.marketOpen !== prevMarketOpen) startDayNightFlash(state.marketOpen ? 'open' : 'close');
   if (state.dayTick === 0 && !state.bellFiredToday) {
     state.bellFiredToday = true;
     addLog('The morning bell has rung.', BRIGHT_CYAN);
@@ -3573,5 +3619,44 @@ setInterval(() => {
 // ── Effects render loop — runs at ~60fps independent of game tick ─────────────
 ;(function effectsLoop(ts) {
   effectsManager.render(display);
+
+  // Scroll-in: advance pendingLine only when world is active (not paused, not look mode)
+  const logActive = state.gameState === 'playing' || state.gameState === 'crafting' ||
+                    state.gameState === 'dashboard' || state.gameState === 'menu' ||
+                    state.gameState === 'inventory';
+  if (pendingLine && logActive) {
+    pendingLine.charsRevealed = Math.min(pendingLine.charsRevealed + LOG_SCROLL_SPEED, pendingLine.text.length);
+    renderLog();
+    if (pendingLine.charsRevealed >= pendingLine.text.length) {
+      state.logLines.push({ text: pendingLine.text, color: pendingLine.color });
+      if (state.logLines.length > 5) state.logLines.shift();
+      pendingLine = null;
+      if (logQueue.length > 0) pendingLine = { ...logQueue.shift(), charsRevealed: 0 };
+    }
+  }
+
+  // Day/night full-screen flash advance
+  if (dayNightFlash) {
+    dayNightFlash.frameCt++;
+    const stage = dayNightFlash.stages[dayNightFlash.stageIdx];
+    if (stage && dayNightFlash.frameCt >= stage.frames) {
+      dayNightFlash.frameCt = 0;
+      dayNightFlash.stageIdx++;
+      if (dayNightFlash.stageIdx >= dayNightFlash.stages.length) {
+        // Flash complete — restore full map
+        for (let y = 0; y < WORLD_ROWS; y++)
+          for (let x = 0; x < DISPLAY_WIDTH; x++)
+            markDirty(x, y);
+        renderDirty();
+        display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
+        for (const w of state.workers.apprentices) display.draw(w.x, w.y, 'a', '#66ccff', BG);
+        for (const c of state.workers.couriers)    display.draw(c.x, c.y, 'c', '#cc66cc', BG);
+        dayNightFlash = null;
+      } else {
+        _applyDayNightStage();
+      }
+    }
+  }
+
   requestAnimationFrame(effectsLoop);
 })(0);
