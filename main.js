@@ -94,6 +94,7 @@ const state = {
   debt:                 0,
   debtDaysUnpaid:       0,
   demandCrashOccurred:  false,
+  demandHistory:        [],
   widgetsMade:          0,
   peakCredits:          0,
   bank: { deposit: 0, loan: null },
@@ -106,10 +107,13 @@ const state = {
     workerSpeed:  0,
     courierCarry: 0,
     courierSpeed: 0,
-    storageExp1:  0,
-    storageExp2:  0,
-    reducedCarry: 0,
-    discountDump: 0,
+    storageExp1:    0,
+    storageExp2:    0,
+    reducedCarry:   0,
+    discountDump:   0,
+    demandHistory:  0,
+    forecast:       0,
+    bulkRM:         0,
   },
 };
 
@@ -150,6 +154,7 @@ function saveGame() {
     debt:                 state.debt,
     debtDaysUnpaid:       state.debtDaysUnpaid,
     demandCrashOccurred:  state.demandCrashOccurred,
+    demandHistory:        state.demandHistory,
     widgetsMade:          state.widgetsMade,
     peakCredits:          state.peakCredits,
     bank:                 state.bank,
@@ -195,6 +200,7 @@ function loadGame() {
     state.debt                 = data.debt                 ?? 0;
     state.debtDaysUnpaid       = data.debtDaysUnpaid       ?? 0;
     state.demandCrashOccurred  = data.demandCrashOccurred  ?? false;
+    state.demandHistory        = data.demandHistory        ?? [];
     state.widgetsMade          = data.widgetsMade          ?? 0;
     state.peakCredits          = data.peakCredits          ?? 0;
     state.bank                 = data.bank                 ?? { deposit: 0, loan: null };
@@ -205,10 +211,13 @@ function loadGame() {
     state.workers.couriers     = state.workers.couriers ?? []; // normalise old saves
     state.skills               = data.skills            ?? { apprentice: 0, courier: 0, workerCarry: 0, workerSpeed: 0, courierCarry: 0, courierSpeed: 0, storageExp1: 0, storageExp2: 0, reducedCarry: 0, discountDump: 0 };
     // normalise old saves missing phase-3 skill keys
-    state.skills.storageExp1   = state.skills.storageExp1  ?? 0;
-    state.skills.storageExp2   = state.skills.storageExp2  ?? 0;
-    state.skills.reducedCarry  = state.skills.reducedCarry ?? 0;
-    state.skills.discountDump  = state.skills.discountDump ?? 0;
+    state.skills.storageExp1    = state.skills.storageExp1    ?? 0;
+    state.skills.storageExp2    = state.skills.storageExp2    ?? 0;
+    state.skills.reducedCarry   = state.skills.reducedCarry   ?? 0;
+    state.skills.discountDump   = state.skills.discountDump   ?? 0;
+    state.skills.demandHistory  = state.skills.demandHistory  ?? 0;
+    state.skills.forecast       = state.skills.forecast       ?? 0;
+    state.skills.bulkRM         = state.skills.bulkRM         ?? 0;
   } catch (_) {
     // corrupt save — start fresh
   }
@@ -335,7 +344,7 @@ function drawStatusBar() {
     sx = seg(sx, `CR:${state.player.credits}`,            '#ffd633') + 1;
     sx = seg(sx, `RM:${inv.rm}`,                           '#ff9933') + 1;
     sx = seg(sx, `WG:${inv.widgets}/${cap.widgets}`,       widgetFg)  + 1;
-    sx = seg(sx, `D:${state.rmPurchasedToday}/100`,        '#ff9933') + 1;
+    sx = seg(sx, `D:${state.rmPurchasedToday}/${state.skills.bulkRM ? 200 : 100}`, '#ff9933') + 1;
     sx = seg(sx, `W:${activeW}`,                           '#66ccff') + 1;
     sx = seg(sx, `C:${activeC}`,                           '#cc66cc') + 1;
     sx = seg(sx, `ST:${state.storage.widgets}/50`,         '#66ccff') + 1;
@@ -818,12 +827,13 @@ function resetState() {
   state.debt                 = 0;
   state.debtDaysUnpaid       = 0;
   state.demandCrashOccurred  = false;
+  state.demandHistory        = [];
   state.widgetsMade          = 0;
   state.peakCredits          = 0;
   state.bank                 = { deposit: 0, loan: null };
   state.audio            = { muted: false };
   state.workers = { apprentices: [], couriers: [] };
-  state.skills = { apprentice: 0, courier: 0, workerCarry: 0, workerSpeed: 0, courierCarry: 0, courierSpeed: 0, storageExp1: 0, storageExp2: 0, reducedCarry: 0, discountDump: 0 };
+  state.skills = { apprentice: 0, courier: 0, workerCarry: 0, workerSpeed: 0, courierCarry: 0, courierSpeed: 0, storageExp1: 0, storageExp2: 0, reducedCarry: 0, discountDump: 0, demandHistory: 0, forecast: 0, bulkRM: 0 };
   const fcDef = STATION_DEFS.find(s => s.label === 'FC');
   const stDef = STATION_DEFS.find(s => s.label === 'ST');
   const bkDef = STATION_DEFS.find(s => s.label === 'BK');
@@ -1147,7 +1157,8 @@ function isAdjacentToStation(s) {
 function openRMShedMenu() {
   const COST      = 3;
   const rmSpace   = state.player.inventoryCaps.rm - state.player.inventory.rm;
-  const dailyLeft = state.phase >= 2 ? Math.max(0, 100 - state.rmPurchasedToday) : Infinity;
+  const rmDailyCap = state.skills.bulkRM ? 200 : 100;
+  const dailyLeft  = state.phase >= 2 ? Math.max(0, rmDailyCap - state.rmPurchasedToday) : Infinity;
   const maxBuy    = Math.min(rmSpace, Math.floor(state.player.credits / COST),
                              dailyLeft === Infinity ? Infinity : dailyLeft);
   const canBuy1   = state.player.credits >= COST && rmSpace > 0 && dailyLeft > 0;
@@ -1304,6 +1315,8 @@ function calculateDailyDemand() {
   state.demand      = Math.max(5, Math.round(raw));
   state.marketPrice = Math.round(8 * Math.pow(state.demand / 50, 0.5) * 10) / 10;
   if (state.demand < 20) state.demandCrashOccurred = true;
+  state.demandHistory.push({ day: state.day, demand: state.demand, price: state.marketPrice });
+  if (state.demandHistory.length > 30) state.demandHistory.shift();
 }
 
 function checkPhase3Trigger() {
@@ -1356,6 +1369,97 @@ function sellWidgets(n) {
   checkPhase2Trigger();
 }
 
+// ── Demand history / forecast screens (§5.5) ─────────────────────────────────
+
+function drawDemandChart(title, rows, subtitle) {
+  state.gameState = 'menu';
+  const BOX_W  = 52;
+  const BOX_H  = 4 + rows.length + 4;
+  const BOX_X  = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
+  const BOX_Y  = Math.max(2, Math.floor((WORLD_ROWS - BOX_H) / 2));
+  const CONT_X = BOX_X + 2;
+  const CONT_W = BOX_W - 4;
+  const WC     = '#555555';
+
+  display.draw(BOX_X, BOX_Y, '+', WC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y, '+', WC, BG);
+  for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, BOX_Y, '-', WC, BG);
+  const bY = BOX_Y + BOX_H - 1;
+  display.draw(BOX_X, bY, '+', WC, BG); display.draw(BOX_X+BOX_W-1, bY, '+', WC, BG);
+  for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, bY, '-', WC, BG);
+  for (let y = 1; y < BOX_H-1; y++) {
+    display.draw(BOX_X, BOX_Y+y, '|', WC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y+y, '|', WC, BG);
+    for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, BOX_Y+y, ' ', BRIGHT_WHITE, BG);
+  }
+
+  const tX = CONT_X + Math.floor((CONT_W - title.length) / 2);
+  for (let i = 0; i < title.length; i++) display.draw(tX+i, BOX_Y+1, title[i], BRIGHT_CYAN, BG);
+  if (subtitle) {
+    const sX = CONT_X + Math.floor((CONT_W - subtitle.length) / 2);
+    for (let i = 0; i < subtitle.length; i++) display.draw(sX+i, BOX_Y+2, subtitle[i], WC, BG);
+  }
+
+  const BAR_W = 10;
+  for (let i = 0; i < rows.length; i++) {
+    const { label, demand, price, isForecast } = rows[i];
+    const dl     = demandLabel(demand);
+    const filled = Math.min(Math.round(demand / 100 * BAR_W), BAR_W);
+    let cx = CONT_X;
+    const row = BOX_Y + 3 + i;
+    // day label
+    for (let j = 0; j < label.length; j++) display.draw(cx+j, row, label[j], WC, BG);
+    cx += label.length + 1;
+    // bar
+    for (let b = 0; b < BAR_W; b++) {
+      const ch = b < filled ? '█' : '░';
+      display.draw(cx+b, row, ch, b < filled ? dl.fg : '#333333', BG);
+    }
+    cx += BAR_W + 1;
+    // demand + price + label
+    const info = `D:${String(demand).padStart(3)}  P:${String(price).padStart(5)}cr  ${dl.text}`;
+    for (let j = 0; j < info.length; j++) display.draw(cx+j, row, info[j], dl.fg, BG);
+  }
+
+  const esc = '[ ESC to close ]';
+  const eX = CONT_X + Math.floor((CONT_W - esc.length) / 2);
+  for (let i = 0; i < esc.length; i++) display.draw(eX+i, BOX_Y+BOX_H-2, esc[i], WC, BG);
+
+  function close() {
+    window.removeEventListener('keydown', chartKeyHandler);
+    for (let y = BOX_Y; y < BOX_Y + BOX_H; y++)
+      for (let x = BOX_X; x < BOX_X + BOX_W; x++)
+        if (y < WORLD_ROWS) markDirty(x, y);
+    renderDirty();
+    display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
+    state.gameState = 'playing';
+  }
+  function chartKeyHandler(e) { if (e.key === 'Escape') close(); }
+  window.addEventListener('keydown', chartKeyHandler);
+}
+
+function showDemandHistoryScreen() {
+  const hist = state.demandHistory.slice(-7).reverse();
+  if (hist.length === 0) {
+    addLog('No demand history yet.', '#555555');
+    return;
+  }
+  const rows = hist.map(h => ({
+    label: `Day ${String(h.day).padStart(2)}  `,
+    demand: h.demand,
+    price: h.price,
+  }));
+  drawDemandChart('– DEMAND HISTORY (last 7 days) –', rows, null);
+}
+
+function showForecastScreen() {
+  const rows = [];
+  for (let d = 1; d <= 7; d++) {
+    const expD  = Math.max(5, Math.round(50 + 30 * Math.sin((state.day + d) / 7 * 2 * Math.PI)));
+    const expP  = Math.round(8 * Math.pow(expD / 50, 0.5) * 10) / 10;
+    rows.push({ label: `Day ${String(state.day + d).padStart(2)}  `, demand: expD, price: expP });
+  }
+  drawDemandChart('– 7-DAY FORECAST –', rows, 'Actual results will vary.');
+}
+
 function openMarketMenu() {
   const widgets = state.player.inventory.widgets;
   const price   = state.marketPrice;
@@ -1378,19 +1482,14 @@ function openMarketMenu() {
   const title = dl ? `Market — Demand: ${dl.text}` : 'Market';
   const avail = state.phase >= 3 ? Math.min(widgets, state.demand - state.widgetsSoldToday) : widgets;
 
-  showMenu(title, [
-    {
-      label:   `Sell 1 widget (+${price}cr)`,
-      enabled: true,
-      action:  () => sellWidgets(1),
-    },
-    {
-      label:   `Sell max (+${avail * price}cr)`,
-      enabled: true,
-      action:  () => sellWidgets(avail),
-    },
-    { label: 'Cancel', enabled: true, action: () => {} },
-  ]);
+  const opts = [
+    { label: `Sell 1 widget (+${price}cr)`,    enabled: true, action: () => sellWidgets(1) },
+    { label: `Sell max (+${avail * price}cr)`, enabled: true, action: () => sellWidgets(avail) },
+  ];
+  if (state.skills.demandHistory) opts.push({ label: 'View Demand History', enabled: true, action: showDemandHistoryScreen });
+  if (state.skills.forecast)      opts.push({ label: 'View Forecast',       enabled: true, action: showForecastScreen });
+  opts.push({ label: 'Cancel', enabled: true, action: () => {} });
+  showMenu(title, opts);
 }
 
 // ── Office skill tree (§5.3) ──────────────────────────────────────────────────
@@ -1404,8 +1503,11 @@ const OFFICE_NODES = [
   { num: 6, name: 'Courier Speed +0.5',   cost: 100, key: 'courierSpeed', max: 4,  minPhase: 2 },
   { num: 7, name: 'Storage Expansion I',  cost: 200, key: 'storageExp1',  max: 1,  minPhase: 3 },
   { num: 8, name: 'Storage Expansion II', cost: 500, key: 'storageExp2',  max: 1,  minPhase: 3, requires: 'storageExp1', requiresLabel: 'Expansion I' },
-  { num: 9, name: 'Reduced Carry Cost',   cost: 300, key: 'reducedCarry', max: 1,  minPhase: 3 },
-  { num:10, name: 'Market Discount Dump', cost: 250, key: 'discountDump', max: 1,  minPhase: 3 },
+  { num: 9, name: 'Reduced Carry Cost',   cost:  300, key: 'reducedCarry',   max: 1, minPhase: 3 },
+  { num:10, name: 'Market Discount Dump', cost:  250, key: 'discountDump',   max: 1, minPhase: 3 },
+  { num:11, name: 'Demand History',       cost:   50, key: 'demandHistory',  max: 1, minPhase: 3, inputKey: 'a' },
+  { num:12, name: '7-Day Forecast',       cost: 1500, key: 'forecast',       max: 1, minPhase: 3, inputKey: 'b' },
+  { num:13, name: 'Bulk RM Contract',     cost:  500, key: 'bulkRM',         max: 1, minPhase: 3, inputKey: 'c' },
 ];
 
 function showOfficeMenu() {
@@ -1464,7 +1566,8 @@ function showOfficeMenu() {
       } else {
         fg = '#66cc66'; suffix = '[Available]';
       }
-      const line = `${node.num}. ${label.padEnd(26)} ${costStr} ${suffix}`;
+      const keyDisp = node.inputKey ? `${node.inputKey}.` : `${node.num === 10 ? '0' : node.num}.`;
+      const line = `${keyDisp} ${label.padEnd(26)} ${costStr} ${suffix}`;
       for (let j = 0; j < line.length; j++) display.draw(CONT_X + j, BOX_Y + 5 + i, line[j], fg, BG);
     }
 
@@ -1488,8 +1591,11 @@ function showOfficeMenu() {
 
   function officeKeyHandler(e) {
     if (e.key === 'Escape') { closeOffice(); return; }
-    const pressedNum = e.key === '0' ? 10 : parseInt(e.key);
-    const node = visibleNodes.find(n => n.num === pressedNum);
+    const node = visibleNodes.find(n => {
+      if (n.inputKey) return e.key === n.inputKey;
+      const pressedNum = e.key === '0' ? 10 : parseInt(e.key);
+      return n.num === pressedNum;
+    });
     if (!node) return;
     if (!state.officeUnlocked) return;
     if (node.requires && !state.skills[node.requires]) return;
@@ -1537,7 +1643,16 @@ function showOfficeMenu() {
 function handlePonder() {
   const inv = state.player.inventory;
   let hint;
-  if (state.lifetimeCreditsEarned === 0) {
+  // Phase 3 urgent hints first
+  if (state.phase >= 3 && state.bank.loan && (state.bank.loan.deadline - state.day) <= 5) {
+    hint = 'The bank will want its money soon.';
+  } else if (state.phase >= 3 && state.debt > 0) {
+    hint = 'You owe more than you have. The bank may help — or make things worse.';
+  } else if (state.phase >= 3 && state.demand < 20) {
+    hint = 'The market is weak today. Holding widgets costs you. Consider your options.';
+  } else if (state.phase >= 3 && state.storage.widgets > state.storage.widgetCap * 0.8) {
+    hint = 'Your storage is getting heavy. Every widget in there costs you at dusk.';
+  } else if (state.lifetimeCreditsEarned === 0) {
     hint = 'The shed to the north sells raw materials. The workbench crafts them.';
   } else if (inv.rm > 0 && inv.widgets === 0) {
     hint = "Those materials won't shape themselves. The workbench is waiting.";
