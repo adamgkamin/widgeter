@@ -81,6 +81,9 @@ const state = {
   },
   officeUnlocked: false,
   storage: { widgets: 0, rm: 0, widgetCap: 50, rmCap: 50 },
+  workbenchWidgets: 0,
+  productionHalted: false,
+  wbFullLogged:     false,
   workers: { apprentices: [], couriers: [] },
   skills: {
     apprentice:   0,
@@ -116,6 +119,9 @@ function saveGame() {
     stations:             state.stations,
     officeUnlocked:       state.officeUnlocked,
     storage:              state.storage,
+    workbenchWidgets:     state.workbenchWidgets,
+    productionHalted:     state.productionHalted,
+    wbFullLogged:         state.wbFullLogged,
     workers:              state.workers,
     skills:               state.skills,
   };
@@ -144,6 +150,9 @@ function loadGame() {
     state.stations             = data.stations          ?? { factory: { unlocked: false }, storage: { unlocked: false } };
     state.officeUnlocked       = data.officeUnlocked    ?? false;
     state.storage              = data.storage           ?? { widgets: 0, rm: 0, widgetCap: 50, rmCap: 50 };
+    state.workbenchWidgets     = data.workbenchWidgets  ?? 0;
+    state.productionHalted     = data.productionHalted  ?? false;
+    state.wbFullLogged         = data.wbFullLogged       ?? false;
     state.workers              = data.workers           ?? { apprentices: [], couriers: [] };
     state.workers.couriers     = state.workers.couriers ?? []; // normalise old saves
     state.skills               = data.skills            ?? { apprentice: 0, courier: 0, workerCarry: 0, workerSpeed: 0, courierCarry: 0, courierSpeed: 0 };
@@ -709,6 +718,9 @@ function resetState() {
   state.stations = { factory: { unlocked: false }, storage: { unlocked: false } };
   state.officeUnlocked = false;
   state.storage = { widgets: 0, rm: 0, widgetCap: 50, rmCap: 50 };
+  state.workbenchWidgets = 0;
+  state.productionHalted = false;
+  state.wbFullLogged     = false;
   state.workers = { apprentices: [], couriers: [] };
   state.skills = { apprentice: 0, courier: 0, workerCarry: 0, workerSpeed: 0, courierCarry: 0, courierSpeed: 0 };
   const fcDef = STATION_DEFS.find(s => s.label === 'FC');
@@ -1705,7 +1717,7 @@ function tickApprentices() {
     markDirty(w.x, w.y); // erase from old position
 
     // Idle → fetching
-    if (w.workerState === 'idle') {
+    if (w.workerState === 'idle' && !state.productionHalted) {
       w.target = { ...rmDoor };
       w.workerState = 'fetching';
     }
@@ -1752,16 +1764,24 @@ function tickApprentices() {
 
     // Crafting
     if (w.workerState === 'crafting') {
-      w.craftTimer--;
-      if (w.craftTimer <= 0) {
-        const storageCap = state.stations.storage.unlocked
-          ? state.storage.widgetCap : 20;
-        if (state.storage.widgets < storageCap) state.storage.widgets++;
-        w.carryRM--;
-        if (w.carryRM > 0) {
-          w.craftTimer = 3;
-        } else {
-          w.workerState = 'idle';
+      const stUnlocked = state.stations.storage.unlocked;
+      const depositFull = stUnlocked
+        ? state.storage.widgets >= state.storage.widgetCap
+        : state.workbenchWidgets >= 20;
+      if (depositFull) {
+        if (!stUnlocked && !state.wbFullLogged) {
+          state.wbFullLogged = true;
+          addLog('Workbench full. Waiting for pickup.', '#ff5555');
+        }
+      } else {
+        if (!stUnlocked) state.wbFullLogged = false;
+        w.craftTimer--;
+        if (w.craftTimer <= 0) {
+          if (stUnlocked) state.storage.widgets++;
+          else             state.workbenchWidgets++;
+          w.carryRM--;
+          if (w.carryRM > 0) { w.craftTimer = 3; }
+          else                { w.workerState = 'idle'; }
         }
       }
     }
@@ -1843,6 +1863,21 @@ function tickCouriers() {
   }
 }
 
+// ── Production constraints (§5.3) ────────────────────────────────────────────
+
+function checkProductionHalt() {
+  if (state.storage.widgets >= state.storage.widgetCap) {
+    if (!state.productionHalted) {
+      state.productionHalted = true;
+      for (const w of state.workers.apprentices) w.workerState = 'idle';
+      addLog('Storage full. Production halted.', '#ff5555');
+    }
+  } else if (state.productionHalted) {
+    state.productionHalted = false;
+    addLog('Storage space available. Production resuming.', '#66cc66');
+  }
+}
+
 // ── Tick loop — 1 tick/second (§7.1) ─────────────────────────────────────────
 
 setInterval(() => {
@@ -1889,6 +1924,7 @@ setInterval(() => {
     for (const c of state.workers.couriers)    display.draw(c.x, c.y, 'c', '#cc66cc', BG);
     display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
   }
+  checkProductionHalt();
 
   // Ambient flavor events — §13
   if (state.tick - state.lastAmbientTick  > state.nextAmbientDelay &&
