@@ -129,9 +129,11 @@
       "wall": "The Office frame, plain gray. It's waiting for something.",
       "label": "The Office. A skill tree you haven't unlocked yet. The corkboard inside is full of crossed-out plans."
     },
-    "FC": {
-      "wall": "A large building, shuttered. The sign above the entrance has faded to illegibility.",
-      "label": "The factory floor. Empty now. The machinery is covered in cloth."
+    "LF": {
+      "wall": "A reinforced wall. Built to withstand something significant.",
+      "door": "The entrance to the Launch Facility. The air smells of fuel and ambition.",
+      "body": "The rocket. It has been here longer than you realized. It was always going to end this way.",
+      "label": "The Launch Facility. Whatever this was built for, it is almost ready."
     },
     "ST": {
       "wall": "A warehouse. The padlock on the door is heavy and new. Someone was expecting to use it.",
@@ -154,7 +156,7 @@
     "45,38": "Three words written in chalk on the ground, faded almost to nothing. You can make out the first: 'Remember'."
   },
   "locked": {
-    "factory": "A large building with dark windows. Whatever ran here ran hard. The smell of old machine oil hasn't left.",
+    "launch_facility": "A large structure in the corner, shrouded in canvas. Something tall is underneath. The canvas smells of grease and oxidizer.",
     "storage": "A warehouse you don't have keys for yet. The padlock is new. Someone anticipated filling this.",
     "bank": "A stone building. The hours are posted on the door but the times have been scratched out.",
     "derivatives": "A terminal behind a locked panel. The screen is dark. You press a key. Nothing. You try again. Still nothing.",

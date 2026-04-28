@@ -89,9 +89,13 @@ const state = {
   nextAmbientDelay:  45, // first ambient fires after ~45s
   stepsWalked:       0,
   stations: {
-    factory: { unlocked: false },
+    launch_facility: { unlocked: false },
     storage: { unlocked: false },
   },
+  rocketWidgets:       0,
+  rocketFull:          false,
+  courierDestination:  'market',  // 'market' | 'rocket'
+  rocketAnimFrame:     0,
   officeUnlocked: false,
   storage: { widgets: 0, rm: 0, widgetCap: 50, rmCap: 50 },
   workbenchWidgets:  0,
@@ -194,6 +198,9 @@ function saveGame() {
     audio:                state.audio,
     workers:              state.workers,
     stats:                state.stats,
+    rocketWidgets:        state.rocketWidgets,
+    rocketFull:           state.rocketFull,
+    courierDestination:   state.courierDestination,
     skills:               state.skills,
   };
   localStorage.setItem(SAVE_KEY, JSON.stringify(data));
@@ -218,7 +225,8 @@ function loadGame() {
     state.lastNarrativeTick    = data.lastNarrativeTick ?? 0;
     state.nextAmbientDelay     = data.nextAmbientDelay  ?? 45;
     state.stepsWalked          = data.stepsWalked       ?? 0;
-    state.stations             = data.stations          ?? { factory: { unlocked: false }, storage: { unlocked: false } };
+    state.stations             = data.stations          ?? { launch_facility: { unlocked: false }, storage: { unlocked: false } };
+    state.stations.launch_facility = state.stations.launch_facility ?? { unlocked: false };
     state.officeUnlocked       = data.officeUnlocked    ?? false;
     state.storage              = data.storage           ?? { widgets: 0, rm: 0, widgetCap: 50, rmCap: 50 };
     state.workbenchWidgets     = data.workbenchWidgets  ?? 0;
@@ -255,6 +263,9 @@ function loadGame() {
     state.workers              = data.workers           ?? { apprentices: [], couriers: [] };
     state.workers.couriers     = state.workers.couriers ?? []; // normalise old saves
     state.stats                = data.stats ?? { rmLastTen: [], widgetsLastTen: [], creditsLastTen: [], widgetsMadeToday: 0, revenueToday: 0, costsToday: 0 };
+    state.rocketWidgets        = data.rocketWidgets       ?? 0;
+    state.rocketFull           = data.rocketFull          ?? false;
+    state.courierDestination   = data.courierDestination  ?? 'market';
     state.stats.rmLastTen      = state.stats.rmLastTen      ?? [];
     state.stats.widgetsLastTen = state.stats.widgetsLastTen ?? [];
     state.stats.creditsLastTen = state.stats.creditsLastTen ?? [];
@@ -422,7 +433,10 @@ function drawStatusBar() {
       sx = seg(sx, `P:${state.marketPrice}cr`, '#66cc66') + 1;
       if (state.phase >= 4) {
         const pnl = state.derivatives.pnlToday;
-        seg(sx, `PnL:${pnl >= 0 ? '+' : ''}${pnl}cr`, '#cc66cc');
+        sx = seg(sx, `PnL:${pnl >= 0 ? '+' : ''}${pnl}cr`, '#cc66cc') + 1;
+      }
+      if (state.phase >= 5) {
+        seg(sx, `LF:${Math.floor(state.rocketWidgets / 1000)}k/1M`, '#ff5555');
       }
     }
   } else {
@@ -438,7 +452,7 @@ function drawStatusBar() {
 
 // Station definitions — single source of truth for layout and colors
 const STATION_DEFS = [
-  { x: 10, y: 30, label: 'FC', wc: DIM_GRAY,  lc: DIM_GRAY  },
+  { x: 66, y: 33, label: 'LF', wc: DIM_GRAY, lc: DIM_GRAY, wide: true },
   { x: 23, y: 32, label: 'ST', wc: DIM_GRAY,  lc: DIM_GRAY  },
   { x: 61, y:  4, label: 'BK', wc: DIM_GRAY,  lc: DIM_GRAY  },
   { x: 56, y: 16, label: 'DV', wc: DIM_GRAY,  lc: DIM_GRAY  },
@@ -499,7 +513,8 @@ function buildTileMap() {
       const reserved = (x >= 8  && x <= 13 && y >= 1  && y <= 5)
                     || (x >= 33 && x <= 38 && y >= 7  && y <= 11)
                     || (x >= 60 && x <= 65 && y >= 22 && y <= 26)
-                    || (x >= 22 && x <= 27 && y >= 16 && y <= 20);
+                    || (x >= 22 && x <= 27 && y >= 16 && y <= 20)
+                    || (x >= 63 && x <= 75 && y >= 31 && y <= 41); // LF clearance
       if (!reserved && ((x * 1664525 + y * 1013904223) >>> 16) % 100 < 8)
         tileMap[x][y] = mk('Y', '#2d5a2d', true);
     }
@@ -608,11 +623,9 @@ function buildTileMap() {
     tileMap[DISPLAY_WIDTH-1][y] = mk('#', DIM_GRAY, false);
   }
 
-  // Apply phase 2 unlock colors before stamping stations
+  // Apply phase unlock colors before stamping stations
   if (state.phase >= 2) {
-    const fc2 = STATION_DEFS.find(s => s.label === 'FC');
     const st2 = STATION_DEFS.find(s => s.label === 'ST');
-    if (fc2) { fc2.wc = '#555555'; fc2.lc = '#ff9933'; }
     if (st2) { st2.wc = '#555555'; st2.lc = '#66ccff'; }
   }
   if (state.phase >= 3) {
@@ -622,6 +635,10 @@ function buildTileMap() {
   if (state.phase >= 4) {
     const dv4 = STATION_DEFS.find(s => s.label === 'DV');
     if (dv4) { dv4.wc = '#555555'; dv4.lc = '#cc66cc'; }
+  }
+  if (state.phase >= 5) {
+    const lf5 = STATION_DEFS.find(s => s.label === 'LF');
+    if (lf5) { lf5.wc = '#f0f0f0'; lf5.lc = '#ff5555'; }
   }
 
   // Stations — §3.5 (overwrites floor/trees in their footprint)
@@ -642,12 +659,12 @@ function buildTileMap() {
       wall: 'The Office. Upgrades and skills are available here.',
       door: 'The Office door. It opens easier than it looks.',
     },
-    FC: { wall: 'A large building with dark windows. Whatever ran here ran hard. The smell of old machine oil hasn\'t left.' },
     ST: { wall: 'A warehouse, padlocked. Through the slats you can see empty pallets and a hand truck.' },
     BK: { wall: "Through the dusty window, you see a polished counter and a sign: 'NO INTEREST WITHOUT DEPOSIT.' The door is locked." },
     DV: { wall: "A glass-fronted building with screens displaying numbers you don't yet understand. The door is locked. A small plaque reads: 'AUTHORIZED PERSONNEL ONLY.'" },
   };
   for (const s of STATION_DEFS) {
+    if (s.wide) continue; // custom stamp handled separately
     tileMap[s.x  ][s.y]   = mk('+',        s.wc, false);
     tileMap[s.x+1][s.y]   = mk('-',        s.wc, false);
     tileMap[s.x+2][s.y]   = mk('-',        s.wc, false);
@@ -672,8 +689,58 @@ function buildTileMap() {
       tileMap[s.x+1][s.y+2].description = doorD;
     }
   }
+
+  // Stamp Launch Facility (8×6, custom footprint) — §4.2
+  stampLF();
 }
 
+// Draws the 8×6 Launch Facility tile footprint onto the tileMap
+function stampLF() {
+  const lf = STATION_DEFS.find(s => s.label === 'LF');
+  if (!lf) return;
+  const { x: lx, y: ly, wc, lc } = lf;
+  const mk = (glyph, fg, walkable) => ({ glyph, fg, bg: BG, walkable });
+  const locked = state.phase < 5;
+  const wallDesc = locked
+    ? 'A large structure in the corner, shrouded in canvas. Something tall is underneath. The canvas smells of grease and oxidizer.'
+    : 'A reinforced wall. Built to withstand something significant.';
+  const doorDesc = 'The entrance to the Launch Facility. The air smells of fuel and ambition.';
+  const bodyDesc = 'The rocket. It has been here longer than you realized. It was always going to end this way.';
+  // Top row: +------+
+  tileMap[lx  ][ly] = { ...mk('+', wc, false), description: wallDesc };
+  for (let dx = 1; dx <= 6; dx++) tileMap[lx+dx][ly] = { ...mk('-', wc, false), description: wallDesc };
+  tileMap[lx+7][ly] = { ...mk('+', wc, false), description: wallDesc };
+  // Middle rows (y+1 to y+4)
+  for (let dy = 1; dy <= 4; dy++) {
+    tileMap[lx  ][ly+dy] = { ...mk('|', wc, false), description: wallDesc };
+    for (let dx = 1; dx <= 6; dx++) tileMap[lx+dx][ly+dy] = { ...mk(' ', '#222222', false), description: locked ? wallDesc : bodyDesc };
+    tileMap[lx+7][ly+dy] = { ...mk('|', wc, false), description: wallDesc };
+  }
+  // Label row (y+1): LF centered
+  tileMap[lx+3][ly+1] = { ...mk('L', lc, false), description: locked ? wallDesc : bodyDesc };
+  tileMap[lx+4][ly+1] = { ...mk('F', lc, false), description: locked ? wallDesc : bodyDesc };
+  // Bottom row: +.-----+  door at lx+1
+  tileMap[lx  ][ly+5] = { ...mk('+', wc, false), description: wallDesc };
+  tileMap[lx+1][ly+5] = { ...mk('.', wc, true),  description: doorDesc };
+  for (let dx = 2; dx <= 6; dx++) tileMap[lx+dx][ly+5] = { ...mk('-', wc, false), description: wallDesc };
+  tileMap[lx+7][ly+5] = { ...mk('+', wc, false), description: wallDesc };
+}
+
+// Colors in the LF tiles after phase 5 unlock
+function colorInLF(wc, lc) {
+  const lf = STATION_DEFS.find(s => s.label === 'LF');
+  if (!lf) return;
+  lf.wc = wc; lf.lc = lc;
+  // Re-stamp with new colors and update descriptions
+  stampLF();
+  // Mark all LF tiles dirty
+  const { x: lx, y: ly } = lf;
+  for (let dy = 0; dy <= 5; dy++)
+    for (let dx = 0; dx <= 7; dx++)
+      markDirty(lx+dx, ly+dy);
+  renderDirty();
+  display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
+}
 
 // ── §3.4 Phase-in transition ──────────────────────────────────────────────────
 
@@ -877,7 +944,11 @@ function resetState() {
   state.marketOpen = true; state.phase = 1;
   state.lifetimeCreditsEarned = 0; state.logLines = []; state.bellFiredToday = false;
   state.lastAmbientTick = 0; state.lastNarrativeTick = 0; state.nextAmbientDelay = 45; state.stepsWalked = 0;
-  state.stations = { factory: { unlocked: false }, storage: { unlocked: false } };
+  state.stations = { launch_facility: { unlocked: false }, storage: { unlocked: false } };
+  state.rocketWidgets      = 0;
+  state.rocketFull         = false;
+  state.courierDestination = 'market';
+  state.rocketAnimFrame    = 0;
   state.officeUnlocked = false;
   state.storage = { widgets: 0, rm: 0, widgetCap: 50, rmCap: 50 };
   state.workbenchWidgets = 0;
@@ -905,10 +976,10 @@ function resetState() {
   state.workers = { apprentices: [], couriers: [] };
   state.stats = { rmLastTen: [], widgetsLastTen: [], creditsLastTen: [], widgetsMadeToday: 0, revenueToday: 0, costsToday: 0 };
   state.skills = { apprentice: 0, courier: 0, workerCarry: 0, workerSpeed: 0, courierCarry: 0, courierSpeed: 0, storageExp1: 0, storageExp2: 0, reducedCarry: 0, discountDump: 0, demandHistory: 0, forecast: 0, bulkRM: 0, futures: 0, optionsBuy: 0, optionsWrite: 0, volatilitySurface: 0 };
-  const fcDef = STATION_DEFS.find(s => s.label === 'FC');
+  const lfDef = STATION_DEFS.find(s => s.label === 'LF');
   const stDef = STATION_DEFS.find(s => s.label === 'ST');
   const bkDef = STATION_DEFS.find(s => s.label === 'BK');
-  if (fcDef) { fcDef.wc = DIM_GRAY; fcDef.lc = DIM_GRAY; }
+  if (lfDef) { lfDef.wc = DIM_GRAY; lfDef.lc = DIM_GRAY; }
   if (stDef) { stDef.wc = DIM_GRAY; stDef.lc = DIM_GRAY; }
   if (bkDef) { bkDef.wc = DIM_GRAY; bkDef.lc = DIM_GRAY; }
 }
@@ -1216,12 +1287,20 @@ function showMenu(title, options) {
 
 function isAdjacentToStation(s) {
   const { x: px, y: py } = state.player;
-  // Wall tiles of a 4×3 station (excludes door at s.x+1, s.y+2)
-  const walls = [
-    [s.x,   s.y],   [s.x+1, s.y],   [s.x+2, s.y],   [s.x+3, s.y],
-    [s.x,   s.y+1], [s.x+3, s.y+1],
-    [s.x,   s.y+2], [s.x+2, s.y+2], [s.x+3, s.y+2],
-  ];
+  let walls;
+  if (s.wide) {
+    // 8×6 footprint (LF): perimeter tiles excluding the door at (s.x+1, s.y+5)
+    walls = [];
+    for (let dx = 0; dx <= 7; dx++) walls.push([s.x+dx, s.y], [s.x+dx, s.y+5]);
+    for (let dy = 1; dy <= 4; dy++) walls.push([s.x, s.y+dy], [s.x+7, s.y+dy]);
+  } else {
+    // Standard 4×3 station
+    walls = [
+      [s.x,   s.y],   [s.x+1, s.y],   [s.x+2, s.y],   [s.x+3, s.y],
+      [s.x,   s.y+1], [s.x+3, s.y+1],
+      [s.x,   s.y+2], [s.x+2, s.y+2], [s.x+3, s.y+2],
+    ];
+  }
   return walls.some(([wx, wy]) => Math.abs(px - wx) <= 1 && Math.abs(py - wy) <= 1);
 }
 
@@ -1340,13 +1419,11 @@ function checkPhase2Trigger() {
   if (state.lifetimeCreditsEarned >= 100 && state.phase === 1) {
     state.phase = 2;
     state.officeUnlocked = true;
-    state.stations.factory.unlocked = true;
     state.stations.storage.unlocked = true;
     addLog('Something stirs. The Office door swings open.', '#cc66cc');
     setTimeout(() => addLog('You can afford to hire help.', '#cc66cc'), 2000);
     setTimeout(() => {
-      addLog('The Factory and Storage Warehouse are now available.', '#cc66cc');
-      colorInStation('FC', '#555555', '#ff9933');
+      addLog('The Storage Warehouse is now available.', '#cc66cc');
       colorInStation('ST', '#555555', '#66ccff');
     }, 4000);
   }
@@ -1395,6 +1472,21 @@ function checkPhase4Trigger() {
       addLog('The Derivatives Terminal is now open.', '#cc66cc');
       colorInStation('DV', '#555555', '#cc66cc');
     }, 4000);
+  }
+}
+
+function checkPhase5Trigger() {
+  if (state.phase === 4 && state.lifetimeCreditsEarned >= 10000) {
+    state.phase = 5;
+    addLog('Something has been under construction this whole time.', '#cc66cc');
+    setTimeout(() => addLog('The structure in the corner. You always wondered.', '#cc66cc'), 3000);
+    setTimeout(() => {
+      addLog('The Launch Facility is ready.', '#cc66cc');
+      colorInLF('#f0f0f0', '#ff5555');
+      state.stations.launch_facility.unlocked = true;
+      state.rocketWidgets = 0;
+      state.courierDestination = 'market';
+    }, 6000);
   }
 }
 
@@ -1581,7 +1673,7 @@ function showOfficeMenu() {
       { k: '3', nk: 'workerSpeed'  },
     ]},
     { header: 'WAREHOUSING', items: [
-      { k: null, label: 'Build Factory', cost: 'FREE', specialFn: () => state.phase >= 2 },
+      { k: null, label: 'Launch Facility', cost: 'AUTO', specialFn: () => state.phase >= 5 },
       { k: '4',  nk: 'storageExp1'  },
       { k: '5',  nk: 'storageExp2'  },
       { k: '6',  nk: 'reducedCarry' },
@@ -1768,6 +1860,17 @@ function showOfficeMenu() {
 function handlePonder() {
   const inv = state.player.inventory;
   let hint;
+  // Phase 5 — rocket hints
+  if (state.phase >= 5) {
+    const rw = state.rocketWidgets;
+    if (rw >= 1000000) { hint = 'The rocket is ready. [launch sequence coming soon]'; }
+    else if (state.courierDestination === 'market') { hint = 'The rocket waits. Credits won\'t matter where it\'s going.'; }
+    else if (rw >= 900000) { hint = 'Almost. Everything you built was for this.'; }
+    else if (rw >= 500000) { hint = 'Over halfway. You can feel something building.'; }
+    else if (rw >= 100000) { hint = 'You are committed now.'; }
+    else                   { hint = 'The rocket is loading. This will take time.'; }
+    wrapLog(hint, '#ff5555'); return;
+  }
   // Phase 4 derivative hints
   if (state.phase >= 4) {
     const fwds = state.derivatives.forwards;
@@ -2329,6 +2432,7 @@ function calculateVolatility() {
 // Module-level handle so tick loop can refresh the positions dashboard
 let dashboardRedrawFn  = null;
 let inventoryRedrawFn  = null;
+let lfMenuRedrawFn     = null;
 
 function checkAbstractionCollapse() {
   if (state.endingTriggered || state.derivatives.totalPnL < 50000) return;
@@ -2834,6 +2938,299 @@ function showForwardPositions() {
   window.addEventListener('keydown', posKeyHandler);
 }
 
+// ── Large digit renderer (§9) ─────────────────────────────────────────────────
+
+const LARGE_DIGITS = {
+  '0': [' ███ ','█   █',' ███ '],
+  '1': ['  █  ','  █  ','  █  '],
+  '2': ['████ ','  ███','████ '],
+  '3': ['████ ',' ███ ','████ '],
+  '4': ['█   █',' ████','    █'],
+  '5': [' ████','███  ',' ███ '],
+  '6': [' ████','████ ',' ███ '],
+  '7': ['████ ','   █ ','   █ '],
+  '8': [' ███ ',' ███ ',' ███ '],
+  '9': [' ███ ',' ████',' ███ '],
+  ',': ['     ','     ','  ,  '],
+  ' ': ['     ','     ','     '],
+};
+
+function renderLargeNumber(display, x, y, numberString, color) {
+  for (let ci = 0; ci < numberString.length; ci++) {
+    const ch    = numberString[ci];
+    const pat   = LARGE_DIGITS[ch] || LARGE_DIGITS[' '];
+    const ox    = x + ci * 6;
+    for (let row = 0; row < 3; row++) {
+      const line = pat[row];
+      for (let col = 0; col < 5; col++) {
+        const sx = ox + col, sy = y + row;
+        if (sx < 0 || sx >= DISPLAY_WIDTH || sy < 0 || sy >= DISPLAY_HEIGHT) continue;
+        display.draw(sx, sy, line[col] || ' ', color, BG);
+      }
+    }
+  }
+}
+
+// ── Launch Facility menu (§9) ─────────────────────────────────────────────────
+
+function openLFMenu() {
+  state.gameState = 'lf_menu';
+
+  const BOX_W  = 64;
+  const BOX_H  = 24;
+  const BOX_X  = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
+  const BOX_Y  = Math.max(2, Math.floor((WORLD_ROWS - BOX_H) / 2));
+  const IW     = BOX_W - 2; // 62 inner width
+  const RC     = '#ff5555'; // rocket red (border color)
+  const WC     = '#555555';
+  const DC     = '#333333';
+
+  function menuPad(str, width) {
+    if (str.length > width) return str.slice(0, width - 1) + '…';
+    return str.padEnd(width);
+  }
+
+  function drawInnerRow(row, text, fg) {
+    const abs  = BOX_Y + row;
+    const line = menuPad(text, IW);
+    for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, abs, line[i] || ' ', fg, BG);
+  }
+
+  function drawFrame() {
+    // Top border ╔═…═╗
+    display.draw(BOX_X, BOX_Y, '╔', RC, BG);
+    display.draw(BOX_X + BOX_W - 1, BOX_Y, '╗', RC, BG);
+    for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, BOX_Y, '═', RC, BG);
+    // Bottom border ╚═…═╝
+    const botY = BOX_Y + BOX_H - 1;
+    display.draw(BOX_X, botY, '╚', RC, BG);
+    display.draw(BOX_X + BOX_W - 1, botY, '╝', RC, BG);
+    for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, botY, '═', RC, BG);
+    // Side borders + clear interior
+    for (let r = 1; r < BOX_H - 1; r++) {
+      display.draw(BOX_X, BOX_Y + r, '║', RC, BG);
+      display.draw(BOX_X + BOX_W - 1, BOX_Y + r, '║', RC, BG);
+      for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, BOX_Y + r, ' ', BRIGHT_WHITE, BG);
+    }
+  }
+
+  // Rocket body art (col 3-19 within box, rows 3-20 within box)
+  // Each entry: [string, fg] — # chars replaced by █ in spec colors
+  const ROCKET_BODY = [
+    // row 3
+    ['     /\\     ', '#aaaaaa'],
+    // row 4
+    ['    /  \\    ', '#aaaaaa'],
+    // row 5
+    ['   | /\\ |   ', '#aaaaaa'],
+  ];
+  // We draw the rocket row-by-row with per-character color handling
+  function drawRocketRow(boxRow, str, defaultFg, redChars, whiteChars) {
+    const absY = BOX_Y + boxRow;
+    const startX = BOX_X + 3;
+    for (let i = 0; i < str.length; i++) {
+      const ch = str[i];
+      let fg = defaultFg;
+      if (redChars && redChars.has(i)) fg = '#ff5555';
+      else if (whiteChars && whiteChars.has(i)) fg = '#ffffff';
+      display.draw(startX + i, absY, ch, fg, BG);
+    }
+  }
+
+  function drawRocket() {
+    // Body rows (box rows 3-17)
+    drawRocketRow(3,  '     /\\     ', '#aaaaaa');
+    drawRocketRow(4,  '    /  \\    ', '#aaaaaa');
+    drawRocketRow(5,  '   | /\\ |   ', '#aaaaaa');
+    // rows 6-10: rocket body with red fills (positions 4-7 are █ in #ff5555)
+    drawRocketRow(6,  '   |/  \\|   ', '#aaaaaa', new Set([4,5,6,7]), null);
+    // override with actual red glyphs
+    const absY6 = BOX_Y + 6, bx = BOX_X + 3;
+    display.draw(bx+4, absY6, '█', '#ff5555', BG);
+    display.draw(bx+5, absY6, '█', '#ff5555', BG);
+    display.draw(bx+6, absY6, '█', '#ff5555', BG);
+    display.draw(bx+7, absY6, '█', '#ff5555', BG);
+    // rows 7-10: all-red body interior
+    for (let r = 7; r <= 10; r++) {
+      const ay = BOX_Y + r;
+      if (r <= 8) {
+        display.draw(bx+0, ay, ' ', '#aaaaaa', BG); display.draw(bx+1, ay, ' ', '#aaaaaa', BG); display.draw(bx+2, ay, ' ', '#aaaaaa', BG);
+        display.draw(bx+3, ay, '|', '#aaaaaa', BG);
+        display.draw(bx+4, ay, '█', '#ff5555', BG); display.draw(bx+5, ay, '█', '#ff5555', BG);
+        display.draw(bx+6, ay, '█', '#ff5555', BG); display.draw(bx+7, ay, '█', '#ff5555', BG);
+        display.draw(bx+8, ay, '|', '#aaaaaa', BG);
+        display.draw(bx+9, ay, ' ', '#aaaaaa', BG); display.draw(bx+10, ay, ' ', '#aaaaaa', BG); display.draw(bx+11, ay, ' ', '#aaaaaa', BG);
+      } else if (r === 9) {
+        display.draw(bx+0, ay, ' ', '#aaaaaa', BG); display.draw(bx+1, ay, ' ', '#aaaaaa', BG);
+        display.draw(bx+2, ay, '/', '#aaaaaa', BG);
+        display.draw(bx+3, ay, '|', '#aaaaaa', BG);
+        display.draw(bx+4, ay, '█', '#ff5555', BG); display.draw(bx+5, ay, '█', '#ff5555', BG);
+        display.draw(bx+6, ay, '█', '#ff5555', BG); display.draw(bx+7, ay, '█', '#ff5555', BG);
+        display.draw(bx+8, ay, '|', '#aaaaaa', BG);
+        display.draw(bx+9, ay, '\\', '#aaaaaa', BG);
+        display.draw(bx+10, ay, ' ', '#aaaaaa', BG); display.draw(bx+11, ay, ' ', '#aaaaaa', BG);
+      } else { // r === 10
+        display.draw(bx+0, ay, ' ', '#aaaaaa', BG);
+        display.draw(bx+1, ay, '/', '#aaaaaa', BG);
+        display.draw(bx+2, ay, ' ', '#aaaaaa', BG);
+        display.draw(bx+3, ay, '|', '#aaaaaa', BG);
+        display.draw(bx+4, ay, '█', '#ff5555', BG); display.draw(bx+5, ay, '█', '#ff5555', BG);
+        display.draw(bx+6, ay, '█', '#ff5555', BG); display.draw(bx+7, ay, '█', '#ff5555', BG);
+        display.draw(bx+8, ay, '|', '#aaaaaa', BG);
+        display.draw(bx+9, ay, ' ', '#aaaaaa', BG);
+        display.draw(bx+10, ay, '\\', '#aaaaaa', BG);
+        display.draw(bx+11, ay, ' ', '#aaaaaa', BG);
+      }
+    }
+    // row 11: +----+ frame
+    drawRocketRow(11, '/  +----+  \\', '#aaaaaa');
+    // rows 12-14: body + windows
+    drawRocketRow(12, '   |    |   ', '#aaaaaa');
+    const ay13 = BOX_Y + 13, ay14 = BOX_Y + 14;
+    drawRocketRow(13, '   |    |   ', '#aaaaaa');
+    display.draw(bx+4, ay13, '█', '#ffffff', BG); display.draw(bx+5, ay13, '█', '#ffffff', BG);
+    drawRocketRow(14, '   |    |   ', '#aaaaaa');
+    display.draw(bx+4, ay14, '█', '#ffffff', BG); display.draw(bx+5, ay14, '█', '#ffffff', BG);
+    // row 15: +----+
+    drawRocketRow(15, '   +----+   ', '#aaaaaa');
+    // rows 16-17: base
+    drawRocketRow(16, '  /      \\  ', '#aaaaaa');
+    drawRocketRow(17, ' /________\\ ', '#aaaaaa');
+    // rows 18-20: flames (only if rocketWidgets > 0)
+    if (state.rocketWidgets > 0) {
+      if (state.rocketAnimFrame === 0) {
+        drawRocketRow(18, '    *  *    ', '#ff9933');
+        drawRocketRow(19, '   ^^^*^^^  ', '#ffd633');
+        drawRocketRow(20, '  * * * * * ', '#ff5555');
+      } else {
+        drawRocketRow(18, '   * ** *   ', '#ffd633');
+        drawRocketRow(19, '  *^*^*^*   ', '#ff9933');
+        drawRocketRow(20, '   *^*^*^   ', '#ff5555');
+      }
+    }
+  }
+
+  function drawRightPane() {
+    const RP = BOX_X + 1 + 21; // absolute x start of right pane
+    const RW = 40;
+    function rpt(row, text, fg) {
+      const line = menuPad(text, RW);
+      const ay   = BOX_Y + row;
+      for (let i = 0; i < RW; i++) display.draw(RP + i, ay, line[i] || ' ', fg, BG);
+    }
+
+    rpt(6,  'WIDGETS LOADED', WC);
+
+    // Large digit display (rows 7-9)
+    const rw     = Math.min(state.rocketWidgets, 1000000);
+    const numStr = rw.toLocaleString('en-US');
+    const numFg  = rw >= 900000 ? '#ff5555' : rw >= 500000 ? '#ff9933' : '#ffd633';
+    renderLargeNumber(display, RP, BOX_Y + 7, numStr, numFg);
+
+    rpt(10, '/ 1,000,000', WC);
+
+    // Progress bar (row 12)
+    const pct      = rw / 1000000;
+    const BAR_W    = 28;
+    const filled   = Math.round(pct * BAR_W);
+    const pctStr   = (pct * 100).toFixed(1) + '%';
+    let bar = '[';
+    for (let i = 0; i < BAR_W; i++) bar += i < filled ? '█' : '░';
+    bar += '] ' + pctStr;
+    rpt(12, bar, '#f0f0f0');
+
+    // Divider (row 14)
+    rpt(14, '═'.repeat(38), DC);
+
+    // Courier toggle (row 16)
+    const dest = state.courierDestination;
+    const mktActive = dest === 'market';
+    const mktStr  = mktActive ? '>> [ MARKET ] <<' : '   [ MARKET ]  ';
+    const rktStr  = mktActive ? '   [ ROCKET ]  ' : '>> [ ROCKET ] <<';
+    const mktFg   = mktActive ? RC : WC;
+    const rktFg   = mktActive ? WC : RC;
+    const toggleLine = mktStr + ' / ' + rktStr;
+    const ay16 = BOX_Y + 16;
+    let tx = RP;
+    for (let i = 0; i < mktStr.length; i++) display.draw(tx++, ay16, mktStr[i], mktFg, BG);
+    for (const ch of ' / ') display.draw(tx++, ay16, ch, WC, BG);
+    for (let i = 0; i < rktStr.length; i++) display.draw(tx++, ay16, rktStr[i], rktFg, BG);
+
+    rpt(17, 'space: toggle destination', DC);
+
+    // Status (row 19)
+    const status = mktActive ? 'Selling widgets for credits.' : 'Loading the rocket.';
+    rpt(19, status, mktActive ? '#66cc66' : RC);
+  }
+
+  function redraw() {
+    drawFrame();
+
+    // Row 1: title
+    const title = menuPad('LAUNCH FACILITY', IW);
+    const tx = Math.floor((IW - 'LAUNCH FACILITY'.length) / 2);
+    for (let i = 0; i < IW; i++) display.draw(BOX_X+1+i, BOX_Y+1, title[i], '#f0f0f0', BG);
+
+    // Row 2: subtitle
+    const sub = menuPad('destination unknown', IW);
+    const sx  = Math.floor((IW - 'destination unknown'.length) / 2);
+    for (let i = 0; i < IW; i++) display.draw(BOX_X+1+i, BOX_Y+2, sub[i], WC, BG);
+
+    // Row 3: ─ separator
+    for (let i = 0; i < IW; i++) display.draw(BOX_X+1+i, BOX_Y+3, '─', DC, BG);
+
+    // │ separator at col 20 within inner (rows 4-20)
+    for (let r = 4; r <= 20; r++) display.draw(BOX_X+1+20, BOX_Y+r, '│', DC, BG);
+
+    // Row 21: ─ separator
+    for (let i = 0; i < IW; i++) display.draw(BOX_X+1+i, BOX_Y+21, '─', DC, BG);
+
+    // Row 22: full-width toggle centered
+    const dest     = state.courierDestination;
+    const mktA     = dest === 'market';
+    const fullToggle = (mktA ? '>> [ MARKET ] <<' : '   [ MARKET ]  ') + ' / ' + (mktA ? '   [ ROCKET ]  ' : '>> [ ROCKET ] <<');
+    const fullPad  = menuPad(fullToggle, IW);
+    const ftx = Math.floor((IW - fullToggle.length) / 2);
+    for (let i = 0; i < IW; i++) display.draw(BOX_X+1+i, BOX_Y+22, fullPad[i] || ' ', BRIGHT_WHITE, BG);
+    // Re-draw toggle parts in their colors
+    let ltx = BOX_X + 1 + ftx;
+    const mktStr = mktA ? '>> [ MARKET ] <<' : '   [ MARKET ]  ';
+    const rktStr = mktA ? '   [ ROCKET ]  ' : '>> [ ROCKET ] <<';
+    for (const ch of mktStr) display.draw(ltx++, BOX_Y+22, ch, mktA ? RC : WC, BG);
+    for (const ch of ' / ')  display.draw(ltx++, BOX_Y+22, ch, WC, BG);
+    for (const ch of rktStr) display.draw(ltx++, BOX_Y+22, ch, mktA ? WC : RC, BG);
+
+    drawRocket();
+    drawRightPane();
+  }
+
+  lfMenuRedrawFn = redraw;
+  redraw();
+
+  function closeLF() {
+    lfMenuRedrawFn = null;
+    window.removeEventListener('keydown', lfKeyHandler);
+    for (let y = BOX_Y; y < BOX_Y + BOX_H; y++)
+      for (let x = BOX_X; x < BOX_X + BOX_W; x++)
+        if (x >= 0 && x < DISPLAY_WIDTH && y >= 0 && y < WORLD_ROWS) markDirty(x, y);
+    renderDirty();
+    display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
+    state.gameState = 'playing';
+  }
+
+  function lfKeyHandler(e) {
+    if (e.key === 'Escape') { closeLF(); return; }
+    if (e.key === ' ') {
+      e.preventDefault();
+      if (state.rocketWidgets < 1000000) {
+        state.courierDestination = state.courierDestination === 'market' ? 'rocket' : 'market';
+        redraw();
+      }
+    }
+  }
+  window.addEventListener('keydown', lfKeyHandler);
+}
+
 function handleInteract() {
   const rm = STATION_DEFS.find(s => s.label === 'RM');
   if (rm && isAdjacentToStation(rm)) { openRMShedMenu(); return; }
@@ -2852,6 +3249,8 @@ function handleInteract() {
   if (bkStation && isAdjacentToStation(bkStation)) { openBankMenu(); return; }
   const dvStation = STATION_DEFS.find(s => s.label === 'DV');
   if (dvStation && isAdjacentToStation(dvStation)) { openDerivativesMenu(); return; }
+  const lfStation = STATION_DEFS.find(s => s.label === 'LF');
+  if (lfStation && isAdjacentToStation(lfStation) && state.stations.launch_facility?.unlocked) { openLFMenu(); return; }
 }
 
 // ── Inventory screen (§3.9) ──────────────────────────────────────────────────
@@ -3172,11 +3571,14 @@ function tickApprentices() {
 function tickCouriers() {
   const stDef  = STATION_DEFS.find(s => s.label === 'ST');
   const mtDef  = STATION_DEFS.find(s => s.label === 'MT');
-  const stDoor = { x: stDef.x + 1, y: stDef.y + 2 }; // (24, 34)
-  const mtDoor = { x: mtDef.x + 1, y: mtDef.y + 2 }; // (62, 25)
+  const lfDef  = STATION_DEFS.find(s => s.label === 'LF');
+  const stDoor = { x: stDef.x + 1, y: stDef.y + 2 };
+  const mtDoor = { x: mtDef.x + 1, y: mtDef.y + 2 };
+  const lfDoor = lfDef ? { x: lfDef.x + 1, y: lfDef.y + 5 } : null;
   const speed    = Math.max(1, Math.round(1 + state.skills.courierSpeed * 0.5));
   const carryMax = 10 + state.skills.courierCarry * 5;
   const PRICE    = state.marketPrice;
+  const toRocket = state.courierDestination === 'rocket' && state.stations.launch_facility?.unlocked && lfDoor;
 
   function moveToward(c, target) {
     for (let s = 0; s < speed; s++) {
@@ -3189,6 +3591,10 @@ function tickCouriers() {
 
   function near(c, door) {
     return Math.abs(c.x - door.x) <= 1 && Math.abs(c.y - door.y) <= 1;
+  }
+
+  function isHeadingToLF(c) {
+    return lfDoor && c.target.x === lfDoor.x && c.target.y === lfDoor.y;
   }
 
   for (const c of state.workers.couriers) {
@@ -3207,33 +3613,52 @@ function tickCouriers() {
         const take = Math.min(state.storage.widgets, carryMax);
         state.storage.widgets -= take;
         c.carryWidgets = take;
-        c.target = { ...mtDoor };
+        c.target = toRocket ? { ...lfDoor } : { ...mtDoor };
         c.courierState = 'delivering';
       }
     }
 
     if (c.courierState === 'delivering') {
-      if (!near(c, mtDoor)) moveToward(c, mtDoor);
-      if (near(c, mtDoor)) {
-        const demandLeft = state.phase >= 3 ? (state.demand - state.widgetsSoldToday) : Infinity;
-        if (state.marketOpen && c.carryWidgets > 0 && demandLeft > 0) {
-          const n = state.phase >= 3 ? Math.min(c.carryWidgets, demandLeft) : c.carryWidgets;
-          const earned = n * PRICE;
-          state.player.credits += earned;
-          state.lifetimeCreditsEarned += earned;
-          state.stats.revenueToday = Math.round((state.stats.revenueToday + earned) * 10) / 10;
-          if (state.phase >= 3) state.widgetsSoldToday += n;
-          c.carryWidgets -= n;
-          addLog(`Courier sold ${n} widget${n !== 1 ? 's' : ''} for ${formatCredits(earned)}cr.`, '#66cc66');
-          drawStatusBar();
-          { const mtD = STATION_DEFS.find(s => s.label === 'MT'); if (mtD) effectsManager.creditRain(mtD.x + 1, mtD.y + 2, n, false, earned); }
-          checkPhase2Trigger();
+      const destDoor = isHeadingToLF(c) ? lfDoor : mtDoor;
+      if (!near(c, destDoor)) moveToward(c, destDoor);
+      if (near(c, destDoor)) {
+        if (isHeadingToLF(c)) {
+          // Deliver to Launch Facility
+          if (c.carryWidgets > 0 && state.rocketWidgets < 1000000) {
+            const toLoad = Math.min(c.carryWidgets, 1000000 - state.rocketWidgets);
+            state.rocketWidgets += toLoad;
+            c.carryWidgets -= toLoad;
+            addLog(`Courier loaded ${toLoad} widget${toLoad !== 1 ? 's' : ''}. Total: ${state.rocketWidgets.toLocaleString()} / 1,000,000.`, '#ff5555');
+            drawStatusBar();
+            if (!state.rocketFull && state.rocketWidgets >= 1000000) {
+              state.rocketFull = true;
+              addLog('The rocket is ready. [launch sequence coming soon]', '#ff5555');
+            }
+          }
+          c.carryWidgets = 0; // committed — cannot be retrieved
           c.target = { ...stDoor };
           c.courierState = 'returning';
-        } else if (!state.marketOpen || demandLeft <= 0) {
-          // market closed or demand exhausted: return
-          c.target = { ...stDoor };
-          c.courierState = 'returning';
+        } else {
+          // Deliver to Market (existing behavior)
+          const demandLeft = state.phase >= 3 ? (state.demand - state.widgetsSoldToday) : Infinity;
+          if (state.marketOpen && c.carryWidgets > 0 && demandLeft > 0) {
+            const n = state.phase >= 3 ? Math.min(c.carryWidgets, demandLeft) : c.carryWidgets;
+            const earned = n * PRICE;
+            state.player.credits += earned;
+            state.lifetimeCreditsEarned += earned;
+            state.stats.revenueToday = Math.round((state.stats.revenueToday + earned) * 10) / 10;
+            if (state.phase >= 3) state.widgetsSoldToday += n;
+            c.carryWidgets -= n;
+            addLog(`Courier sold ${n} widget${n !== 1 ? 's' : ''} for ${formatCredits(earned)}cr.`, '#66cc66');
+            drawStatusBar();
+            { const mtD = STATION_DEFS.find(s => s.label === 'MT'); if (mtD) effectsManager.creditRain(mtD.x + 1, mtD.y + 2, n, false, earned); }
+            checkPhase2Trigger();
+            c.target = { ...stDoor };
+            c.courierState = 'returning';
+          } else if (!state.marketOpen || demandLeft <= 0) {
+            c.target = { ...stDoor };
+            c.courierState = 'returning';
+          }
         }
       }
     }
@@ -3278,18 +3703,15 @@ function checkProductionHalt() {
 // ── Pause menu and dev tools (§3.9) ──────────────────────────────────────────
 
 function devJumpToPhase(n) {
-  const credits = { 1: 50, 2: 500, 3: 2000, 4: 5000 };
+  const credits = { 1: 50, 2: 500, 3: 2000, 4: 5000, 5: 10000 };
   resetState();
   state.phase = n;
-  state.player.credits = credits[n];
-  state.lifetimeCreditsEarned = credits[n];
+  state.player.credits = credits[n] ?? 10000;
+  state.lifetimeCreditsEarned = credits[n] ?? 10000;
   if (n >= 2) {
     state.officeUnlocked = true;
-    state.stations.factory.unlocked = true;
     state.stations.storage.unlocked = true;
-    const fcD = STATION_DEFS.find(s => s.label === 'FC');
     const stD = STATION_DEFS.find(s => s.label === 'ST');
-    if (fcD) { fcD.wc = '#555555'; fcD.lc = '#ff9933'; }
     if (stD) { stD.wc = '#555555'; stD.lc = '#66ccff'; }
   }
   if (n >= 3) {
@@ -3304,6 +3726,13 @@ function devJumpToPhase(n) {
     state.derivativesUnlocked  = true;
     const dvD = STATION_DEFS.find(s => s.label === 'DV');
     if (dvD) { dvD.wc = '#555555'; dvD.lc = '#cc66cc'; }
+  }
+  if (n >= 5) {
+    state.stations.launch_facility = { unlocked: true };
+    state.rocketWidgets     = 0;
+    state.courierDestination = 'market';
+    const lfD = STATION_DEFS.find(s => s.label === 'LF');
+    if (lfD) { lfD.wc = '#f0f0f0'; lfD.lc = '#ff5555'; }
   }
   state.gameState = 'playing';
   clearScreen();
@@ -3366,11 +3795,12 @@ function showPauseMenu() {
     } else {
       centered(1, '– DEV MODE –', '#ff5555');
       line(2, 'For testing only.', WC);
-      line(4, '1. Jump to Phase 1  (fresh start, 50cr)',         BRIGHT_WHITE);
-      line(5, '2. Jump to Phase 2  (500cr, workers unlocked)',   BRIGHT_WHITE);
-      line(6, '3. Jump to Phase 3  (2000cr, bank unlocked)',     BRIGHT_WHITE);
-      line(7, '4. Jump to Phase 4  (5000cr, derivatives unlocked)', BRIGHT_WHITE);
-      line(8, '5. Back',            BRIGHT_WHITE);
+      line(4, '1. Jump to Phase 1  (fresh start, 50cr)',           BRIGHT_WHITE);
+      line(5, '2. Jump to Phase 2  (500cr, workers unlocked)',     BRIGHT_WHITE);
+      line(6, '3. Jump to Phase 3  (2000cr, bank unlocked)',       BRIGHT_WHITE);
+      line(7, '4. Jump to Phase 4  (5000cr, derivatives unlocked)',BRIGHT_WHITE);
+      line(8, '5. Jump to Phase 5  (10000cr, LF unlocked)',        BRIGHT_WHITE);
+      line(9, '6. Back',            BRIGHT_WHITE);
       centered(10, 'ESC to go back', WC);
     }
   }
@@ -3404,10 +3834,10 @@ function showPauseMenu() {
       else if (e.key === '3' || e.key === 'Escape') { screen = 'pause'; render(); }
     } else {
       const num = parseInt(e.key);
-      if (num >= 1 && num <= 4) {
+      if (num >= 1 && num <= 5) {
         window.removeEventListener('keydown', pauseKeyHandler);
         devJumpToPhase(num);
-      } else if (e.key === '5' || e.key === 'Escape') { screen = 'settings'; render(); }
+      } else if (e.key === '6' || e.key === 'Escape') { screen = 'settings'; render(); }
     }
   }
   window.addEventListener('keydown', pauseKeyHandler);
@@ -3443,7 +3873,7 @@ function _applyDayNightStage() {
 // ── Tick loop — 1 tick/second (§7.1) ─────────────────────────────────────────
 
 setInterval(() => {
-  if (state.gameState !== 'playing' && state.gameState !== 'crafting' && state.gameState !== 'dashboard' && state.gameState !== 'inventory') return;
+  if (state.gameState !== 'playing' && state.gameState !== 'crafting' && state.gameState !== 'dashboard' && state.gameState !== 'inventory' && state.gameState !== 'lf_menu') return;
 
   // Stats: snapshot before tick for delta computation
   const _sCr = state.player.credits;
@@ -3589,6 +4019,7 @@ setInterval(() => {
   checkProductionHalt();
   checkPhase3Trigger();
   checkPhase4Trigger();
+  checkPhase5Trigger();
 
   // Cost of carry — fires on the last tick of each day (§5.4)
   if (state.dayTick === 239 && state.phase >= 3) {
@@ -3675,6 +4106,12 @@ setInterval(() => {
   // Live-refresh inventory
   if (state.gameState === 'inventory' && inventoryRedrawFn) inventoryRedrawFn();
 
+  // Live-refresh LF menu + rocket animation frame
+  if (state.gameState === 'lf_menu') {
+    state.rocketAnimFrame = Math.floor(state.tick / 8) % 2;
+    if (lfMenuRedrawFn) lfMenuRedrawFn();
+  }
+
   // Stats: compute and store per-tick deltas (rolling 10-tick window)
   const crDelta = Math.round((state.player.credits - _sCr) * 10) / 10;
   const rmDelta = (state.player.inventory.rm + state.storage.rm) - _sRM;
@@ -3750,7 +4187,7 @@ setInterval(() => {
   // Scroll-in: advance pendingLine only when world is active (not paused, not look mode)
   const logActive = state.gameState === 'playing' || state.gameState === 'crafting' ||
                     state.gameState === 'dashboard' || state.gameState === 'menu' ||
-                    state.gameState === 'inventory';
+                    state.gameState === 'inventory' || state.gameState === 'lf_menu';
   if (pendingLine && logActive) {
     pendingLine.charsRevealed = Math.min(pendingLine.charsRevealed + LOG_SCROLL_SPEED, pendingLine.text.length);
     renderLog();
