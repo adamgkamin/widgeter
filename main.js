@@ -95,6 +95,8 @@ const state = {
   debtDaysUnpaid:       0,
   demandCrashOccurred:  false,
   demandHistory:        [],
+  derivativesUnlocked:  false,
+  derivatives:          { forwards: [], pnlToday: 0 },
   widgetsMade:          0,
   peakCredits:          0,
   bank: { deposit: 0, loan: null },
@@ -111,9 +113,13 @@ const state = {
     storageExp2:    0,
     reducedCarry:   0,
     discountDump:   0,
-    demandHistory:  0,
-    forecast:       0,
-    bulkRM:         0,
+    demandHistory:      0,
+    forecast:           0,
+    bulkRM:             0,
+    futures:            0,
+    optionsBuy:         0,
+    optionsWrite:       0,
+    volatilitySurface:  0,
   },
 };
 
@@ -155,6 +161,8 @@ function saveGame() {
     debtDaysUnpaid:       state.debtDaysUnpaid,
     demandCrashOccurred:  state.demandCrashOccurred,
     demandHistory:        state.demandHistory,
+    derivativesUnlocked:  state.derivativesUnlocked,
+    derivatives:          state.derivatives,
     widgetsMade:          state.widgetsMade,
     peakCredits:          state.peakCredits,
     bank:                 state.bank,
@@ -201,6 +209,10 @@ function loadGame() {
     state.debtDaysUnpaid       = data.debtDaysUnpaid       ?? 0;
     state.demandCrashOccurred  = data.demandCrashOccurred  ?? false;
     state.demandHistory        = data.demandHistory        ?? [];
+    state.derivativesUnlocked  = data.derivativesUnlocked  ?? false;
+    state.derivatives          = data.derivatives          ?? { forwards: [], pnlToday: 0 };
+    state.derivatives.forwards = state.derivatives.forwards ?? [];
+    state.derivatives.pnlToday = state.derivatives.pnlToday ?? 0;
     state.widgetsMade          = data.widgetsMade          ?? 0;
     state.peakCredits          = data.peakCredits          ?? 0;
     state.bank                 = data.bank                 ?? { deposit: 0, loan: null };
@@ -215,9 +227,13 @@ function loadGame() {
     state.skills.storageExp2    = state.skills.storageExp2    ?? 0;
     state.skills.reducedCarry   = state.skills.reducedCarry   ?? 0;
     state.skills.discountDump   = state.skills.discountDump   ?? 0;
-    state.skills.demandHistory  = state.skills.demandHistory  ?? 0;
-    state.skills.forecast       = state.skills.forecast       ?? 0;
-    state.skills.bulkRM         = state.skills.bulkRM         ?? 0;
+    state.skills.demandHistory     = state.skills.demandHistory     ?? 0;
+    state.skills.forecast          = state.skills.forecast          ?? 0;
+    state.skills.bulkRM            = state.skills.bulkRM            ?? 0;
+    state.skills.futures           = state.skills.futures           ?? 0;
+    state.skills.optionsBuy        = state.skills.optionsBuy        ?? 0;
+    state.skills.optionsWrite      = state.skills.optionsWrite      ?? 0;
+    state.skills.volatilitySurface = state.skills.volatilitySurface ?? 0;
   } catch (_) {
     // corrupt save — start fresh
   }
@@ -348,7 +364,13 @@ function drawStatusBar() {
     sx = seg(sx, `W:${activeW}`,                           '#66ccff') + 1;
     sx = seg(sx, `C:${activeC}`,                           '#cc66cc') + 1;
     sx = seg(sx, `ST:${state.storage.widgets}/50`,         '#66ccff') + 1;
-    if (state.phase >= 3) seg(sx, `P:${state.marketPrice}cr`, '#66cc66');
+    if (state.phase >= 3) {
+      sx = seg(sx, `P:${state.marketPrice}cr`, '#66cc66') + 1;
+      if (state.phase >= 4) {
+        const pnl = state.derivatives.pnlToday;
+        seg(sx, `PnL:${pnl >= 0 ? '+' : ''}${pnl}cr`, '#cc66cc');
+      }
+    }
   } else {
     sx = seg(sx, `Credits: ${state.player.credits}`,       '#ffd633') + 4;
     sx = seg(sx, `Raw: ${inv.rm}`,                         '#ff9933') + 4;
@@ -425,6 +447,12 @@ function buildTileMap() {
   // Phase 3 paths — static when already unlocked (animated on first unlock)
   if (state.phase >= 3) {
     for (const [px, py] of [[62,13],[62,12],[62,11],[62,10],[62,9],[62,8],[62,7]])
+      tileMap[px][py] = mk(':', pc, true);
+  }
+
+  // Phase 4 paths — to Derivatives Terminal
+  if (state.phase >= 4) {
+    for (const [px, py] of [[61,17],[60,17]])
       tileMap[px][py] = mk(':', pc, true);
   }
 
@@ -556,6 +584,10 @@ function buildTileMap() {
   if (state.phase >= 3) {
     const bk3 = STATION_DEFS.find(s => s.label === 'BK');
     if (bk3) { bk3.wc = '#555555'; bk3.lc = '#66cc66'; }
+  }
+  if (state.phase >= 4) {
+    const dv4 = STATION_DEFS.find(s => s.label === 'DV');
+    if (dv4) { dv4.wc = '#555555'; dv4.lc = '#cc66cc'; }
   }
 
   // Stations — §3.5 (overwrites floor/trees in their footprint)
@@ -828,12 +860,14 @@ function resetState() {
   state.debtDaysUnpaid       = 0;
   state.demandCrashOccurred  = false;
   state.demandHistory        = [];
+  state.derivativesUnlocked  = false;
+  state.derivatives          = { forwards: [], pnlToday: 0 };
   state.widgetsMade          = 0;
   state.peakCredits          = 0;
   state.bank                 = { deposit: 0, loan: null };
   state.audio            = { muted: false };
   state.workers = { apprentices: [], couriers: [] };
-  state.skills = { apprentice: 0, courier: 0, workerCarry: 0, workerSpeed: 0, courierCarry: 0, courierSpeed: 0, storageExp1: 0, storageExp2: 0, reducedCarry: 0, discountDump: 0, demandHistory: 0, forecast: 0, bulkRM: 0 };
+  state.skills = { apprentice: 0, courier: 0, workerCarry: 0, workerSpeed: 0, courierCarry: 0, courierSpeed: 0, storageExp1: 0, storageExp2: 0, reducedCarry: 0, discountDump: 0, demandHistory: 0, forecast: 0, bulkRM: 0, futures: 0, optionsBuy: 0, optionsWrite: 0, volatilitySurface: 0 };
   const fcDef = STATION_DEFS.find(s => s.label === 'FC');
   const stDef = STATION_DEFS.find(s => s.label === 'ST');
   const bkDef = STATION_DEFS.find(s => s.label === 'BK');
@@ -1333,6 +1367,34 @@ function checkPhase3Trigger() {
   }
 }
 
+function checkPhase4Trigger() {
+  if (state.phase === 3 && (state.demandCrashOccurred || state.lifetimeCreditsEarned >= 2000)) {
+    state.phase = 4;
+    state.derivativesUnlocked = true;
+    state.stations.derivatives = { unlocked: true };
+    addLog('A man in a clean suit appears at the market.', '#cc66cc');
+    setTimeout(() => addLog("He offers you a contract. Lock in tomorrow's price, he says.", '#cc66cc'), 2000);
+    setTimeout(() => {
+      addLog('The Derivatives Terminal is now open.', '#cc66cc');
+      colorInStation('DV', '#555555', '#cc66cc');
+      setTimeout(animateDVPath, 1000);
+    }, 4000);
+  }
+}
+
+function animateDVPath() {
+  const pc = '#3a3530';
+  const mk = (glyph, fg, walkable) => ({ glyph, fg, bg: BG, walkable });
+  const tiles = [[61,17],[60,17]];
+  tiles.forEach(([px, py], i) => {
+    setTimeout(() => {
+      tileMap[px][py] = mk(':', pc, true);
+      markDirty(px, py);
+      renderDirty();
+    }, i * 200);
+  });
+}
+
 function animateBankPath() {
   const pc = '#3a3530';
   const mk = (glyph, fg, walkable) => ({ glyph, fg, bg: BG, walkable });
@@ -1507,7 +1569,11 @@ const OFFICE_NODES = [
   { num:10, name: 'Market Discount Dump', cost:  250, key: 'discountDump',   max: 1, minPhase: 3 },
   { num:11, name: 'Demand History',       cost:   50, key: 'demandHistory',  max: 1, minPhase: 3, inputKey: 'a' },
   { num:12, name: '7-Day Forecast',       cost: 1500, key: 'forecast',       max: 1, minPhase: 3, inputKey: 'b' },
-  { num:13, name: 'Bulk RM Contract',     cost:  500, key: 'bulkRM',         max: 1, minPhase: 3, inputKey: 'c' },
+  { num:13, name: 'Bulk RM Contract',     cost:  500, key: 'bulkRM',          max: 1, minPhase: 3, inputKey: 'c' },
+  { num:14, name: 'Futures Trading',      cost: 1000, key: 'futures',          max: 1, minPhase: 4, inputKey: 'd' },
+  { num:15, name: 'Options — Buy Side',   cost: 2500, key: 'optionsBuy',       max: 1, minPhase: 4, inputKey: 'e' },
+  { num:16, name: 'Options — Write Side', cost: 5000, key: 'optionsWrite',     max: 1, minPhase: 4, inputKey: 'f', requires: 'optionsBuy', requiresLabel: 'Buy Side first' },
+  { num:17, name: 'Volatility Surface',   cost: 3000, key: 'volatilitySurface',max: 1, minPhase: 4, inputKey: 'g' },
 ];
 
 function showOfficeMenu() {
@@ -1643,6 +1709,22 @@ function showOfficeMenu() {
 function handlePonder() {
   const inv = state.player.inventory;
   let hint;
+  // Phase 4 derivative hints
+  if (state.phase >= 4) {
+    const fwds = state.derivatives.forwards;
+    if (fwds.length === 0) {
+      hint = 'The terminal is waiting. A forward costs nothing to enter.';
+      wrapLog(hint, '#cc66cc'); return;
+    }
+    const unrealized = fwds.reduce((s, f) => s + (f.lockedPrice - state.marketPrice) * f.quantity, 0);
+    if (unrealized > 0) {
+      hint = 'Your forward looks good. The market moved your way.';
+    } else {
+      hint = "The market didn't cooperate. You'll owe the difference at settlement.";
+    }
+    wrapLog(hint, '#cc66cc'); return;
+  }
+
   // Phase 3 urgent hints first
   if (state.phase >= 3 && state.bank.loan && (state.bank.loan.deadline - state.day) <= 5) {
     hint = 'The bank will want its money soon.';
@@ -2163,6 +2245,174 @@ function showBankruptcyScreen() {
   window.addEventListener('keydown', bankruptcyKeyHandler);
 }
 
+// ── Derivatives Terminal (§5.5) ──────────────────────────────────────────────
+
+function openDerivativesMenu() {
+  if (!state.stations.derivatives || !state.stations.derivatives.unlocked) return;
+  state.gameState = 'menu';
+
+  const BOX_W  = 58;
+  const BOX_H  = 20;
+  const BOX_X  = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
+  const BOX_Y  = Math.max(2, Math.floor((WORLD_ROWS - BOX_H) / 2));
+  const CONT_X = BOX_X + 2;
+  const CONT_W = BOX_W - 4;
+  const WC     = '#555555';
+  const MC     = '#cc66cc';
+
+  function line(row, text, fg) {
+    for (let i = 0; i < text.length; i++) display.draw(CONT_X+i, BOX_Y+row, text[i], fg, BG);
+  }
+  function centered(row, text, fg) {
+    const cx = CONT_X + Math.floor((CONT_W - text.length) / 2);
+    for (let i = 0; i < text.length; i++) display.draw(cx+i, BOX_Y+row, text[i], fg, BG);
+  }
+
+  function redraw() {
+    display.draw(BOX_X, BOX_Y, '+', MC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y, '+', MC, BG);
+    for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, BOX_Y, '-', MC, BG);
+    const bY = BOX_Y + BOX_H - 1;
+    display.draw(BOX_X, bY, '+', MC, BG); display.draw(BOX_X+BOX_W-1, bY, '+', MC, BG);
+    for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, bY, '-', MC, BG);
+    for (let y = 1; y < BOX_H-1; y++) {
+      display.draw(BOX_X, BOX_Y+y, '|', MC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y+y, '|', MC, BG);
+      for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, BOX_Y+y, ' ', BRIGHT_WHITE, BG);
+    }
+
+    centered(1, '– DERIVATIVES TERMINAL –', MC);
+
+    const dl        = state.phase >= 3 ? demandLabel(state.demand) : { text: 'N/A', fg: WC };
+    const unrealized = state.derivatives.forwards.reduce((sum, f) => sum + Math.round((f.lockedPrice - state.marketPrice) * f.quantity * 10) / 10, 0);
+    const totalPnL  = Math.round((state.derivatives.pnlToday + unrealized) * 10) / 10;
+    line(3, `Current widget price:  ${state.marketPrice}cr`, BRIGHT_WHITE);
+    line(4, `Today's demand:        ${state.demand} (${dl.text})`, dl.fg);
+    const pnlFg = totalPnL > 0 ? '#66cc66' : totalPnL < 0 ? '#ff5555' : WC;
+    line(5, `Your position PnL:     ${totalPnL >= 0 ? '+' : ''}${totalPnL}cr`, pnlFg);
+
+    for (let i = 0; i < CONT_W; i++) display.draw(CONT_X+i, BOX_Y+7, '.', WC, BG);
+
+    const fwdCount = state.derivatives.forwards.length;
+    line(8,  `1. Forward Contracts       [AVAILABLE]`, MC);
+    line(9,  `2. Futures Trading         ${state.skills.futures ? '[AVAILABLE]' : '[LOCKED — purchase in Office]'}`, state.skills.futures ? MC : WC);
+    line(10, `3. Options — Buy Side      ${state.skills.optionsBuy ? '[AVAILABLE]' : '[LOCKED — purchase in Office]'}`, state.skills.optionsBuy ? MC : WC);
+    line(11, `4. Options — Write Side    ${state.skills.optionsWrite ? '[AVAILABLE]' : '[LOCKED — purchase in Office]'}`, state.skills.optionsWrite ? MC : WC);
+    line(12, `5. View Open Positions     ${fwdCount > 0 ? `[${fwdCount} open]` : '[none]'}`, fwdCount > 0 ? BRIGHT_WHITE : WC);
+    line(13, `6. Close All Positions     ${fwdCount > 0 ? '[settle now]' : '[no positions]'}`, fwdCount > 0 ? '#ff9933' : WC);
+
+    centered(BOX_H-2, 'ESC to close', WC);
+  }
+
+  redraw();
+
+  function closeDV() {
+    window.removeEventListener('keydown', dvKeyHandler);
+    for (let y = BOX_Y; y < BOX_Y + BOX_H; y++)
+      for (let x = BOX_X; x < BOX_X + BOX_W; x++)
+        if (y < WORLD_ROWS) markDirty(x, y);
+    renderDirty();
+    display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
+    state.gameState = 'playing';
+  }
+
+  function dvKeyHandler(e) {
+    if (e.key === 'Escape') { closeDV(); return; }
+
+    if (e.key === '1') {
+      // Forward contracts
+      const maxQty = state.storage.widgets + state.player.inventory.widgets;
+      if (maxQty <= 0) { addLog('No widgets to forward contract.', WC); return; }
+      window.removeEventListener('keydown', dvKeyHandler);
+      const expD = Math.max(5, Math.round(50 + 30 * Math.sin((state.day + 1) / 7 * 2 * Math.PI)));
+      const expP = Math.round(8 * Math.pow(expD / 50, 0.5) * 10) / 10;
+      showNumericPrompt(`Forward (today:${state.marketPrice}cr, est.tomorrow:${expP}cr)`, maxQty,
+        (qty) => {
+          state.derivatives.forwards.push({ quantity: qty, lockedPrice: state.marketPrice, settlementDay: state.day + 1 });
+          addLog(`Forward: ${qty} widgets at ${state.marketPrice}cr, settling day ${state.day + 1}.`, MC);
+          openDerivativesMenu();
+        },
+        () => openDerivativesMenu()
+      );
+      return;
+    }
+
+    if (e.key === '5') {
+      // View open positions
+      const fwds = state.derivatives.forwards;
+      if (fwds.length === 0) { addLog('No open positions.', WC); return; }
+      closeDV();
+      showForwardPositions();
+      return;
+    }
+
+    if (e.key === '6') {
+      // Close all positions at current price
+      const fwds = state.derivatives.forwards;
+      if (fwds.length === 0) return;
+      let totalPnL = 0;
+      for (const f of fwds) {
+        const pnl = Math.round((f.lockedPrice - state.marketPrice) * f.quantity * 10) / 10;
+        totalPnL += pnl;
+      }
+      totalPnL = Math.round(totalPnL * 10) / 10;
+      state.player.credits = Math.round((state.player.credits + totalPnL) * 10) / 10;
+      state.derivatives.pnlToday = Math.round((state.derivatives.pnlToday + totalPnL) * 10) / 10;
+      state.derivatives.forwards = [];
+      addLog(`Closed all positions. PnL: ${totalPnL >= 0 ? '+' : ''}${totalPnL}cr.`, totalPnL >= 0 ? '#66cc66' : '#ff5555');
+      drawStatusBar();
+      redraw();
+      return;
+    }
+  }
+  window.addEventListener('keydown', dvKeyHandler);
+}
+
+function showForwardPositions() {
+  state.gameState = 'menu';
+  const fwds = state.derivatives.forwards;
+  const BOX_W  = 52;
+  const BOX_H  = Math.max(8, 5 + fwds.length + 3);
+  const BOX_X  = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
+  const BOX_Y  = Math.max(2, Math.floor((WORLD_ROWS - BOX_H) / 2));
+  const CONT_X = BOX_X + 2;
+  const CONT_W = BOX_W - 4;
+  const WC     = '#555555';
+  const MC     = '#cc66cc';
+
+  display.draw(BOX_X, BOX_Y, '+', MC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y, '+', MC, BG);
+  for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, BOX_Y, '-', MC, BG);
+  const bY = BOX_Y + BOX_H - 1;
+  display.draw(BOX_X, bY, '+', MC, BG); display.draw(BOX_X+BOX_W-1, bY, '+', MC, BG);
+  for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, bY, '-', MC, BG);
+  for (let y = 1; y < BOX_H-1; y++) {
+    display.draw(BOX_X, BOX_Y+y, '|', MC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y+y, '|', MC, BG);
+    for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, BOX_Y+y, ' ', BRIGHT_WHITE, BG);
+  }
+  const tX = CONT_X + Math.floor((CONT_W - 18) / 2);
+  for (let i = 0; i < '– OPEN POSITIONS –'.length; i++) display.draw(tX+i, BOX_Y+1, '– OPEN POSITIONS –'[i], MC, BG);
+  for (let i = 0; i < fwds.length; i++) {
+    const f   = fwds[i];
+    const unr = Math.round((f.lockedPrice - state.marketPrice) * f.quantity * 10) / 10;
+    const txt = `Fwd day ${f.settlementDay}: ${f.quantity}wg @ ${f.lockedPrice}cr  unr:${unr >= 0 ? '+' : ''}${unr}cr`;
+    const fg  = unr >= 0 ? '#66cc66' : '#ff5555';
+    for (let j = 0; j < txt.length; j++) display.draw(CONT_X+j, BOX_Y+3+i, txt[j], fg, BG);
+  }
+  const esc = '[ ESC to close ]';
+  const eX  = CONT_X + Math.floor((CONT_W - esc.length) / 2);
+  for (let i = 0; i < esc.length; i++) display.draw(eX+i, BOX_Y+BOX_H-2, esc[i], WC, BG);
+
+  function close() {
+    window.removeEventListener('keydown', posKeyHandler);
+    for (let y = BOX_Y; y < BOX_Y + BOX_H; y++)
+      for (let x = BOX_X; x < BOX_X + BOX_W; x++)
+        if (y < WORLD_ROWS) markDirty(x, y);
+    renderDirty();
+    display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
+    state.gameState = 'playing';
+  }
+  function posKeyHandler(e) { if (e.key === 'Escape') close(); }
+  window.addEventListener('keydown', posKeyHandler);
+}
+
 function handleInteract() {
   const rm = STATION_DEFS.find(s => s.label === 'RM');
   if (rm && isAdjacentToStation(rm)) { openRMShedMenu(); return; }
@@ -2179,6 +2429,8 @@ function handleInteract() {
   if (stStation && isAdjacentToStation(stStation)) { openStorageMenu(); return; }
   const bkStation = STATION_DEFS.find(s => s.label === 'BK');
   if (bkStation && isAdjacentToStation(bkStation)) { openBankMenu(); return; }
+  const dvStation = STATION_DEFS.find(s => s.label === 'DV');
+  if (dvStation && isAdjacentToStation(dvStation)) { openDerivativesMenu(); return; }
 }
 
 // ── Inventory screen (§3.9) ──────────────────────────────────────────────────
@@ -2532,7 +2784,12 @@ function devJumpToPhase(n) {
     calculateDailyDemand();
     state.widgetsSoldToday = 0;
   }
-  if (n >= 4) state.stations.derivatives = { unlocked: true };
+  if (n >= 4) {
+    state.stations.derivatives = { unlocked: true };
+    state.derivativesUnlocked  = true;
+    const dvD = STATION_DEFS.find(s => s.label === 'DV');
+    if (dvD) { dvD.wc = '#555555'; dvD.lc = '#cc66cc'; }
+  }
   state.gameState = 'playing';
   clearScreen();
   drawWorld();
@@ -2658,6 +2915,32 @@ setInterval(() => {
       const dl = demandLabel(state.demand);
       wrapLog(`Market demand today: ${dl.text}. Price: ${state.marketPrice}cr/widget.`, dl.fg);
     }
+    // Settle forward contracts due today
+    if (state.derivatives.forwards.length > 0) {
+      const due = state.derivatives.forwards.filter(f => f.settlementDay === state.day);
+      state.derivatives.forwards = state.derivatives.forwards.filter(f => f.settlementDay !== state.day);
+      for (const f of due) {
+        const actualPrice = state.marketPrice;
+        const totalWidgets = state.storage.widgets + state.player.inventory.widgets;
+        if (totalWidgets >= f.quantity) {
+          const pnl = Math.round((f.lockedPrice - actualPrice) * f.quantity * 10) / 10;
+          state.player.credits = Math.round((state.player.credits + pnl) * 10) / 10;
+          state.derivatives.pnlToday = Math.round((state.derivatives.pnlToday + pnl) * 10) / 10;
+          const pnlStr = `${pnl >= 0 ? '+' : ''}${pnl}cr`;
+          addLog(`Forward settled: ${f.quantity}wg at ${f.lockedPrice}cr vs ${actualPrice}cr. PnL: ${pnlStr}.`, pnl >= 0 ? '#66cc66' : '#ff5555');
+        } else {
+          const shortfall = f.quantity - totalWidgets;
+          const penalty   = Math.round(actualPrice * shortfall * 10) / 10;
+          state.player.credits = Math.round((state.player.credits - penalty) * 10) / 10;
+          state.derivatives.pnlToday = Math.round((state.derivatives.pnlToday - penalty) * 10) / 10;
+          addLog(`Short delivery on forward. Penalty: ${penalty}cr.`, '#ff5555');
+        }
+        drawStatusBar();
+      }
+    }
+    // Reset daily PnL
+    state.derivatives.pnlToday = 0;
+
     // Loan overdue check
     if (state.bank.loan && state.day > state.bank.loan.deadline) {
       state.bank.loan.overdueDays = (state.bank.loan.overdueDays || 0) + 1;
@@ -2703,6 +2986,7 @@ setInterval(() => {
   }
   checkProductionHalt();
   checkPhase3Trigger();
+  checkPhase4Trigger();
 
   // Cost of carry — fires on the last tick of each day (§5.4)
   if (state.dayTick === 239 && state.phase >= 3) {
