@@ -3,6 +3,7 @@ import {
   STATUS_ROW, LOG_START_ROW, LOG_END_ROW, HINT_ROW,
   BG, BRIGHT_WHITE, BRIGHT_YELLOW, BRIGHT_CYAN, BRIGHT_MAGENTA, DIM_GRAY,
 } from './constants.js';
+import { EffectsManager } from './src/effects.js';
 
 // ── Display init ──────────────────────────────────────────────────────────────
 
@@ -16,6 +17,13 @@ const display = new ROT.Display({
 });
 
 document.body.appendChild(display.getContainer());
+
+// ── Effects manager (§3.4) ────────────────────────────────────────────────────
+const effectsManager = new EffectsManager({
+  markDirty:   (...a) => markDirty(...a),
+  renderDirty: ()    => renderDirty(),
+  getTileMap:  ()    => tileMap,
+});
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -1221,6 +1229,7 @@ function openRMShedMenu() {
         state.rmPurchasedToday    += 1;
         addLog('You buy 1 raw material.', '#ff9933');
         drawStatusBar();
+        { const rmD = STATION_DEFS.find(s => s.label === 'RM'); if (rmD) effectsManager.coinDrain(state.player.x, state.player.y, rmD.x + 1, rmD.y + 2, COST); }
       },
     },
     {
@@ -1433,6 +1442,7 @@ function sellWidgets(n) {
     }
     n = Math.min(n, remaining);
   }
+  const isFirstSale = state.lifetimeCreditsEarned === 0;
   const price  = state.marketPrice;
   const earned = n * price;
   state.player.credits           += earned;
@@ -1440,7 +1450,9 @@ function sellWidgets(n) {
   state.lifetimeCreditsEarned    += earned;
   if (state.phase >= 3) state.widgetsSoldToday += n;
   addLog(`Sold ${n} widget${n !== 1 ? 's' : ''} for ${earned}cr.`, BRIGHT_CYAN);
+  if (isFirstSale) addLog('> First sale. There\'s something to this.', '#cc66cc');
   drawStatusBar();
+  { const mtD = STATION_DEFS.find(s => s.label === 'MT'); if (mtD) effectsManager.creditRain(mtD.x + 1, mtD.y + 2, n, isFirstSale, earned); }
   checkPhase2Trigger();
 }
 
@@ -2981,6 +2993,7 @@ function tickApprentices() {
             state.rmPurchasedToday += 1;
             w.carryRM++;
             bought++;
+            if (bought === 1) { const rmD = STATION_DEFS.find(s => s.label === 'RM'); if (rmD) effectsManager.coinDrain(w.x, w.y, rmD.x + 1, rmD.y + 2, 3); }
           }
           if (bought > 0) drawStatusBar();
           w.target = { ...wbDoor };
@@ -3086,6 +3099,7 @@ function tickCouriers() {
           c.carryWidgets -= n;
           addLog(`Courier sold ${n} widget${n !== 1 ? 's' : ''} for ${earned}cr.`, '#66cc66');
           drawStatusBar();
+          { const mtD = STATION_DEFS.find(s => s.label === 'MT'); if (mtD) effectsManager.creditRain(mtD.x + 1, mtD.y + 2, n, false, earned); }
           checkPhase2Trigger();
           c.target = { ...stDoor };
           c.courierState = 'returning';
@@ -3280,7 +3294,9 @@ setInterval(() => {
   state.tick++;
   state.dayTick++;
   if (state.dayTick >= 240) { state.dayTick = 0; state.day++; state.bellFiredToday = false; state.rmPurchasedToday = 0; state.rmLimitLogged = false; state.widgetsSoldToday = 0; state.demandMetLogged = false; }
+  const prevMarketOpen = state.marketOpen;
   state.marketOpen = state.dayTick < 180;
+  if (state.marketOpen !== prevMarketOpen) effectsManager.dayNightSweep(state.marketOpen ? 'open' : 'close');
   if (state.dayTick === 0 && !state.bellFiredToday) {
     state.bellFiredToday = true;
     addLog('The morning bell has rung.', BRIGHT_CYAN);
@@ -3387,6 +3403,7 @@ setInterval(() => {
       state.player.inventory.widgets++;
       state.widgetsMade++;
       drawStatusBar();
+      { const wbD = STATION_DEFS.find(s => s.label === 'WB'); if (wbD) effectsManager.sparkBurst(wbD.x + 1, wbD.y + 1, state.widgetsMade); }
       if (craftQueue > 0) {
         const stillLeft = craftQueue;
         craftQueue--;
@@ -3550,4 +3567,11 @@ setInterval(() => {
   }
 
   if (state.tick % 10 === 0) saveGame();
+  effectsManager.update();
 }, 1000);
+
+// ── Effects render loop — runs at ~60fps independent of game tick ─────────────
+;(function effectsLoop(ts) {
+  effectsManager.render(display);
+  requestAnimationFrame(effectsLoop);
+})(0);
