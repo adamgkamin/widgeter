@@ -701,6 +701,13 @@ function renderDirty() {
   dirtyTiles.clear();
 }
 
+function clearMenuRegion(x, y, width, height) {
+  for (let dx = 0; dx < width; dx++)
+    for (let dy = 0; dy < height; dy++)
+      if (x + dx >= 0 && x + dx < DISPLAY_WIDTH && y + dy >= 0 && y + dy < WORLD_ROWS)
+        markDirty(x + dx, y + dy);
+}
+
 function buildTileMap() {
   const mk = (glyph, fg, walkable) => ({ glyph, fg, bg: BG, walkable });
 
@@ -1614,9 +1621,7 @@ function showMenu(title, options) {
 
   function closeMenu() {
     window.removeEventListener('keydown', menuKeyHandler);
-    for (let y = BOX_Y; y < BOX_Y + BOX_H; y++)
-      for (let x = BOX_X; x < BOX_X + BOX_W; x++)
-        if (x >= 0 && x < DISPLAY_WIDTH && y >= 0 && y < WORLD_ROWS) markDirty(x, y);
+    clearMenuRegion(BOX_X, BOX_Y, BOX_W, BOX_H);
     renderDirty();
     display.draw(state.player.x, state.player.y, '@', state.player.color || BRIGHT_WHITE, BG);
     if (state.gameState === 'menu') state.gameState = 'playing'; // don't override if action changed state (e.g. crafting)
@@ -1795,9 +1800,7 @@ function openRMShedMenu() {
   function closeRM() {
     rmMenuRedrawFn = null;
     window.removeEventListener('keydown', rmKeyHandler);
-    for (let y = BOX_Y; y < BOX_Y + BOX_H; y++)
-      for (let x = BOX_X; x < BOX_X + BOX_W; x++)
-        if (x >= 0 && x < DISPLAY_WIDTH && y >= 0 && y < WORLD_ROWS) markDirty(x, y);
+    clearMenuRegion(BOX_X, BOX_Y, BOX_W, BOX_H);
     renderDirty();
     display.draw(state.player.x, state.player.y, '@', state.player.color || BRIGHT_WHITE, BG);
     for (const w of state.workers.apprentices) display.draw(w.x, w.y, 'a', '#66ccff', BG);
@@ -2093,9 +2096,7 @@ function openWorkbenchMenu(isRemote = false) {
 
   function closeWB() {
     window.removeEventListener('keydown', wbKeyHandler);
-    for (let y = BOX_Y; y < BOX_Y + BOX_H; y++)
-      for (let x = BOX_X; x < BOX_X + BOX_W; x++)
-        if (x >= 0 && x < DISPLAY_WIDTH && y >= 0 && y < WORLD_ROWS) markDirty(x, y);
+    clearMenuRegion(BOX_X, BOX_Y, BOX_W, BOX_H);
     renderDirty();
     display.draw(state.player.x, state.player.y, '@', state.player.color || BRIGHT_WHITE, BG);
     for (const w of state.workers.apprentices) display.draw(w.x, w.y, 'a', '#66ccff', BG);
@@ -2381,9 +2382,7 @@ function drawDemandChart(title, rows, subtitle) {
 
   function close() {
     window.removeEventListener('keydown', chartKeyHandler);
-    for (let y = BOX_Y; y < BOX_Y + BOX_H; y++)
-      for (let x = BOX_X; x < BOX_X + BOX_W; x++)
-        if (y < WORLD_ROWS) markDirty(x, y);
+    clearMenuRegion(BOX_X, BOX_Y, BOX_W, BOX_H);
     renderDirty();
     display.draw(state.player.x, state.player.y, '@', state.player.color || BRIGHT_WHITE, BG);
     state.gameState = 'playing';
@@ -2587,9 +2586,7 @@ function openMarketMenu() {
   function closeMT() {
     mtMenuRedrawFn = null;
     window.removeEventListener('keydown', mtKeyHandler);
-    for (let y = BOX_Y; y < BOX_Y + BOX_H; y++)
-      for (let x = BOX_X; x < BOX_X + BOX_W; x++)
-        if (x >= 0 && x < DISPLAY_WIDTH && y >= 0 && y < WORLD_ROWS) markDirty(x, y);
+    clearMenuRegion(BOX_X, BOX_Y, BOX_W, BOX_H);
     renderDirty();
     display.draw(state.player.x, state.player.y, '@', state.player.color || BRIGHT_WHITE, BG);
     for (const w of state.workers.apprentices) display.draw(w.x, w.y, 'a', '#66ccff', BG);
@@ -3324,9 +3321,7 @@ function showOfficeMenu() {
   function closeOffice() {
     officeMenuRedrawFn = null;
     window.removeEventListener('keydown', officeKeyHandler);
-    for (let y = BOX_Y; y < BOX_Y + BOX_H; y++)
-      for (let x = BOX_X; x < BOX_X + BOX_W; x++)
-        if (x >= 0 && x < DISPLAY_WIDTH && y >= 0 && y < WORLD_ROWS) markDirty(x, y);
+    clearMenuRegion(BOX_X, BOX_Y, BOX_W, BOX_H);
     renderDirty();
     display.draw(state.player.x, state.player.y, '@', state.player.color || BRIGHT_WHITE, BG);
     for (const w of state.workers.apprentices) display.draw(w.x, w.y, 'a', '#66ccff', BG);
@@ -3828,7 +3823,7 @@ function openGeneralStoreMenu() {
   function closeGS() {
     gsMenuRedrawFn = null;
     window.removeEventListener('keydown', gsKeyHandler);
-    for(let y=BOX_Y;y<BOX_Y+BOX_H;y++) for(let x=BOX_X;x<BOX_X+BOX_W;x++) if(x>=0&&x<DISPLAY_WIDTH&&y>=0&&y<WORLD_ROWS) markDirty(x,y);
+    clearMenuRegion(BOX_X, BOX_Y, BOX_W, BOX_H);
     renderDirty();
     display.draw(state.player.x,state.player.y,'@',state.player.color||BRIGHT_WHITE,BG);
     state.gameState='playing';
@@ -4044,9 +4039,7 @@ function openStorageMenu() {
   function closeStorage() {
     storageMenuRedrawFn = null;
     window.removeEventListener('keydown', storageKeyHandler);
-    for (let y = BOX_Y; y < BOX_Y + BOX_H; y++)
-      for (let x = BOX_X; x < BOX_X + BOX_W; x++)
-        if (x >= 0 && x < DISPLAY_WIDTH && y >= 0 && y < WORLD_ROWS) markDirty(x, y);
+    clearMenuRegion(BOX_X, BOX_Y, BOX_W, BOX_H);
     renderDirty();
     display.draw(state.player.x, state.player.y, '@', state.player.color || BRIGHT_WHITE, BG);
     state.gameState = 'playing';
@@ -4140,9 +4133,7 @@ function showWorkerManagement() {
 
   function closeWorkers() {
     window.removeEventListener('keydown', workerKeyHandler);
-    for (let y = BOX_Y; y < BOX_Y+BOX_H; y++)
-      for (let x = BOX_X; x < BOX_X+BOX_W; x++)
-        if (x >= 0 && x < DISPLAY_WIDTH && y >= 0 && y < WORLD_ROWS) markDirty(x, y);
+    clearMenuRegion(BOX_X, BOX_Y, BOX_W, BOX_H);
     renderDirty();
     for (const w of state.workers.apprentices) display.draw(w.x, w.y, 'a', '#66ccff', BG);
     display.draw(state.player.x, state.player.y, '@', state.player.color || BRIGHT_WHITE, BG);
@@ -4187,9 +4178,7 @@ function showOfficeDispatch() {
 
   function close(goPlay) {
     window.removeEventListener('keydown', dispatchKeyHandler);
-    for (let y = BOX_Y; y < BOX_Y+BOX_H; y++)
-      for (let x = BOX_X; x < BOX_X+BOX_W; x++)
-        if (x >= 0 && x < DISPLAY_WIDTH && y >= 0 && y < WORLD_ROWS) markDirty(x, y);
+    clearMenuRegion(BOX_X, BOX_Y, BOX_W, BOX_H);
     renderDirty();
     for (const w of state.workers.apprentices) display.draw(w.x, w.y, 'a', '#66ccff', BG);
     display.draw(state.player.x, state.player.y, '@', state.player.color || BRIGHT_WHITE, BG);
@@ -4239,10 +4228,7 @@ function showNumericPrompt(title, maxVal, onConfirm, onCancel) {
 
   function closePrompt() {
     window.removeEventListener('keydown', promptHandler);
-    for (let y = BOX_Y; y < BOX_Y + BOX_H; y++)
-      for (let x = BOX_X; x < BOX_X + BOX_W; x++)
-        if (y < WORLD_ROWS) { markDirty(x, y); }
-        else { display.draw(x, y, ' ', BRIGHT_WHITE, BG); }
+    clearMenuRegion(BOX_X, BOX_Y, BOX_W, BOX_H);
     renderDirty();
     display.draw(state.player.x, state.player.y, '@', state.player.color || BRIGHT_WHITE, BG);
   }
@@ -4591,9 +4577,7 @@ function openBankMenu() {
   function closeBank() {
     bankMenuRedrawFn = null;
     window.removeEventListener('keydown', bankKeyHandler);
-    for (let y = BOX_Y; y < BOX_Y + BOX_H; y++)
-      for (let x = BOX_X; x < BOX_X + BOX_W; x++)
-        if (x >= 0 && x < DISPLAY_WIDTH && y >= 0 && y < WORLD_ROWS) markDirty(x, y);
+    clearMenuRegion(BOX_X, BOX_Y, BOX_W, BOX_H);
     renderDirty();
     display.draw(state.player.x, state.player.y, '@', state.player.color || BRIGHT_WHITE, BG);
     state.gameState = 'playing';
@@ -4894,7 +4878,7 @@ function openFuturesMenu() {
 
   function closeF() {
     window.removeEventListener('keydown', futKeyHandler);
-    for (let y = BOX_Y; y < BOX_Y + BOX_H; y++) for (let x = BOX_X; x < BOX_X + BOX_W; x++) if (y < WORLD_ROWS) markDirty(x, y);
+    clearMenuRegion(BOX_X, BOX_Y, BOX_W, BOX_H);
     renderDirty(); display.draw(state.player.x, state.player.y, '@', state.player.color || BRIGHT_WHITE, BG);
     state.gameState = 'playing';
   }
@@ -5091,7 +5075,7 @@ function showPositionsDashboard() {
   function closeDash() {
     dashboardRedrawFn = null;
     window.removeEventListener('keydown', dashKeyHandler);
-    for (let y = BOX_Y; y < BOX_Y + BOX_H; y++) for (let x = BOX_X; x < BOX_X + BOX_W; x++) if (y < WORLD_ROWS) markDirty(x, y);
+    clearMenuRegion(BOX_X, BOX_Y, BOX_W, BOX_H);
     renderDirty(); display.draw(state.player.x, state.player.y, '@', state.player.color || BRIGHT_WHITE, BG);
     state.gameState = 'playing';
   }
@@ -5609,9 +5593,7 @@ function openDerivativesMenu() {
   function closeDV() {
     dvMenuRedrawFn = null;
     window.removeEventListener('keydown', dvKeyHandler);
-    for (let y = BOX_Y; y < BOX_Y + BOX_H; y++)
-      for (let x = BOX_X; x < BOX_X + BOX_W; x++)
-        if (x >= 0 && x < DISPLAY_WIDTH && y >= 0 && y < WORLD_ROWS) markDirty(x, y);
+    clearMenuRegion(BOX_X, BOX_Y, BOX_W, BOX_H);
     renderDirty();
     display.draw(state.player.x, state.player.y, '@', state.player.color || BRIGHT_WHITE, BG);
     for (const w of state.workers.apprentices) display.draw(w.x, w.y, 'a', '#66ccff', BG);
@@ -5883,9 +5865,7 @@ function showForwardPositions() {
 
   function close() {
     window.removeEventListener('keydown', posKeyHandler);
-    for (let y = BOX_Y; y < BOX_Y + BOX_H; y++)
-      for (let x = BOX_X; x < BOX_X + BOX_W; x++)
-        if (y < WORLD_ROWS) markDirty(x, y);
+    clearMenuRegion(BOX_X, BOX_Y, BOX_W, BOX_H);
     renderDirty();
     display.draw(state.player.x, state.player.y, '@', state.player.color || BRIGHT_WHITE, BG);
     state.gameState = 'playing';
@@ -6185,9 +6165,7 @@ function openLFMenu() {
   function closeLF() {
     lfMenuRedrawFn = null;
     window.removeEventListener('keydown', lfKeyHandler);
-    for (let y = BOX_Y; y < BOX_Y + BOX_H; y++)
-      for (let x = BOX_X; x < BOX_X + BOX_W; x++)
-        if (x >= 0 && x < DISPLAY_WIDTH && y >= 0 && y < WORLD_ROWS) markDirty(x, y);
+    clearMenuRegion(BOX_X, BOX_Y, BOX_W, BOX_H);
     renderDirty();
     display.draw(state.player.x, state.player.y, '@', state.player.color || BRIGHT_WHITE, BG);
     state.gameState = 'playing';
@@ -6905,9 +6883,7 @@ function showInventory() {
     inventoryRedrawFn = null;
     if (skillErrTimer) clearTimeout(skillErrTimer);
     window.removeEventListener('keydown', invKeyHandler);
-    for (let y = BOX_Y; y < BOX_Y + BOX_H; y++)
-      for (let x = BOX_X; x < BOX_X + BOX_W; x++)
-        if (x >= 0 && x < DISPLAY_WIDTH && y >= 0 && y < WORLD_ROWS) markDirty(x, y);
+    clearMenuRegion(BOX_X, BOX_Y, BOX_W, BOX_H);
     renderDirty();
     display.draw(state.player.x, state.player.y, '@', state.player.color || BRIGHT_WHITE, BG);
     for (const w of state.workers.apprentices) display.draw(w.x, w.y, 'a', '#66ccff', BG);
@@ -7023,6 +6999,7 @@ function openNewspaperMenu() {
 
   function redraw() {
     const BOX_H = calcBOX_H();
+    _npCloseBOX_H = BOX_H; // keep close function in sync with what was actually drawn
     const BOX_Y = Math.max(1, Math.floor((WORLD_ROWS - BOX_H) / 2));
     const LP_X  = BOX_X + 1;
     const RP_X  = BOX_X + 1 + LP_W + 1;
@@ -7164,15 +7141,15 @@ function openNewspaperMenu() {
     redraw();
   }, 250);
 
+  // Capture the drawn height at close time, before any state changes alter calcBOX_H().
+  let _npCloseBOX_H = calcBOX_H();
   function closeNP() {
     npMenuRedrawFn = null;
     clearInterval(npAnimInterval);
     window.removeEventListener('keydown', npKeyHandler);
-    const BOX_H = calcBOX_H();
-    const BOX_Y = Math.max(1, Math.floor((WORLD_ROWS - BOX_H) / 2));
-    for (let y = BOX_Y; y < BOX_Y + BOX_H; y++)
-      for (let x = BOX_X; x < BOX_X + BOX_W; x++)
-        if (x >= 0 && x < DISPLAY_WIDTH && y >= 0 && y < WORLD_ROWS) markDirty(x, y);
+    const bh = _npCloseBOX_H;
+    const by = Math.max(1, Math.floor((WORLD_ROWS - bh) / 2));
+    clearMenuRegion(BOX_X, by, BOX_W, bh);
     renderDirty();
     display.draw(state.player.x, state.player.y, '@', state.player.color || BRIGHT_WHITE, BG);
     state.gameState = 'playing';
@@ -7558,9 +7535,7 @@ function showPauseMenu() {
   function close() {
     pauseMenuRedrawFn = null;
     window.removeEventListener('keydown', pauseKeyHandler);
-    for (let y = BOX_Y; y < BOX_Y+BOX_H; y++)
-      for (let x = BOX_X; x < BOX_X+BOX_W; x++)
-        if (x >= 0 && x < DISPLAY_WIDTH && y >= 0 && y < WORLD_ROWS) markDirty(x, y);
+    clearMenuRegion(BOX_X, BOX_Y, BOX_W, BOX_H);
     renderDirty();
     for (const w of state.workers.apprentices) display.draw(w.x, w.y, 'a', '#66ccff', BG);
     for (const c of state.workers.couriers)    display.draw(c.x, c.y, 'c', '#cc66cc', BG);
