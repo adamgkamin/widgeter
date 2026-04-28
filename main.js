@@ -94,6 +94,9 @@ const state = {
   debt:                 0,
   debtDaysUnpaid:       0,
   demandCrashOccurred:  false,
+  widgetsMade:          0,
+  peakCredits:          0,
+  bank: { deposit: 0, loan: null },
   audio: { muted: false },
   workers: { apprentices: [], couriers: [] },
   skills: {
@@ -147,6 +150,9 @@ function saveGame() {
     debt:                 state.debt,
     debtDaysUnpaid:       state.debtDaysUnpaid,
     demandCrashOccurred:  state.demandCrashOccurred,
+    widgetsMade:          state.widgetsMade,
+    peakCredits:          state.peakCredits,
+    bank:                 state.bank,
     audio:                state.audio,
     workers:              state.workers,
     skills:               state.skills,
@@ -189,6 +195,11 @@ function loadGame() {
     state.debt                 = data.debt                 ?? 0;
     state.debtDaysUnpaid       = data.debtDaysUnpaid       ?? 0;
     state.demandCrashOccurred  = data.demandCrashOccurred  ?? false;
+    state.widgetsMade          = data.widgetsMade          ?? 0;
+    state.peakCredits          = data.peakCredits          ?? 0;
+    state.bank                 = data.bank                 ?? { deposit: 0, loan: null };
+    state.bank.deposit         = state.bank.deposit        ?? 0;
+    state.bank.loan            = state.bank.loan           ?? null;
     state.audio                = data.audio               ?? { muted: false };
     state.workers              = data.workers           ?? { apprentices: [], couriers: [] };
     state.workers.couriers     = state.workers.couriers ?? []; // normalise old saves
@@ -807,6 +818,9 @@ function resetState() {
   state.debt                 = 0;
   state.debtDaysUnpaid       = 0;
   state.demandCrashOccurred  = false;
+  state.widgetsMade          = 0;
+  state.peakCredits          = 0;
+  state.bank                 = { deposit: 0, loan: null };
   state.audio            = { muted: false };
   state.workers = { apprentices: [], couriers: [] };
   state.skills = { apprentice: 0, courier: 0, workerCarry: 0, workerSpeed: 0, courierCarry: 0, courierSpeed: 0, storageExp1: 0, storageExp2: 0, reducedCarry: 0, discountDump: 0 };
@@ -1755,6 +1769,285 @@ function showOfficeDispatch() {
   window.addEventListener('keydown', dispatchKeyHandler);
 }
 
+// ── Bank numeric prompt helper ────────────────────────────────────────────────
+
+function showNumericPrompt(title, maxVal, onConfirm, onCancel) {
+  const BOX_W = 40, BOX_H = 8;
+  const BOX_X = Math.floor((DISPLAY_WIDTH  - BOX_W) / 2);
+  const BOX_Y = Math.floor((DISPLAY_HEIGHT - BOX_H) / 2);
+  const CONT_X = BOX_X + 2;
+  const CONT_W = BOX_W - 4;
+  const WC = '#555555';
+
+  let inputStr = '';
+
+  function redrawPrompt() {
+    display.draw(BOX_X, BOX_Y, '+', WC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y, '+', WC, BG);
+    for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, BOX_Y, '-', WC, BG);
+    const bY = BOX_Y + BOX_H - 1;
+    display.draw(BOX_X, bY, '+', WC, BG); display.draw(BOX_X+BOX_W-1, bY, '+', WC, BG);
+    for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, bY, '-', WC, BG);
+    for (let y = 1; y < BOX_H-1; y++) {
+      display.draw(BOX_X, BOX_Y+y, '|', WC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y+y, '|', WC, BG);
+      for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, BOX_Y+y, ' ', BRIGHT_WHITE, BG);
+    }
+    const tX = CONT_X + Math.floor((CONT_W - title.length) / 2);
+    for (let i = 0; i < title.length; i++) display.draw(tX+i, BOX_Y+1, title[i], BRIGHT_CYAN, BG);
+    const amtLine = `Amount: ${inputStr}_`;
+    for (let i = 0; i < amtLine.length; i++) display.draw(CONT_X+i, BOX_Y+3, amtLine[i], BRIGHT_WHITE, BG);
+    const maxLine = `Max: ${maxVal}`;
+    for (let i = 0; i < maxLine.length; i++) display.draw(CONT_X+i, BOX_Y+4, maxLine[i], WC, BG);
+    const hint = 'Enter: confirm   ESC: cancel';
+    const hX = CONT_X + Math.floor((CONT_W - hint.length) / 2);
+    for (let i = 0; i < hint.length; i++) display.draw(hX+i, BOX_Y+6, hint[i], WC, BG);
+  }
+
+  function closePrompt() {
+    window.removeEventListener('keydown', promptHandler);
+    for (let y = BOX_Y; y < BOX_Y + BOX_H; y++)
+      for (let x = BOX_X; x < BOX_X + BOX_W; x++)
+        if (y < WORLD_ROWS) { markDirty(x, y); }
+        else { display.draw(x, y, ' ', BRIGHT_WHITE, BG); }
+    renderDirty();
+    display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
+  }
+
+  function promptHandler(e) {
+    e.preventDefault();
+    if (e.key === 'Escape')    { closePrompt(); onCancel?.(); return; }
+    if (e.key === 'Enter')     { const v = Math.min(parseInt(inputStr) || 0, maxVal); closePrompt(); if (v > 0) onConfirm(v); else onCancel?.(); return; }
+    if (e.key === 'Backspace') { inputStr = inputStr.slice(0, -1); redrawPrompt(); return; }
+    if (/^[0-9]$/.test(e.key) && inputStr.length < 9) { inputStr += e.key; redrawPrompt(); }
+  }
+
+  redrawPrompt();
+  window.addEventListener('keydown', promptHandler);
+}
+
+// ── Bank menu (§5.4) ─────────────────────────────────────────────────────────
+
+function openBankMenu() {
+  if (!state.stations.bank || !state.stations.bank.unlocked) return;
+  state.gameState = 'menu';
+
+  const BOX_W  = 56;
+  const BOX_H  = 22;
+  const BOX_X  = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
+  const BOX_Y  = Math.max(2, Math.floor((WORLD_ROWS - BOX_H) / 2));
+  const CONT_X = BOX_X + 2;
+  const CONT_W = BOX_W - 4;
+  const WC     = '#555555';
+  const GC     = '#66cc66';
+
+  function line(row, text, fg) {
+    for (let i = 0; i < text.length; i++) display.draw(CONT_X+i, BOX_Y+row, text[i], fg, BG);
+  }
+  function centered(row, text, fg) {
+    const cx = CONT_X + Math.floor((CONT_W - text.length) / 2);
+    for (let i = 0; i < text.length; i++) display.draw(cx+i, BOX_Y+row, text[i], fg, BG);
+  }
+
+  function redraw() {
+    display.draw(BOX_X, BOX_Y, '+', GC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y, '+', GC, BG);
+    for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, BOX_Y, '-', GC, BG);
+    const bY = BOX_Y + BOX_H - 1;
+    display.draw(BOX_X, bY, '+', GC, BG); display.draw(BOX_X+BOX_W-1, bY, '+', GC, BG);
+    for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, bY, '-', GC, BG);
+    for (let y = 1; y < BOX_H-1; y++) {
+      display.draw(BOX_X, BOX_Y+y, '|', GC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y+y, '|', GC, BG);
+      for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, BOX_Y+y, ' ', BRIGHT_WHITE, BG);
+    }
+
+    centered(1, '– BANK –', GC);
+
+    // Deposit section
+    const dep = state.bank.deposit;
+    line(3, `Deposit balance: ${dep.toFixed(1)}cr`, GC);
+    const availDep = Math.max(0, state.player.credits - 10);
+    line(4, `1. Deposit all             ${availDep > 0 ? `[+${availDep}cr available]` : '[need more than 10cr]'}`, availDep > 0 ? GC : WC);
+    line(5, `2. Deposit custom amount   ${availDep > 0 ? '[enter amount]' : '[need more than 10cr]'}`, availDep > 0 ? GC : WC);
+    line(6, `3. Withdraw all            ${dep > 0 ? `[${dep.toFixed(1)}cr]` : '[no deposit]'}`, dep > 0 ? GC : WC);
+
+    for (let i = 0; i < CONT_W; i++) display.draw(CONT_X+i, BOX_Y+8, '.', WC, BG);
+
+    // Loan section
+    const loan = state.bank.loan;
+    const loanLimit = Math.floor(state.lifetimeCreditsEarned * 0.5);
+    if (loan) {
+      const daysLeft = loan.deadline - state.day;
+      const rateStr  = (loan.rate * 100).toFixed(1);
+      const owed     = loan.remaining.toFixed(1);
+      if (daysLeft >= 0) {
+        line(9,  `Active loan: ${owed}cr at ${rateStr}%/day`, '#ffd633');
+        line(10, `  Deadline: day ${loan.deadline} — ${daysLeft} day${daysLeft !== 1 ? 's' : ''} remaining`, '#ffd633');
+      } else {
+        line(9,  `OVERDUE LOAN: ${owed}cr at ${rateStr}%/day`, '#ff5555');
+        line(10, `  ${Math.abs(daysLeft)} day${Math.abs(daysLeft) !== 1 ? 's' : ''} overdue — REPAY IMMEDIATELY`, '#ff5555');
+      }
+    } else {
+      line(9, `No active loan.  Loan limit: ${loanLimit}cr`, WC);
+    }
+
+    const can4 = !loan && loanLimit > 0;
+    line(12, `4. Take loan               ${can4 ? `[limit: ${loanLimit}cr]` : (loan ? '[loan active]' : '[insufficient history]')}`, can4 ? GC : WC);
+    const can5 = !!loan;
+    line(13, `5. Repay loan              ${can5 ? `[owed: ${loan.remaining.toFixed(1)}cr]` : '[no loan]'}`, can5 ? (state.player.credits >= loan.remaining ? GC : '#ff9933') : WC);
+    const daysLeft2   = loan ? loan.deadline - state.day : 999;
+    const can6 = !!loan && daysLeft2 <= 5 && loan.rate < 0.05;
+    line(14, `6. Refinance loan          ${can6 ? '[within refi window]' : (!loan ? '[no loan]' : (loan.rate >= 0.05 ? '[rate cap reached]' : '[>5 days to deadline]'))}`, can6 ? '#ff9933' : WC);
+
+    if (state.debt > 0) {
+      line(16, `Outstanding debt: ${state.debt}cr`, '#ff5555');
+    }
+
+    centered(BOX_H-2, 'ESC to close', WC);
+  }
+
+  redraw();
+
+  function closeBank() {
+    window.removeEventListener('keydown', bankKeyHandler);
+    for (let y = BOX_Y; y < BOX_Y + BOX_H; y++)
+      for (let x = BOX_X; x < BOX_X + BOX_W; x++)
+        if (x >= 0 && x < DISPLAY_WIDTH && y >= 0 && y < WORLD_ROWS) markDirty(x, y);
+    renderDirty();
+    display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
+    state.gameState = 'playing';
+  }
+
+  function bankKeyHandler(e) {
+    if (e.key === 'Escape') { closeBank(); return; }
+    const loan = state.bank.loan;
+
+    if (e.key === '1') {
+      const amt = Math.max(0, state.player.credits - 10);
+      if (amt <= 0) return;
+      state.bank.deposit       = Math.round((state.bank.deposit + amt) * 10) / 10;
+      state.player.credits     = 10;
+      addLog(`Deposited ${amt}cr.`, GC);
+      drawStatusBar(); redraw();
+      return;
+    }
+    if (e.key === '2') {
+      const maxDep = Math.max(0, state.player.credits - 10);
+      if (maxDep <= 0) return;
+      window.removeEventListener('keydown', bankKeyHandler);
+      showNumericPrompt('Deposit Amount', maxDep,
+        (val) => { state.bank.deposit = Math.round((state.bank.deposit + val) * 10) / 10; state.player.credits -= val; addLog(`Deposited ${val}cr.`, GC); drawStatusBar(); openBankMenu(); },
+        () => openBankMenu()
+      );
+      return;
+    }
+    if (e.key === '3') {
+      if (state.bank.deposit <= 0) return;
+      const amt = state.bank.deposit;
+      state.player.credits = Math.round((state.player.credits + amt) * 10) / 10;
+      state.bank.deposit   = 0;
+      addLog(`Withdrew ${amt.toFixed(1)}cr from deposit.`, GC);
+      drawStatusBar(); redraw();
+      return;
+    }
+    if (e.key === '4') {
+      if (loan) return;
+      const loanLimit = Math.floor(state.lifetimeCreditsEarned * 0.5);
+      if (loanLimit <= 0) return;
+      window.removeEventListener('keydown', bankKeyHandler);
+      showNumericPrompt('Loan Amount', loanLimit,
+        (val) => {
+          state.bank.loan = { principal: val, remaining: val, rate: 0.01, dayTaken: state.day, deadline: state.day + 20, refinanceCount: 0, overdueDays: 0 };
+          state.player.credits += val;
+          addLog(`Loan of ${val}cr approved. Repay within 20 days.`, '#ffd633');
+          drawStatusBar(); openBankMenu();
+        },
+        () => openBankMenu()
+      );
+      return;
+    }
+    if (e.key === '5') {
+      if (!loan || state.player.credits <= 0) return;
+      if (state.player.credits >= loan.remaining) {
+        state.player.credits -= loan.remaining;
+        addLog(`Loan of ${loan.remaining.toFixed(1)}cr repaid in full.`, GC);
+        state.bank.loan = null;
+      } else {
+        const partial = state.player.credits;
+        loan.remaining = Math.round((loan.remaining - partial) * 10) / 10;
+        state.player.credits = 0;
+        addLog(`Partial repayment: ${partial}cr. Remaining: ${loan.remaining}cr.`, '#ff9933');
+      }
+      drawStatusBar(); redraw();
+      return;
+    }
+    if (e.key === '6') {
+      if (!loan) return;
+      const daysLeft = loan.deadline - state.day;
+      if (daysLeft > 5 || loan.rate >= 0.05) return;
+      loan.rate = Math.round((loan.rate + 0.005) * 1000) / 1000;
+      loan.deadline = state.day + 20;
+      loan.refinanceCount++;
+      addLog(`Loan refinanced at ${(loan.rate * 100).toFixed(1)}%/day. New deadline: day ${loan.deadline}.`, '#ff9933');
+      redraw();
+      return;
+    }
+  }
+  window.addEventListener('keydown', bankKeyHandler);
+}
+
+// ── Bankruptcy screen (§5.4) ─────────────────────────────────────────────────
+
+function showBankruptcyScreen() {
+  state.gameState = 'title';
+  clearScreen();
+
+  const BOX_W  = 52;
+  const BOX_H  = 17;
+  const BOX_X  = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
+  const BOX_Y  = Math.floor((DISPLAY_HEIGHT - BOX_H) / 2);
+  const CONT_X = BOX_X + 2;
+  const CONT_W = BOX_W - 4;
+  const RC     = '#ff5555';
+  const WC     = '#555555';
+
+  display.draw(BOX_X, BOX_Y, '+', RC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y, '+', RC, BG);
+  for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, BOX_Y, '-', RC, BG);
+  const bY = BOX_Y + BOX_H - 1;
+  display.draw(BOX_X, bY, '+', RC, BG); display.draw(BOX_X+BOX_W-1, bY, '+', RC, BG);
+  for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, bY, '-', RC, BG);
+  for (let y = 1; y < BOX_H-1; y++) {
+    display.draw(BOX_X, BOX_Y+y, '|', RC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y+y, '|', RC, BG);
+    for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, BOX_Y+y, ' ', BRIGHT_WHITE, BG);
+  }
+
+  function line(row, text, fg) {
+    for (let i = 0; i < text.length; i++) display.draw(CONT_X+i, BOX_Y+row, text[i], fg, BG);
+  }
+  function centered(row, text, fg) {
+    const cx = CONT_X + Math.floor((CONT_W - text.length) / 2);
+    for (let i = 0; i < text.length; i++) display.draw(cx+i, BOX_Y+row, text[i], fg, BG);
+  }
+
+  centered(1, '– BANKRUPTCY –', RC);
+  centered(2, 'The debt has come due.', WC);
+  line(4,  `Days survived:   ${state.day}`, BRIGHT_WHITE);
+  line(5,  `Widgets made:    ${state.widgetsMade}`, BRIGHT_WHITE);
+  line(6,  `Peak credits:    ${state.peakCredits}cr`, '#ffd633');
+  line(7,  `Total earned:    ${state.lifetimeCreditsEarned}cr`, '#ffd633');
+  line(9,  `Final debt:      ${state.bank.loan ? state.bank.loan.remaining.toFixed(1) : 0}cr`, RC);
+  centered(12, 'Press any key to return to menu.', WC);
+
+  localStorage.removeItem(SAVE_KEY);
+
+  function bankruptcyKeyHandler(e) {
+    window.removeEventListener('keydown', bankruptcyKeyHandler);
+    resetState();
+    clearScreen();
+    drawArt();
+    drawPrompt(true);
+    state.gameState = 'title';
+  }
+  window.addEventListener('keydown', bankruptcyKeyHandler);
+}
+
 function handleInteract() {
   const rm = STATION_DEFS.find(s => s.label === 'RM');
   if (rm && isAdjacentToStation(rm)) { openRMShedMenu(); return; }
@@ -1769,6 +2062,8 @@ function handleInteract() {
   }
   const stStation = STATION_DEFS.find(s => s.label === 'ST');
   if (stStation && isAdjacentToStation(stStation)) { openStorageMenu(); return; }
+  const bkStation = STATION_DEFS.find(s => s.label === 'BK');
+  if (bkStation && isAdjacentToStation(bkStation)) { openBankMenu(); return; }
 }
 
 // ── Inventory screen (§3.9) ──────────────────────────────────────────────────
@@ -2248,6 +2543,14 @@ setInterval(() => {
       const dl = demandLabel(state.demand);
       wrapLog(`Market demand today: ${dl.text}. Price: ${state.marketPrice}cr/widget.`, dl.fg);
     }
+    // Loan overdue check
+    if (state.bank.loan && state.day > state.bank.loan.deadline) {
+      state.bank.loan.overdueDays = (state.bank.loan.overdueDays || 0) + 1;
+      addLog('LOAN OVERDUE. Repay or refinance immediately.', '#ff5555');
+      if (state.bank.loan.overdueDays >= 3 && state.player.credits <= 0 && state.bank.deposit <= 0) {
+        setTimeout(showBankruptcyScreen, 1000);
+      }
+    }
   }
   drawTimeIndicator();
 
@@ -2259,6 +2562,7 @@ setInterval(() => {
     if (craftProgress >= CRAFT_TICKS) {
       craftProgress = 0;
       state.player.inventory.widgets++;
+      state.widgetsMade++;
       drawStatusBar();
       if (craftQueue > 0) {
         const stillLeft = craftQueue;
@@ -2314,7 +2618,25 @@ setInterval(() => {
       }
       drawStatusBar();
     }
+    // Deposit interest: 0.5% per day
+    if (state.bank.deposit > 0) {
+      const interest = Math.round(state.bank.deposit * 0.005 * 10) / 10;
+      if (interest > 0) {
+        state.bank.deposit = Math.round((state.bank.deposit + interest) * 10) / 10;
+        addLog(`Bank interest: +${interest}cr.`, '#66cc66');
+      }
+    }
+    // Loan interest
+    if (state.bank.loan) {
+      const lInterest = Math.round(state.bank.loan.remaining * state.bank.loan.rate * 10) / 10;
+      state.bank.loan.remaining = Math.round((state.bank.loan.remaining + lInterest) * 10) / 10;
+      addLog(`Loan interest: ${lInterest}cr. Total owed: ${state.bank.loan.remaining.toFixed(1)}cr.`, '#ff5555');
+    }
+    if (state.bank.deposit > 0 || state.bank.loan) drawStatusBar();
   }
+
+  // Update peak credits each tick
+  if (state.player.credits > state.peakCredits) state.peakCredits = state.player.credits;
 
   // Ambient flavor events — §13
   if (state.tick - state.lastAmbientTick  > state.nextAmbientDelay &&
