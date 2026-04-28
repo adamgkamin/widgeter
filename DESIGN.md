@@ -417,9 +417,7 @@ These numbers are tuned so that Phase 2 unlock at 200 cumulative credits earned 
 - Once all 5 slots filled, a small visual flourish on the building (subtle pulse, brighter color).
 
 **Production cap in Phase 2:**
-- RM shed introduces a **daily purchase cap of 100 RM/day** at Phase 2 trigger. Resets at dawn.
-- This caps total daily widget production at 100 widgets, regardless of factory size.
-- Removing this cap is a Phase 3 skill-tree unlock ("Bulk RM Contract — 200/day, 500¢").
+- RM purchase cap removed — daily demand `D` is the sole production throttle. See §5.4 for demand model.
 
 **Goal of Phase 2:** scale to ~50–100 widgets sold per day. This makes credits accumulate fast enough to feel powerful. Then Phase 3 punishes that scale.
 
@@ -464,7 +462,6 @@ These numbers are tuned so that Phase 2 unlock at 200 cumulative credits earned 
 **Phase 3 skill-tree unlocks (in the Office):**
 - **Demand History Chart** (50¢): adds a chart panel to the Market interaction showing the last 14 days of demand and price.
 - **Market Discount Dump** (250¢): see above.
-- **Bulk RM Contract** (500¢): RM daily cap increases from 100 to 200/day.
 - **Storage Expansion I** (200¢): Storage Warehouse cap +50 widgets, +50 RM.
 - **Storage Expansion II** (500¢): another +100 each.
 - **Reduced Cost of Carry** (300¢): cost of carry drops from 0.2¢ to 0.1¢ per widget per day.

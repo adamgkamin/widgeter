@@ -227,8 +227,6 @@ const state = {
   workbenchHammerTick:  0,
   productionHalted:  false,
   wbFullLogged:      false,
-  rmPurchasedToday:  0,
-  rmLimitLogged:     false,
   couriersOwned:        0,
   demand:               50,
   marketPrice:          8,
@@ -244,7 +242,21 @@ const state = {
   endingTriggered:      false,
   widgetsMade:          0,
   peakCredits:          0,
-  bank: { deposit: 0, loan: null },
+  bank: {
+    deposit: 0,
+    loan: null,
+    creditRating:           'B',
+    creditRatingScore:      3.0,
+    ratingHistory:          [],
+    consecutivePositiveDays: 0,
+    creditNegativeLogged:   false,
+    card: {
+      owned: false, limit: 0, balance: 0,
+      lastStatementDay: 0, cycleLength: 10,
+      minimumPaymentDue: 0, paymentDueDay: 0,
+      missedPayments: 0, interestRate: 0.02,
+    },
+  },
   audio: { muted: false },
   settings: { fullscreen: false, currentFontSize: 16 },
   workers: { apprentices: [], couriers: [] },
@@ -270,7 +282,6 @@ const state = {
     discountDump:   0,
     demandHistory:      0,
     forecast:           0,
-    bulkRM:             0,
     futures:            0,
     optionsBuy:         0,
     optionsWrite:       0,
@@ -316,8 +327,6 @@ function saveGame() {
     workbenchWidgets:     state.workbenchWidgets,
     productionHalted:     state.productionHalted,
     wbFullLogged:         state.wbFullLogged,
-    rmPurchasedToday:     state.rmPurchasedToday,
-    rmLimitLogged:        state.rmLimitLogged,
     couriersOwned:        state.couriersOwned,
     demand:               state.demand,
     marketPrice:          state.marketPrice,
@@ -392,8 +401,6 @@ function loadGame() {
     state.workbenchWidgets     = data.workbenchWidgets  ?? 0;
     state.productionHalted     = data.productionHalted  ?? false;
     state.wbFullLogged         = data.wbFullLogged       ?? false;
-    state.rmPurchasedToday     = data.rmPurchasedToday   ?? 0;
-    state.rmLimitLogged        = data.rmLimitLogged       ?? false;
     state.couriersOwned        = data.couriersOwned        ?? 0;
     state.demand               = data.demand               ?? 50;
     state.marketPrice          = data.marketPrice          ?? 8;
@@ -420,6 +427,21 @@ function loadGame() {
     state.bank                 = data.bank                 ?? { deposit: 0, loan: null };
     state.bank.deposit         = state.bank.deposit        ?? 0;
     state.bank.loan            = state.bank.loan           ?? null;
+    state.bank.creditRating           = state.bank.creditRating           ?? 'B';
+    state.bank.creditRatingScore      = state.bank.creditRatingScore      ?? 3.0;
+    state.bank.ratingHistory          = state.bank.ratingHistory          ?? [];
+    state.bank.consecutivePositiveDays = state.bank.consecutivePositiveDays ?? 0;
+    state.bank.creditNegativeLogged   = false; // transient — not restored from save
+    { const _c = state.bank.card = state.bank.card ?? {};
+      _c.owned             = _c.owned             ?? false;
+      _c.limit             = _c.limit             ?? 0;
+      _c.balance           = _c.balance           ?? 0;
+      _c.lastStatementDay  = _c.lastStatementDay  ?? 0;
+      _c.cycleLength       = _c.cycleLength       ?? 10;
+      _c.minimumPaymentDue = _c.minimumPaymentDue ?? 0;
+      _c.paymentDueDay     = _c.paymentDueDay     ?? 0;
+      _c.missedPayments    = _c.missedPayments    ?? 0;
+      _c.interestRate      = _c.interestRate      ?? 0.02; }
     state.audio                = data.audio               ?? { muted: false };
     state.settings             = data.settings            ?? {};
     state.settings.fullscreen  = state.settings.fullscreen  ?? false;
@@ -457,7 +479,6 @@ function loadGame() {
         discountDump:   s.discountDump   ?? 0,
         demandHistory:     s.demandHistory     ?? 0,
         forecast:          s.forecast          ?? 0,
-        bulkRM:            s.bulkRM            ?? 0,
         futures:           s.futures           ?? 0,
         optionsBuy:        s.optionsBuy        ?? 0,
         optionsWrite:      s.optionsWrite      ?? 0,
@@ -1187,8 +1208,6 @@ function resetState() {
   state.workbenchHammerTick  = 0;
   state.productionHalted = false;
   state.wbFullLogged     = false;
-  state.rmPurchasedToday = 0;
-  state.rmLimitLogged    = false;
   state.couriersOwned    = 0;
   state.demand           = 50;
   state.marketPrice      = 8;
@@ -1204,13 +1223,20 @@ function resetState() {
   state.endingTriggered      = false;
   state.widgetsMade          = 0;
   state.peakCredits          = 0;
-  state.bank                 = { deposit: 0, loan: null };
+  state.bank                 = {
+    deposit: 0, loan: null,
+    creditRating: 'B', creditRatingScore: 3.0,
+    ratingHistory: [], consecutivePositiveDays: 0,
+    creditNegativeLogged: false,
+    card: { owned:false, limit:0, balance:0, lastStatementDay:0, cycleLength:10,
+            minimumPaymentDue:0, paymentDueDay:0, missedPayments:0, interestRate:0.02 },
+  };
   state.audio            = { muted: false };
   { const savedFS = localStorage.getItem('widgeter.settings.fullscreen');
     state.settings = { fullscreen: savedFS ? JSON.parse(savedFS) : false, currentFontSize: state.settings?.currentFontSize ?? 16 }; }
   state.workers = { apprentices: [], couriers: [] };
   state.stats = { rmLastTen: [], widgetsLastTen: [], creditsLastTen: [], widgetsMadeToday: 0, revenueToday: 0, costsToday: 0 };
-  state.skills = { apprenticeCount: 0, courierCount: 0, workerCarryLevel: 0, workerSpeedLevel: 0, courierCarryLevel: 0, courierSpeedLevel: 0, storageExp1: 0, storageExp2: 0, reducedCarry: 0, discountDump: 0, demandHistory: 0, forecast: 0, bulkRM: 0, futures: 0, optionsBuy: 0, optionsWrite: 0, volatilitySurface: 0, plantStory: 0, smearCampaign: 0, endurance: { pips: 0 }, aquatics: { purchased: false }, interfacing: { pips: 0 } };
+  state.skills = { apprenticeCount: 0, courierCount: 0, workerCarryLevel: 0, workerSpeedLevel: 0, courierCarryLevel: 0, courierSpeedLevel: 0, storageExp1: 0, storageExp2: 0, reducedCarry: 0, discountDump: 0, demandHistory: 0, forecast: 0, futures: 0, optionsBuy: 0, optionsWrite: 0, volatilitySurface: 0, plantStory: 0, smearCampaign: 0, endurance: { pips: 0 }, aquatics: { purchased: false }, interfacing: { pips: 0 } };
   state.craftingTimeRemote = 10;
   state.stats.pondStepsWalked = 0;
   state.cottage = { owned: false, mapX: 40, mapY: 21, playerX: 10, playerY: 5, furniture: {}, visited: false, catX: 9, catY: 7, matLoggedThisVisit: false };
@@ -1631,7 +1657,7 @@ function openRMShedMenu() {
   const IW    = 52;
   const AW    = 14; // art pane width
   const IPW   = 37; // info pane width
-  const BOX_H = 21;
+  const BOX_H = 22;
   const BOX_X = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
   const BOX_Y = Math.max(1, Math.floor((WORLD_ROWS - BOX_H) / 2));
   const RPX   = BOX_X + 1 + AW + 1; // right pane absolute x
@@ -1692,12 +1718,8 @@ function openRMShedMenu() {
     const rm      = state.player.inventory.rm;
     const rmCap   = state.player.inventoryCaps.rm;
     const rmSpace = rmCap - rm;
-    const rmDailyCap = state.skills.bulkRM ? 200 : 100;
-    const dailyLeft  = state.phase >= 2 ? Math.max(0, rmDailyCap - state.rmPurchasedToday) : Infinity;
-    const maxBuy  = Math.min(rmSpace, Math.floor(state.player.credits / COST),
-                             dailyLeft === Infinity ? rmSpace : dailyLeft);
-    const canBuy1 = state.player.credits >= COST && rmSpace > 0 && dailyLeft > 0;
-    const limitHit = state.phase >= 2 && dailyLeft <= 0;
+    const maxBuy  = Math.min(rmSpace, Math.floor(state.player.credits / COST));
+    const canBuy1 = state.player.credits >= COST && rmSpace > 0;
 
     // Clear interior
     for (let r = 1; r < BOX_H - 1; r++)
@@ -1735,37 +1757,39 @@ function openRMShedMenu() {
     renderLargeNumber(display, RPX, BOX_Y + 6, numStr, TC, IPW);
 
     drp(BOX_Y + 11, `Cost per unit:  ${formatCredits(COST)}cr`, '#f0f0f0');
-    drp(BOX_Y + 12, `Daily limit:  ${state.phase >= 2 ? `${rmDailyCap}/day` : 'unlimited'}`, '#555555');
+    drp(BOX_Y + 12, '', DC);
 
     // Row 13: ─ action separator
     { const ay = BOX_Y + 13; border(ay);
       for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '─', DC, BG); }
 
-    // Action rows 14-17
+    // Action rows 14-18
     const c1 = `-${formatCredits(COST)}cr`;
     const cm = maxBuy > 0 ? `-${formatCredits(maxBuy * COST)}cr` : '';
+    const cardAvail = state.bank.card?.owned ? Math.max(0, state.bank.card.limit - state.bank.card.balance) : 0;
+    const canBuyCard = state.bank.card?.owned && cardAvail >= COST && rmSpace > 0;
     arow(BOX_Y + 14, `1. Buy 1 RM`, c1, canBuy1 ? '#66cc66' : '#ff5555');
     arow(BOX_Y + 15, `2. Buy max (${maxBuy})`, cm, canBuy1 && maxBuy > 0 ? '#66cc66' : '#ff5555');
     arow(BOX_Y + 16, '3. Buy custom amount', '', canBuy1 ? '#66cc66' : '#ff5555');
     arow(BOX_Y + 17, '4. Cancel', '', '#555555');
+    arow(BOX_Y + 18, `5. Buy 1 RM on card`, canBuyCard ? `-${COST}cr (card)` : '', canBuyCard ? '#66ccff' : '#444444');
 
-    // Row 18: ═ bottom rule
-    { const ay = BOX_Y + 18; border(ay);
+    // Row 19: ═ bottom rule
+    { const ay = BOX_Y + 19; border(ay);
       for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '═', DC, BG); }
 
-    // Row 19: status
+    // Row 20: status
     let statusText, statusFg;
-    if (limitHit)                                           { statusText = 'Daily limit reached. Resets at dawn.'; statusFg = '#ff5555'; }
-    else if (rmSpace <= 0)                                  { statusText = 'Inventory full.'; statusFg = '#ff5555'; }
-    else if (state.player.credits < COST)                   { statusText = 'Insufficient credits.'; statusFg = '#ff5555'; }
-    else                                                    { statusText = 'Walk to shed. Press space to purchase.'; statusFg = '#555555'; }
-    { const ay = BOX_Y + 19; border(ay);
+    if (rmSpace <= 0)                { statusText = 'Inventory full.'; statusFg = '#ff5555'; }
+    else if (state.player.credits < COST && !canBuyCard) { statusText = 'Insufficient credits.'; statusFg = '#ff5555'; }
+    else                             { statusText = 'Walk to shed. Press space to purchase.'; statusFg = '#555555'; }
+    { const ay = BOX_Y + 20; border(ay);
       const centered = menuPad(statusText.length < IW ? ' '.repeat(Math.floor((IW-statusText.length)/2)) + statusText : statusText, IW);
       for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, centered[i] || ' ', statusFg, BG); }
 
-    // Row 20: ╚═…═╝
-    display.draw(BOX_X, BOX_Y + 20, '╚', TC, BG); display.draw(BOX_X + BOX_W - 1, BOX_Y + 20, '╝', TC, BG);
-    for (let i = 1; i < BOX_W - 1; i++) display.draw(BOX_X + i, BOX_Y + 20, '═', TC, BG);
+    // Row 21: ╚═…═╝
+    display.draw(BOX_X, BOX_Y + 21, '╚', TC, BG); display.draw(BOX_X + BOX_W - 1, BOX_Y + 21, '╝', TC, BG);
+    for (let i = 1; i < BOX_W - 1; i++) display.draw(BOX_X + i, BOX_Y + 21, '═', TC, BG);
   }
 
   function closeRM() {
@@ -1783,34 +1807,42 @@ function openRMShedMenu() {
 
   function rmKeyHandler(e) {
     if (e.key === 'Escape' || e.key === '4') { closeRM(); return; }
-    const rm       = state.player.inventory.rm;
-    const rmCap    = state.player.inventoryCaps.rm;
-    const rmSpace  = rmCap - rm;
-    const rmDailyCap = state.skills.bulkRM ? 200 : 100;
-    const dailyLeft  = state.phase >= 2 ? Math.max(0, rmDailyCap - state.rmPurchasedToday) : Infinity;
-    const maxBuy   = Math.min(rmSpace, Math.floor(state.player.credits / COST),
-                              dailyLeft === Infinity ? rmSpace : dailyLeft);
-    const canBuy1  = state.player.credits >= COST && rmSpace > 0 && dailyLeft > 0;
+    const rm      = state.player.inventory.rm;
+    const rmCap   = state.player.inventoryCaps.rm;
+    const rmSpace = rmCap - rm;
+    const maxBuy  = Math.min(rmSpace, Math.floor(state.player.credits / COST));
+    const canBuy1 = state.player.credits >= COST && rmSpace > 0;
 
     if (e.key === '1' && canBuy1) {
-      state.player.credits -= COST; state.player.inventory.rm++; state.rmPurchasedToday++;
+      state.player.credits -= COST; state.player.inventory.rm++;
       addLog('You buy 1 raw material.', '#ff9933'); drawStatusBar();
       { const rmD = STATION_DEFS.find(s => s.label === 'RM'); if (rmD) effectsManager.coinDrain(state.player.x, state.player.y, rmD.x+1, rmD.y+2, COST); }
       return;
     }
     if (e.key === '2' && maxBuy > 0 && canBuy1) {
-      state.player.credits -= maxBuy * COST; state.player.inventory.rm += maxBuy; state.rmPurchasedToday += maxBuy;
+      state.player.credits -= maxBuy * COST; state.player.inventory.rm += maxBuy;
       addLog(`You buy ${maxBuy} raw material${maxBuy !== 1 ? 's' : ''}.`, '#ff9933'); drawStatusBar();
       return;
     }
     if (e.key === '3' && canBuy1) {
       window.removeEventListener('keydown', rmKeyHandler);
       showNumericPrompt(`Buy RM (max ${maxBuy})`, maxBuy,
-        (n) => { state.player.credits -= n * COST; state.player.inventory.rm += n; state.rmPurchasedToday += n;
+        (n) => { state.player.credits -= n * COST; state.player.inventory.rm += n;
                  addLog(`You buy ${n} raw material${n !== 1 ? 's' : ''}.`, '#ff9933'); drawStatusBar();
                  openRMShedMenu(); },
         () => openRMShedMenu()
       );
+    }
+    if (e.key === '5') {
+      const card = state.bank.card;
+      if (!card?.owned) return;
+      const avail = Math.max(0, card.limit - card.balance);
+      if (avail < COST || rmSpace <= 0) return;
+      card.balance = Math.round((card.balance + COST) * 10) / 10;
+      state.player.inventory.rm++;
+      addLog('You buy 1 RM on card.', '#66ccff'); drawStatusBar();
+      { const rmD = STATION_DEFS.find(s => s.label === 'RM'); if (rmD) effectsManager.coinDrain(state.player.x, state.player.y, rmD.x+1, rmD.y+2, COST); }
+      redraw();
     }
   }
 
@@ -2593,7 +2625,6 @@ const OFFICE_NODES = [
   { key: 'courierCarry', name: 'Increase Courier Inventory', levelKey: 'courierCarryLevel', costs: [15, 30, 60, 100],  max: 4, minPhase: 2, widgetUpgrade: true },
   { key: 'courierSpeed', name: 'Overclock Courier Speed',    levelKey: 'courierSpeedLevel', costs: [20, 40, 80, 150],  max: 4, minPhase: 2, widgetUpgrade: true },
   // Marketing
-  { key: 'bulkRM',        name: 'Bulk RM Contract', cost:  500, max: 1, minPhase: 3 },
   { key: 'demandHistory', name: 'Demand History',   cost:   50, max: 1, minPhase: 3 },
   { key: 'forecast',      name: '7-Day Forecast',   cost: 1500, max: 1, minPhase: 3 },
   { key: 'plantStory',    name: 'Plant a Story',    cost: 1500, max: 1, minPhase: 3 },
@@ -2656,8 +2687,7 @@ function showOfficeMenu() {
       { k: 'b', nk: 'discountDump' },
     ]},
     { header: 'MARKETING', items: [
-      { k: 'j', nk: 'bulkRM'        },
-      { k: 'k', nk: 'demandHistory' },
+      { k: 'j', nk: 'demandHistory' },
       { k: 'l', nk: 'forecast'      },
       { k: 's', nk: 'plantStory'    },
       { k: 't', nk: 'smearCampaign' },
@@ -3521,7 +3551,15 @@ function handlePonder() {
   }
 
   // Phase 3 urgent hints first
-  if (state.phase >= 3 && state.bank.loan && (state.bank.loan.deadline - state.day) <= 5) {
+  if (state.phase >= 3 && state.bank.card?.owned && state.bank.card.missedPayments > 0) {
+    hint = 'The bank noted a missed payment. It won\'t forget.';
+  } else if (state.phase >= 3 && state.bank.card?.owned && state.bank.card.balance > state.bank.card.limit * 0.8) {
+    hint = 'The card is nearly maxed. Every day you carry it, interest compounds.';
+  } else if (state.phase >= 3 && getBankRatingIdx() <= 2) {
+    hint = 'Your credit record is showing strain. The bank has noticed.';
+  } else if (state.phase >= 3 && getBankRatingIdx() >= 6) {
+    hint = 'Strong fundamentals. The bank will lend on better terms now.';
+  } else if (state.phase >= 3 && state.bank.loan && (state.bank.loan.deadline - state.day) <= 5) {
     hint = 'The bank will want its money soon.';
   } else if (state.phase >= 3 && state.debt > 0) {
     hint = 'You owe more than you have. The bank may help — or make things worse.';
@@ -4179,6 +4217,52 @@ function showNumericPrompt(title, maxVal, onConfirm, onCancel) {
   window.addEventListener('keydown', promptHandler);
 }
 
+// ── Bank credit rating system (§5.4) ─────────────────────────────────────────
+
+const RATING_TIERS = ['F','D','C','B','BB','BBB','A','AA','AAA'];
+const RATING_INFO = [
+  { tier:'F',   loanFactor:0,    rate:0,     cardLimit:0    },
+  { tier:'D',   loanFactor:0,    rate:0,     cardLimit:0    },
+  { tier:'C',   loanFactor:0.25, rate:0.012, cardLimit:0    },
+  { tier:'B',   loanFactor:0.5,  rate:0.010, cardLimit:50   },
+  { tier:'BB',  loanFactor:0.6,  rate:0.009, cardLimit:100  },
+  { tier:'BBB', loanFactor:0.75, rate:0.008, cardLimit:200  },
+  { tier:'A',   loanFactor:1.0,  rate:0.007, cardLimit:400  },
+  { tier:'AA',  loanFactor:1.25, rate:0.006, cardLimit:800  },
+  { tier:'AAA', loanFactor:1.5,  rate:0.005, cardLimit:1600 },
+];
+
+function getBankRatingIdx() {
+  return Math.round(Math.max(0, Math.min(8, state.bank.creditRatingScore)));
+}
+function getRatingColor(tier) {
+  const map = { F:'#ff5555', D:'#ff7733', C:'#ffaa44', B:'#f0f0f0', BB:'#aaddff', BBB:'#66ccff', A:'#66cc66', AA:'#aaffaa', AAA:'#ffd633' };
+  return map[tier] ?? '#f0f0f0';
+}
+function getLoanTerms() { return RATING_INFO[getBankRatingIdx()]; }
+function changeRating(delta, reason) {
+  const prevIdx = getBankRatingIdx();
+  state.bank.creditRatingScore = Math.max(0, Math.min(8, state.bank.creditRatingScore + delta));
+  const newIdx  = getBankRatingIdx();
+  const newTier = RATING_TIERS[newIdx];
+  state.bank.creditRating = newTier;
+  if (newIdx !== prevIdx) {
+    const prevTier = RATING_TIERS[prevIdx];
+    const up = newIdx > prevIdx;
+    if (state.bank.ratingHistory.length >= 20) state.bank.ratingHistory.shift();
+    state.bank.ratingHistory.push({ day: state.day, from: prevTier, to: newTier, reason });
+    addLog(`Credit rating: ${prevTier} → ${newTier}. ${reason}.`, up ? '#66cc66' : '#ff5555');
+    if (up && state.bank.card.owned) {
+      const newLimit = RATING_INFO[newIdx].cardLimit;
+      if (newLimit > state.bank.card.limit) {
+        state.bank.card.limit = newLimit;
+        addLog(`Card credit limit raised to ${newLimit}cr.`, '#66ccff');
+      }
+    }
+  }
+  if (bankMenuRedrawFn) bankMenuRedrawFn();
+}
+
 // ── Bank menu (§5.4) ─────────────────────────────────────────────────────────
 
 function openBankMenu() {
@@ -4186,13 +4270,14 @@ function openBankMenu() {
   state.gameState = 'menu';
 
   const TC    = '#66cc66';
+  const CC    = '#66ccff';
   const DC    = '#333333';
   const LC    = '#ffffff';
   const BOX_W = 54;
   const IW    = 52;
   const AW    = 14;
   const IPW   = 37;
-  const BOX_H = 28;
+  const BOX_H = 36;
   const BOX_X = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
   const BOX_Y = Math.max(1, Math.floor((WORLD_ROWS - BOX_H) / 2));
   const RPX   = BOX_X + 1 + AW + 1;
@@ -4214,37 +4299,37 @@ function openBankMenu() {
     const s = BK_ART[r];
     for (let i = 0; i < AW; i++) {
       let fg = TC;
-      if (r === 1 && i >= 4 && i <= 7) fg = LC;          // BANK text
-      if (r === 4 && i >= 4 && i <= 8) fg = '#ffd633';   // VAULT text
+      if (r === 1 && i >= 4 && i <= 7) fg = LC;
+      if (r === 4 && i >= 4 && i <= 8) fg = '#ffd633';
       display.draw(BOX_X + 1 + i, ay, s[i] || ' ', fg, BG);
     }
   }
-
   function border(ay) {
     display.draw(BOX_X, ay, '║', TC, BG);
     display.draw(BOX_X + BOX_W - 1, ay, '║', TC, BG);
   }
-
   function irow(ay, text, fg) {
     border(ay);
     const p = menuPad(text, IW);
     for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, p[i] || ' ', fg, BG);
   }
-
   function crow(ay, r) {
     border(ay);
     drawArtRow(r, ay);
     display.draw(BOX_X + 1 + AW, ay, '│', DC, BG);
     for (let i = 0; i < IPW; i++) display.draw(RPX + i, ay, ' ', BRIGHT_WHITE, BG);
   }
-
   function drp(ay, text, fg) {
     const p = menuPad(text, IPW);
     for (let i = 0; i < IPW; i++) display.draw(RPX + i, ay, p[i] || ' ', fg, BG);
   }
+  function sep(ay, label) {
+    border(ay);
+    const bar = label ? `─── ${label} ` : '';
+    for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, i < bar.length ? bar[i] : '─', DC, BG);
+  }
 
   function redraw() {
-    // Clear interior
     for (let r = 1; r < BOX_H - 1; r++)
       for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, BOX_Y + r, ' ', BRIGHT_WHITE, BG);
 
@@ -4253,8 +4338,7 @@ function openBankMenu() {
     for (let i = 1; i < BOX_W - 1; i++) display.draw(BOX_X + i, BOX_Y, '═', TC, BG);
 
     // Row 1: header
-    { const ay = BOX_Y + 1;
-      border(ay);
+    { const ay = BOX_Y + 1; border(ay);
       const title = 'The Bank', hint = 'press esc to exit';
       for (let i = 0; i < IW; i++) {
         const ch = i < title.length ? title[i] : (i >= IW - hint.length ? hint[i-(IW-hint.length)] : ' ');
@@ -4263,83 +4347,143 @@ function openBankMenu() {
       }
     }
 
-    // Row 2: ═ separator
+    // Row 2: ═
     { const ay = BOX_Y + 2; border(ay);
       for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '═', DC, BG); }
 
-    // Rows 3-12: art + info
+    // Rows 3-12: art + credit rating info
     for (let r = 0; r < 10; r++) crow(BOX_Y + 3 + r, r);
 
-    // Info pane
-    const dep = state.bank.deposit;
-    const loan = state.bank.loan;
-    drp(BOX_Y + 4, 'THE BANK', LC);
-    drp(BOX_Y + 5, 'Deposit balance:', DC);
-    const depStr = String(Math.floor(dep));
-    renderLargeNumber(display, RPX, BOX_Y + 6, depStr, TC, IPW);
-    drp(BOX_Y + 12, loan ? `Loan: ${loan.remaining.toFixed(1)}cr @ ${(loan.rate*100).toFixed(1)}%` : 'No active loan.', loan ? '#ffd633' : DC);
+    const rIdx  = getBankRatingIdx();
+    const rTier = RATING_TIERS[rIdx];
+    const rCol  = getRatingColor(rTier);
+    const dep   = state.bank.deposit;
+    const loan  = state.bank.loan;
+    const card  = state.bank.card;
 
-    // Row 13: ─ separator
-    { const ay = BOX_Y + 13; border(ay);
-      for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '─', DC, BG); }
+    drp(BOX_Y + 3, 'CREDIT RATING', DC);
+    // Tier label centered
+    { const lbl = rTier;
+      const cx = RPX + Math.floor((IPW - lbl.length) / 2);
+      for (let i = 0; i < lbl.length; i++) display.draw(cx + i, BOX_Y + 4, lbl[i], rCol, BG);
+    }
+    // Rating bar: F D C B BB BBB A AA AAA
+    { const tiers = RATING_TIERS;
+      let bx = RPX;
+      for (let ti = 0; ti < tiers.length; ti++) {
+        const t = tiers[ti];
+        const fc = ti === rIdx ? getRatingColor(t) : '#333333';
+        const bracket = ti === rIdx;
+        if (bracket) display.draw(bx++, BOX_Y + 5, '[', '#555555', BG);
+        for (let ci = 0; ci < t.length; ci++) display.draw(bx++, BOX_Y + 5, t[ci], fc, BG);
+        if (bracket) display.draw(bx++, BOX_Y + 5, ']', '#555555', BG);
+        else if (ti < tiers.length - 1) display.draw(bx++, BOX_Y + 5, ' ', DC, BG);
+      }
+    }
+    { const score = state.bank.creditRatingScore.toFixed(1);
+      const cpd = state.bank.consecutivePositiveDays;
+      const trend = cpd >= 3 ? ' ▲ ' + cpd + 'd' : '';
+      drp(BOX_Y + 6, `Score: ${score}${trend}`, '#555555');
+    }
+    // Last rating change
+    { const hist = state.bank.ratingHistory;
+      const last = hist.length > 0 ? hist[hist.length - 1] : null;
+      drp(BOX_Y + 7, last ? `Δ day ${last.day}: ${last.from}→${last.to}` : 'No changes on record.', '#444444');
+    }
+    drp(BOX_Y + 8, '', DC);
+    drp(BOX_Y + 9, `Deposit: ${dep.toFixed(1)}cr`, dep > 0 ? TC : DC);
+    drp(BOX_Y + 10, loan
+      ? (loan.deadline >= state.day
+          ? `Loan: ${loan.remaining.toFixed(1)}cr @ ${(loan.rate*100).toFixed(1)}%`
+          : `OVERDUE: ${loan.remaining.toFixed(1)}cr`)
+      : 'No active loan.', loan ? (loan.deadline >= state.day ? '#ffd633' : '#ff5555') : DC);
+    drp(BOX_Y + 11, card.owned
+      ? `Card: ${card.balance.toFixed(1)}/${card.limit}cr`
+      : (rIdx >= 3 ? 'Card: apply below (tier B+)' : 'Card: not available'), card.owned ? CC : '#444444');
+    drp(BOX_Y + 12, '', DC);
 
-    // Deposit section rows 14-17
+    // Row 13: ─ DEPOSITS
+    sep(BOX_Y + 13, 'DEPOSITS');
     const availDep = Math.max(0, state.player.credits - 10);
     irow(BOX_Y + 14, `Deposit on account: ${dep.toFixed(1)}cr`, TC);
-    irow(BOX_Y + 15, `1. Deposit all             ${availDep > 0 ? `[+${availDep}cr]` : '[need >10cr]'}`, availDep > 0 ? TC : '#555555');
-    irow(BOX_Y + 16, `2. Deposit custom amount   ${availDep > 0 ? '[enter amount]' : '[need >10cr]'}`, availDep > 0 ? TC : '#555555');
-    irow(BOX_Y + 17, `3. Withdraw all            ${dep > 0 ? `[${dep.toFixed(1)}cr]` : '[no deposit]'}`, dep > 0 ? TC : '#555555');
+    irow(BOX_Y + 15, `1. Deposit all              ${availDep > 0 ? `[+${availDep}cr]` : '[need >10cr]'}`, availDep > 0 ? TC : '#555555');
+    irow(BOX_Y + 16, `2. Deposit amount           ${availDep > 0 ? '[enter amount]' : '[need >10cr]'}`, availDep > 0 ? TC : '#555555');
+    irow(BOX_Y + 17, `3. Withdraw all             ${dep > 0 ? `[${dep.toFixed(1)}cr]` : '[no deposit]'}`, dep > 0 ? TC : '#555555');
 
-    // Row 18: ─ separator
-    { const ay = BOX_Y + 18; border(ay);
-      for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '─', DC, BG); }
-
-    // Loan section rows 19-24
-    const loanLimit = Math.floor(state.lifetimeCreditsEarned * 0.5);
+    // Row 18: ─ LOANS
+    sep(BOX_Y + 18, 'LOANS');
+    const terms     = getLoanTerms();
+    const loanLimit = terms.loanFactor > 0 ? Math.floor(state.lifetimeCreditsEarned * terms.loanFactor) : 0;
+    const loanRate  = terms.rate;
     if (loan) {
       const daysLeft = loan.deadline - state.day;
-      const rateStr  = (loan.rate * 100).toFixed(1);
-      const owed     = loan.remaining.toFixed(1);
       if (daysLeft >= 0) {
-        irow(BOX_Y + 19, `Active loan: ${owed}cr at ${rateStr}%/day`, '#ffd633');
-        irow(BOX_Y + 20, `  Deadline: day ${loan.deadline} — ${daysLeft} day${daysLeft !== 1 ? 's' : ''} left`, '#ffd633');
+        irow(BOX_Y + 19, `Active loan: ${loan.remaining.toFixed(1)}cr @ ${(loan.rate*100).toFixed(1)}%/day`, '#ffd633');
+        irow(BOX_Y + 20, `  Deadline day ${loan.deadline} — ${daysLeft} day${daysLeft !== 1 ? 's' : ''} left`, '#ffd633');
       } else {
-        irow(BOX_Y + 19, `OVERDUE LOAN: ${owed}cr at ${rateStr}%/day`, '#ff5555');
+        irow(BOX_Y + 19, `OVERDUE LOAN: ${loan.remaining.toFixed(1)}cr @ ${(loan.rate*100).toFixed(1)}%/day`, '#ff5555');
         irow(BOX_Y + 20, `  ${Math.abs(daysLeft)} day${Math.abs(daysLeft) !== 1 ? 's' : ''} overdue — REPAY IMMEDIATELY`, '#ff5555');
       }
     } else {
-      irow(BOX_Y + 19, `No active loan.  Limit: ${loanLimit}cr`, DC);
+      irow(BOX_Y + 19, loanLimit > 0 ? `Loan limit: ${loanLimit}cr  Rate: ${(loanRate*100).toFixed(1)}%/day` : 'No loans available at current rating.', loanLimit > 0 ? DC : '#555555');
       irow(BOX_Y + 20, '', BRIGHT_WHITE);
     }
-
     const can4 = !loan && loanLimit > 0;
     const can5 = !!loan;
-    const daysLeft2 = loan ? loan.deadline - state.day : 999;
-    const can6 = !!loan && daysLeft2 <= 5 && loan.rate < 0.05;
+    const dL   = loan ? loan.deadline - state.day : 999;
+    const can6 = !!loan && dL <= 5 && loan.rate < 0.05;
+    irow(BOX_Y + 21, `4. Take loan                ${can4 ? `[limit: ${loanLimit}cr]` : (loan ? '[loan active]' : '[no limit at this tier]')}`, can4 ? TC : '#555555');
+    irow(BOX_Y + 22, `5. Repay loan               ${can5 ? `[owed: ${loan.remaining.toFixed(1)}cr]` : '[no loan]'}`, can5 ? (state.player.credits >= loan.remaining ? TC : '#ff9933') : '#555555');
+    irow(BOX_Y + 23, `6. Refinance                ${can6 ? '[within refi window]' : (!loan ? '[no loan]' : (loan.rate >= 0.05 ? '[rate cap reached]' : '[>5 days left]'))}`, can6 ? '#ff9933' : '#555555');
 
-    irow(BOX_Y + 21, `4. Take loan               ${can4 ? `[limit: ${loanLimit}cr]` : (loan ? '[loan active]' : '[insufficient history]')}`, can4 ? TC : '#555555');
-    irow(BOX_Y + 22, `5. Repay loan              ${can5 ? `[owed: ${loan.remaining.toFixed(1)}cr]` : '[no loan]'}`, can5 ? (state.player.credits >= loan.remaining ? TC : '#ff9933') : '#555555');
-    irow(BOX_Y + 23, `6. Refinance loan          ${can6 ? '[within refi window]' : (!loan ? '[no loan]' : (loan.rate >= 0.05 ? '[rate cap reached]' : '[>5 days left]'))}`, can6 ? '#ff9933' : '#555555');
-
-    if (state.debt > 0) {
-      irow(BOX_Y + 24, `Outstanding debt: ${formatCredits(state.debt)}cr`, '#ff5555');
+    // Row 24: ─ CREDIT CARD
+    sep(BOX_Y + 24, 'CREDIT CARD');
+    if (!card.owned) {
+      const canApply = rIdx >= 3 && RATING_INFO[rIdx].cardLimit > 0;
+      irow(BOX_Y + 25, canApply ? `Card available: ${RATING_INFO[rIdx].cardLimit}cr limit at tier ${rTier}` : 'Card requires tier B or better.', canApply ? CC : '#444444');
+      irow(BOX_Y + 26, `7. Apply for card           ${canApply ? '[get ' + RATING_INFO[rIdx].cardLimit + 'cr limit]' : '[tier too low]'}`, canApply ? CC : '#555555');
+      irow(BOX_Y + 27, '', BRIGHT_WHITE);
+      irow(BOX_Y + 28, '', BRIGHT_WHITE);
     } else {
-      irow(BOX_Y + 24, '', BRIGHT_WHITE);
+      const avail  = Math.max(0, card.limit - card.balance);
+      const minPay = card.minimumPaymentDue;
+      irow(BOX_Y + 25, `Card balance: ${card.balance.toFixed(1)}cr  Limit: ${card.limit}cr  Available: ${avail.toFixed(1)}cr`, CC);
+      irow(BOX_Y + 26, minPay > 0 ? `  Min payment: ${minPay.toFixed(1)}cr due day ${card.paymentDueDay}` : (card.balance > 0 ? '  Statement pending — no payment due yet.' : '  No balance. Good standing.'), minPay > 0 ? '#ff9933' : DC);
+      const can7 = minPay > 0 && state.player.credits >= minPay;
+      const can8 = card.balance > 0 && state.player.credits > 0;
+      irow(BOX_Y + 27, `7. Pay minimum              ${can7 ? `[${minPay.toFixed(1)}cr]` : (minPay > 0 ? '[insufficient credits]' : '[none due]')}`, can7 ? CC : '#555555');
+      irow(BOX_Y + 28, `8. Pay full balance         ${can8 ? `[${Math.min(card.balance, state.player.credits).toFixed(1)}cr]` : '[no balance]'}`, can8 ? CC : '#555555');
     }
 
-    // Row 25: ═ separator
-    { const ay = BOX_Y + 25; border(ay);
+    // Row 29: ─ RATING LOG
+    sep(BOX_Y + 29, 'RATING LOG');
+    const hist = state.bank.ratingHistory;
+    const shown = hist.slice(-3);
+    for (let i = 0; i < 3; i++) {
+      const e = shown[i];
+      if (e) {
+        const up = RATING_TIERS.indexOf(e.to) > RATING_TIERS.indexOf(e.from);
+        irow(BOX_Y + 30 + i, `Day ${String(e.day).padStart(3,' ')} ${e.from}→${e.to}  ${e.reason}`, up ? '#66cc66' : '#ff5555');
+      } else {
+        irow(BOX_Y + 30 + i, '', BRIGHT_WHITE);
+      }
+    }
+
+    // Row 33: ═ footer
+    { const ay = BOX_Y + 33; border(ay);
       for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '═', DC, BG); }
 
-    // Row 26: footer
-    { const ay = BOX_Y + 26; border(ay);
-      const txt = 'Loans: 1%/day. Keep an eye on the deadline.';
-      const centered = menuPad(txt.length < IW ? ' '.repeat(Math.floor((IW - txt.length) / 2)) + txt : txt, IW);
-      for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, centered[i] || ' ', '#555555', BG); }
+    // Row 34: footer text
+    { const ay = BOX_Y + 34; border(ay);
+      const txt = state.debt > 0 ? `Outstanding debt: ${formatCredits(state.debt)}cr — pay to improve rating` : `Rating affects loan limits, rates, and card access.`;
+      const fc  = state.debt > 0 ? '#ff5555' : '#555555';
+      const pad = menuPad(txt.length < IW ? ' '.repeat(Math.floor((IW-txt.length)/2))+txt : txt, IW);
+      for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, pad[i] || ' ', fc, BG);
+    }
 
-    // Row 27: ╚═╝
-    display.draw(BOX_X, BOX_Y + 27, '╚', TC, BG); display.draw(BOX_X + BOX_W - 1, BOX_Y + 27, '╝', TC, BG);
-    for (let i = 1; i < BOX_W - 1; i++) display.draw(BOX_X + i, BOX_Y + 27, '═', TC, BG);
+    // Row 35: ╚═╝
+    display.draw(BOX_X, BOX_Y + 35, '╚', TC, BG); display.draw(BOX_X + BOX_W - 1, BOX_Y + 35, '╝', TC, BG);
+    for (let i = 1; i < BOX_W - 1; i++) display.draw(BOX_X + i, BOX_Y + 35, '═', TC, BG);
   }
 
   bankMenuRedrawFn = redraw;
@@ -4359,15 +4503,15 @@ function openBankMenu() {
   function bankKeyHandler(e) {
     if (e.key === 'Escape') { closeBank(); return; }
     const loan = state.bank.loan;
+    const card = state.bank.card;
 
     if (e.key === '1') {
       const amt = Math.max(0, state.player.credits - 10);
       if (amt <= 0) return;
-      state.bank.deposit       = Math.round((state.bank.deposit + amt) * 10) / 10;
-      state.player.credits     = 10;
+      state.bank.deposit   = Math.round((state.bank.deposit + amt) * 10) / 10;
+      state.player.credits = 10;
       addLog(`Deposited ${amt}cr.`, TC);
-      drawStatusBar(); redraw();
-      return;
+      drawStatusBar(); redraw(); return;
     }
     if (e.key === '2') {
       const maxDep = Math.max(0, state.player.credits - 10);
@@ -4376,8 +4520,7 @@ function openBankMenu() {
       bankMenuRedrawFn = null;
       showNumericPrompt('Deposit Amount', maxDep,
         (val) => { state.bank.deposit = Math.round((state.bank.deposit + val) * 10) / 10; state.player.credits -= val; addLog(`Deposited ${val}cr.`, TC); drawStatusBar(); openBankMenu(); },
-        () => openBankMenu()
-      );
+        () => openBankMenu());
       return;
     }
     if (e.key === '3') {
@@ -4385,41 +4528,41 @@ function openBankMenu() {
       const amt = state.bank.deposit;
       state.player.credits = Math.round((state.player.credits + amt) * 10) / 10;
       state.bank.deposit   = 0;
-      addLog(`Withdrew ${amt.toFixed(1)}cr from deposit.`, TC);
-      drawStatusBar(); redraw();
-      return;
+      addLog(`Withdrew ${amt.toFixed(1)}cr.`, TC);
+      drawStatusBar(); redraw(); return;
     }
     if (e.key === '4') {
       if (loan) return;
-      const loanLimit = Math.floor(state.lifetimeCreditsEarned * 0.5);
+      const terms     = getLoanTerms();
+      const loanLimit = terms.loanFactor > 0 ? Math.floor(state.lifetimeCreditsEarned * terms.loanFactor) : 0;
       if (loanLimit <= 0) return;
       window.removeEventListener('keydown', bankKeyHandler);
       bankMenuRedrawFn = null;
       showNumericPrompt('Loan Amount', loanLimit,
         (val) => {
-          state.bank.loan = { principal: val, remaining: val, rate: 0.01, dayTaken: state.day, deadline: state.day + 20, refinanceCount: 0, overdueDays: 0 };
+          state.bank.loan = { principal: val, remaining: val, rate: terms.rate, dayTaken: state.day, deadline: state.day + 20, refinanceCount: 0, overdueDays: 0 };
           state.player.credits += val;
-          addLog(`Loan of ${val}cr approved. Repay within 20 days.`, '#ffd633');
+          addLog(`Loan of ${val}cr approved at ${(terms.rate*100).toFixed(1)}%/day. Repay within 20 days.`, '#ffd633');
           drawStatusBar(); openBankMenu();
         },
-        () => openBankMenu()
-      );
+        () => openBankMenu());
       return;
     }
     if (e.key === '5') {
       if (!loan || state.player.credits <= 0) return;
+      const wasOnTime = state.day <= loan.deadline;
       if (state.player.credits >= loan.remaining) {
         state.player.credits -= loan.remaining;
         addLog(`Loan of ${loan.remaining.toFixed(1)}cr repaid in full.`, TC);
         state.bank.loan = null;
+        if (wasOnTime) changeRating(+1.0, 'Loan repaid on time');
       } else {
         const partial = state.player.credits;
         loan.remaining = Math.round((loan.remaining - partial) * 10) / 10;
         state.player.credits = 0;
-        addLog(`Partial repayment: ${partial}cr. Remaining: ${loan.remaining}cr.`, '#ff9933');
+        addLog(`Partial repayment: ${partial}cr. Remaining: ${loan.remaining.toFixed(1)}cr.`, '#ff9933');
       }
-      drawStatusBar(); redraw();
-      return;
+      drawStatusBar(); redraw(); return;
     }
     if (e.key === '6') {
       if (!loan) return;
@@ -4429,8 +4572,43 @@ function openBankMenu() {
       loan.deadline = state.day + 20;
       loan.refinanceCount++;
       addLog(`Loan refinanced at ${(loan.rate * 100).toFixed(1)}%/day. New deadline: day ${loan.deadline}.`, '#ff9933');
-      redraw();
+      redraw(); return;
+    }
+    if (e.key === '7') {
+      if (!card.owned) {
+        const rIdx = getBankRatingIdx();
+        if (rIdx < 3) return;
+        const limit = RATING_INFO[rIdx].cardLimit;
+        if (limit <= 0) return;
+        card.owned = true; card.limit = limit; card.balance = 0;
+        card.lastStatementDay = state.day; card.minimumPaymentDue = 0; card.paymentDueDay = 0;
+        addLog(`Credit card approved. Limit: ${limit}cr.`, CC);
+        drawStatusBar(); redraw();
+      } else {
+        // Pay minimum payment
+        if (card.minimumPaymentDue <= 0) return;
+        const pay = Math.min(card.minimumPaymentDue, state.player.credits);
+        if (pay <= 0) return;
+        state.player.credits = Math.round((state.player.credits - pay) * 10) / 10;
+        card.balance         = Math.round((card.balance - pay) * 10) / 10;
+        card.minimumPaymentDue = Math.max(0, Math.round((card.minimumPaymentDue - pay) * 10) / 10);
+        addLog(`Card payment: ${pay.toFixed(1)}cr paid.`, CC);
+        if (card.minimumPaymentDue === 0) changeRating(+0.5, 'Card payment made on time');
+        drawStatusBar(); redraw();
+      }
       return;
+    }
+    if (e.key === '8') {
+      if (!card.owned || card.balance <= 0 || state.player.credits <= 0) return;
+      const pay = Math.min(card.balance, state.player.credits);
+      state.player.credits = Math.round((state.player.credits - pay) * 10) / 10;
+      card.balance         = Math.round((card.balance - pay) * 10) / 10;
+      if (card.minimumPaymentDue > 0 && card.balance <= 0) {
+        card.minimumPaymentDue = 0;
+        changeRating(+0.5, 'Card balance paid in full');
+      }
+      addLog(`Card balance paid: ${pay.toFixed(1)}cr. Remaining: ${card.balance.toFixed(1)}cr.`, CC);
+      drawStatusBar(); redraw(); return;
     }
   }
   window.addEventListener('keydown', bankKeyHandler);
@@ -4478,6 +4656,8 @@ function showBankruptcyScreen() {
   line(9,  `Final debt:      ${state.bank.loan ? state.bank.loan.remaining.toFixed(1) : 0}cr`, RC);
   centered(12, 'Press any key to return to menu.', WC);
 
+  state.bank.creditRatingScore = 0;
+  state.bank.creditRating = 'F';
   localStorage.removeItem(SAVE_KEY);
 
   function bankruptcyKeyHandler(e) {
@@ -6499,7 +6679,7 @@ function showInventory() {
     lrow(BOX_Y+7,  `Cr/sec  ${(rCr>=0?'+':'')}${rCr.toFixed(1)}cr`, cFg);
     for (let i = 0; i < LP_W; i++) display.draw(CONT_X+i, BOX_Y+8, '─', DC, BG);
     lrow(BOX_Y+9,  'Today', BRIGHT_WHITE);
-    lrow(BOX_Y+10, `RM purch'd${String(state.rmPurchasedToday).padStart(LP_W-10)}`, BRIGHT_WHITE);
+    lrow(BOX_Y+10, `RM in inv.${String(state.player.inventory.rm).padStart(LP_W-10)}`, BRIGHT_WHITE);
     lrow(BOX_Y+11, `Wdgts made${String(state.stats.widgetsMadeToday).padStart(LP_W-10)}`, BRIGHT_WHITE);
     lrow(BOX_Y+12, `Wdgts sold${String(state.widgetsSoldToday).padStart(LP_W-10)}`, BRIGHT_WHITE);
     lrow(BOX_Y+13, `Revenue${(formatCredits(state.stats.revenueToday)+'cr').padStart(LP_W-7)}`, '#66cc66');
@@ -7011,27 +7191,17 @@ function tickApprentices() {
       // Arrived at RM shed?
       if (w.workerState === 'fetching' &&
           Math.abs(w.x - rmDoor.x) <= 1 && Math.abs(w.y - rmDoor.y) <= 1) {
-        if (state.phase >= 2 && state.rmPurchasedToday >= 100) {
-          if (!state.rmLimitLogged) {
-            state.rmLimitLogged = true;
-            addLog('Daily RM limit reached. Workers waiting for dawn.', '#ff5555');
-          }
-          w.workerState = 'idle';
-        } else {
-          const space = carryMax - w.carryRM;
-          let bought = 0;
-          while (bought < space && state.player.credits >= 3) {
-            if (state.phase >= 2 && state.rmPurchasedToday >= 100) break;
-            state.player.credits   -= 3;
-            state.rmPurchasedToday += 1;
-            w.carryRM++;
-            bought++;
-            if (bought === 1) { const rmD = STATION_DEFS.find(s => s.label === 'RM'); if (rmD) effectsManager.coinDrain(w.x, w.y, rmD.x + 1, rmD.y + 2, 3); }
-          }
-          if (bought > 0) drawStatusBar();
-          w.target = { ...wbDoor };
-          w.workerState = 'returning';
+        const space = carryMax - w.carryRM;
+        let bought = 0;
+        while (bought < space && state.player.credits >= 3) {
+          state.player.credits -= 3;
+          w.carryRM++;
+          bought++;
+          if (bought === 1) { const rmD = STATION_DEFS.find(s => s.label === 'RM'); if (rmD) effectsManager.coinDrain(w.x, w.y, rmD.x + 1, rmD.y + 2, 3); }
         }
+        if (bought > 0) drawStatusBar();
+        w.target = { ...wbDoor };
+        w.workerState = 'returning';
       }
 
       // Arrived at workbench?
@@ -7494,7 +7664,7 @@ setInterval(() => {
 
   state.tick++;
   state.dayTick++;
-  if (state.dayTick >= 240) { state.dayTick = 0; state.day++; state.bellFiredToday = false; state.rmPurchasedToday = 0; state.rmLimitLogged = false; state.widgetsSoldToday = 0; state.demandMetLogged = false; state.stats.widgetsMadeToday = 0; state.stats.revenueToday = 0; state.stats.costsToday = 0; }
+  if (state.dayTick >= 240) { state.dayTick = 0; state.day++; state.bellFiredToday = false; state.widgetsSoldToday = 0; state.demandMetLogged = false; state.stats.widgetsMadeToday = 0; state.stats.revenueToday = 0; state.stats.costsToday = 0; }
   const prevMarketOpen = state.marketOpen;
   state.marketOpen = state.dayTick < 180;
   if (state.marketOpen !== prevMarketOpen) startDayNightFlash(state.marketOpen ? 'open' : 'close');
@@ -7552,6 +7722,7 @@ setInterval(() => {
           state.derivatives.pnlToday = Math.round((state.derivatives.pnlToday + pnl) * 10) / 10;
           state.derivatives.totalPnL = Math.round((state.derivatives.totalPnL + pnl) * 10) / 10;
           addLog(`Forward settled: ${f.quantity}wg at ${f.lockedPrice}cr vs ${actualPrice}cr. PnL: ${pnl >= 0 ? '+' : ''}${pnl}cr.`, pnl >= 0 ? '#66cc66' : '#ff5555');
+          if (pnl > 0) changeRating(+0.25, 'Profitable forward contract');
         } else {
           const shortfall = f.quantity - totalWidgets;
           const penalty   = Math.round(actualPrice * shortfall * 10) / 10;
@@ -7616,10 +7787,48 @@ setInterval(() => {
       drawStatusBar();
     }
 
+    // Credit rating: consecutive profitable days
+    if (state.player.credits > 0 && !state.bank.loan && state.debt === 0) {
+      state.bank.consecutivePositiveDays++;
+      if (state.bank.consecutivePositiveDays >= 5 && state.bank.consecutivePositiveDays % 5 === 0) {
+        changeRating(+0.5, `${state.bank.consecutivePositiveDays} profitable days`);
+      }
+    } else {
+      state.bank.consecutivePositiveDays = 0;
+    }
+    state.bank.creditNegativeLogged = false; // reset per-day flag at dawn
+
+    // Card billing cycle
+    if (state.bank.card.owned) {
+      const card = state.bank.card;
+      if (state.day === card.paymentDueDay && card.minimumPaymentDue > 0) {
+        card.missedPayments++;
+        changeRating(-2.0, 'Missed card payment');
+        addLog('Card: missed minimum payment. Credit score hit.', '#ff5555');
+        card.minimumPaymentDue = 0;
+      }
+      if (card.balance > 0 && state.day >= card.lastStatementDay + card.cycleLength) {
+        const interest = Math.round(card.balance * card.interestRate * 10) / 10;
+        card.balance   = Math.round((card.balance + interest) * 10) / 10;
+        card.minimumPaymentDue = Math.round(Math.max(5, card.balance * 0.1) * 10) / 10;
+        card.paymentDueDay   = state.day + 5;
+        card.lastStatementDay = state.day;
+        addLog(`Card statement: ${card.balance.toFixed(1)}cr balance, min payment ${card.minimumPaymentDue.toFixed(1)}cr due day ${card.paymentDueDay}.`, '#66ccff');
+      }
+    }
+
     // Loan overdue check
     if (state.bank.loan && state.day > state.bank.loan.deadline) {
       state.bank.loan.overdueDays = (state.bank.loan.overdueDays || 0) + 1;
       addLog('LOAN OVERDUE. Repay or refinance immediately.', '#ff5555');
+      if (!state.bank.loan.ratingFiredAt1 && state.bank.loan.overdueDays >= 1) {
+        state.bank.loan.ratingFiredAt1 = true;
+        changeRating(-1.5, 'Loan overdue 1+ days');
+      }
+      if (!state.bank.loan.ratingFiredAt3 && state.bank.loan.overdueDays >= 3) {
+        state.bank.loan.ratingFiredAt3 = true;
+        changeRating(-2.0, 'Loan overdue 3+ days');
+      }
       if (state.bank.loan.overdueDays >= 3 && state.player.credits <= 0 && state.bank.deposit <= 0) {
         setTimeout(showBankruptcyScreen, 1000);
       }
