@@ -10,7 +10,7 @@ export const BRIGHT_MAGENTA = "#cc66cc";
 export const BG             = "#0a0a0a";
 
 // §3.8 — Event log scroll speed (chars revealed per effectsLoop frame at ~60fps)
-export const LOG_SCROLL_SPEED = 4;
+export const LOG_SCROLL_SPEED = 2;
 
 // §3.1 — Screen layout
 export const DISPLAY_WIDTH  = 80;

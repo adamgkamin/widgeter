@@ -809,8 +809,10 @@ const INTRO_PARAS = [
   "On the morning of the deep orange sun, the dew is heavy on the leaves surrounding your workshop. The air smells something metallic.",
   "You have inherited a large, formidable landscape. A workbench, a plot of land, a small wallet of credits. The buyers come at dawn and leave at dusk. Between these hours you will be manufacturing.",
   "You make small, useful objects with sufficient patience and raw materials.",
-  "Begin at the workbench. Buy materials from the shed to the north. Sell what you make at the market to the south-east.",
+  "Begin at the shed [RM] to the north-west. Purchase materials and craft them into widgets at the workbench [WB] in the north. Sell what you make at the market [MT] in the south-east during operational hours. Good luck.",
 ];
+// Inline color tokens for the 4th intro paragraph (index 3)
+const INTRO_PARA4_TOKENS = { '[RM]': '#ff6600', '[WB]': '#cc3300', '[MT]': '#ffd633' };
 
 function showIntroScreen() {
   state.gameState = 'intro';
@@ -829,7 +831,7 @@ function showIntroScreen() {
   rows.push(null);
   for (let i = 0; i < wrapped.length; i++) {
     if (i > 0) rows.push(null);
-    for (const line of wrapped[i]) rows.push({ text: line, fg: BRIGHT_WHITE });
+    for (const line of wrapped[i]) rows.push({ text: line, fg: BRIGHT_WHITE, colored: i === 3 });
   }
   rows.push(null);
   const PROMPT_IDX = rows.length;
@@ -852,9 +854,26 @@ function showIntroScreen() {
       const pad = Math.floor((INNER_W - text.length) / 2);
       text = ' '.repeat(pad) + text;
     }
-    const fg = fg_override !== undefined ? fg_override : row.fg;
-    for (let x = 0; x < INNER_W; x++) {
-      display.draw(BOX_X + 1 + x, y, x < text.length ? text[x] : ' ', fg, BG);
+    if (row.colored && fg_override === undefined) {
+      // Inline color rendering: scan for token markers and switch fg mid-line
+      let cx = 0, si = 0;
+      while (cx < INNER_W) {
+        if (si >= text.length) { display.draw(BOX_X + 1 + cx, y, ' ', BRIGHT_WHITE, BG); cx++; continue; }
+        let matched = false;
+        for (const [tok, clr] of Object.entries(INTRO_PARA4_TOKENS)) {
+          if (text.startsWith(tok, si)) {
+            for (let j = 0; j < tok.length && cx < INNER_W; j++, cx++)
+              display.draw(BOX_X + 1 + cx, y, tok[j], clr, BG);
+            si += tok.length; matched = true; break;
+          }
+        }
+        if (!matched) { display.draw(BOX_X + 1 + cx, y, text[si], row.fg, BG); cx++; si++; }
+      }
+    } else {
+      const fg = fg_override !== undefined ? fg_override : row.fg;
+      for (let x = 0; x < INNER_W; x++) {
+        display.draw(BOX_X + 1 + x, y, x < text.length ? text[x] : ' ', fg, BG);
+      }
     }
   }
 
@@ -1511,7 +1530,7 @@ function sellWidgets(n) {
   state.stats.revenueToday        = Math.round((state.stats.revenueToday + earned) * 10) / 10;
   if (state.phase >= 3) state.widgetsSoldToday += n;
   addLog(`Sold ${n} widget${n !== 1 ? 's' : ''} for ${formatCredits(earned)}cr.`, BRIGHT_CYAN);
-  if (isFirstSale) addLog('> First sale. There\'s something to this.', '#cc66cc');
+  if (isFirstSale) addLog('Congrats on your first sale.', '#cc66cc');
   drawStatusBar();
   { const mtD = STATION_DEFS.find(s => s.label === 'MT'); if (mtD) effectsManager.creditRain(mtD.x + 1, mtD.y + 2, n, isFirstSale, earned); }
   checkPhase2Trigger();
@@ -3843,31 +3862,65 @@ function showPauseMenu() {
   window.addEventListener('keydown', pauseKeyHandler);
 }
 
-// ── Day/night full-screen flash (§3.4) ───────────────────────────────────────
+// ── Day/night slow column-wave (§3.4) ────────────────────────────────────────
 
-let dayNightFlash = null; // { stages:[{glyph,color,frames}], stageIdx, frameCt }
+let dayNightFlash = null; // { type: 'open'|'close', frame: 0 }  — 120 frames total
 
 function startDayNightFlash(type) {
-  const dawn = type === 'open';
-  dayNightFlash = {
-    stages: [
-      { glyph: '░', color: dawn ? '#ffd633'   : '#334466',   frames: 4 },
-      { glyph: '·', color: dawn ? '#ffdd6644' : '#33446644', frames: 4 },
-      { glyph: '░', color: dawn ? '#ffdd6622' : '#33446622', frames: 4 },
-    ],
-    stageIdx: 0,
-    frameCt:  0,
-  };
-  _applyDayNightStage();
+  dayNightFlash = { type, frame: 0 }; // cancel any in-progress effect and restart
 }
 
-function _applyDayNightStage() {
+function _advanceDayNightWave() {
   if (!dayNightFlash) return;
-  const s = dayNightFlash.stages[dayNightFlash.stageIdx];
-  if (!s) return;
-  for (let y = 0; y < WORLD_ROWS; y++)
-    for (let x = 0; x < DISPLAY_WIDTH; x++)
-      display.draw(x, y, s.glyph, s.color, BG);
+
+  if (dayNightFlash.frame >= 120) {
+    // Wave complete — mark all tiles dirty so map fully restores
+    for (let y = 0; y < WORLD_ROWS; y++)
+      for (let x = 0; x < DISPLAY_WIDTH; x++)
+        markDirty(x, y);
+    renderDirty();
+    display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
+    for (const w of state.workers.apprentices) display.draw(w.x, w.y, 'a', '#66ccff', BG);
+    for (const c of state.workers.couriers)    display.draw(c.x, c.y, 'c', '#cc66cc', BG);
+    dayNightFlash = null;
+    return;
+  }
+
+  const f    = dayNightFlash.frame++;
+  const dawn = dayNightFlash.type === 'open';
+
+  // Wave front position (0–79 over 120 frames)
+  const wf = dawn
+    ? Math.floor(f / 119 * 79)
+    : (79 - Math.floor(f / 119 * 79));
+
+  // Column colors: full / 60% / 30%
+  const cFull = dawn ? '#ffd633' : '#334488';
+  const cMed  = dawn ? '#aa8800' : '#223366';
+  const cDim  = dawn ? '#554400' : '#111833';
+
+  const drawWaveCol = (x, color) => {
+    if (x < 0 || x >= DISPLAY_WIDTH) return;
+    for (let y = 0; y < WORLD_ROWS; y++) display.draw(x, y, '░', color, BG);
+  };
+  const restoreCol = (x) => {
+    if (x < 0 || x >= DISPLAY_WIDTH) return;
+    for (let y = 0; y < WORLD_ROWS; y++) markDirty(x, y);
+  };
+
+  if (dawn) {
+    restoreCol(wf - 3); // column leaving the wave window
+    renderDirty();
+    drawWaveCol(wf,     cFull);
+    drawWaveCol(wf - 1, cMed);
+    drawWaveCol(wf - 2, cDim);
+  } else {
+    restoreCol(wf + 3);
+    renderDirty();
+    drawWaveCol(wf,     cFull);
+    drawWaveCol(wf + 1, cMed);
+    drawWaveCol(wf + 2, cDim);
+  }
 }
 
 // ── Tick loop — 1 tick/second (§7.1) ─────────────────────────────────────────
@@ -4142,6 +4195,36 @@ setInterval(() => {
       'A bee drifts past, unhurried.',
       'The shadows shift slightly.',
       'You notice how quiet it is.',
+      'The path is quieter than usual.',
+      'A shadow passes. Nothing there.',
+      'The shed door creaks in the wind.',
+      'You notice the smell of cut grass.',
+      'Somewhere a hinge needs oil.',
+      'The light is good today.',
+      'A stone turns underfoot.',
+      'The trees are still.',
+      'You find yourself humming something you don\'t recognize.',
+      'A drop of water falls from somewhere above.',
+      'The air smells faintly of metal.',
+      'A cart wheel turns in the distance.',
+      'Your shadow is longer than you expected.',
+      'Something small crosses the path ahead of you.',
+      'A gust of wind, then nothing.',
+      'The workbench light flickers once.',
+      'You pause for a moment without meaning to.',
+      'The market sign swings slightly.',
+      'A good day for it, whatever it is.',
+      'The clouds are moving fast today.',
+      'You hear footsteps that aren\'t yours. Then you don\'t.',
+      'The pond is very still.',
+      'One of the flowers has closed for the day.',
+      'There is more to do. There is always more to do.',
+      'The path remembers everyone who has walked it.',
+      'A receipt blows past. Not yours.',
+      'The numbers are moving in your favor. For now.',
+      'You check your inventory out of habit.',
+      'The morning feels like the last one, and also the first.',
+      'A distant sound you cannot place.',
     ];
     if (state.phase >= 2) {
       AMBIENT.push(
@@ -4149,11 +4232,34 @@ setInterval(() => {
         'You hear the sound of tools from the workbench.',
         'One of your workers waves. You nod back.',
         'The courier returns empty-handed, then sets off again.',
+        'One of your workers pauses and looks at the sky.',
+        'The factory hums at a frequency you feel more than hear.',
+        'A courier passes without acknowledging you.',
+        'You realize you haven\'t made a widget by hand in a while.',
+      );
+    }
+    if (state.phase >= 3) {
+      AMBIENT.push(
+        'A page from a demand report catches on a fence post.',
+        'The bank is quiet today. It is always quiet.',
+        'You check the price before you mean to.',
+      );
+    }
+    if (state.phase >= 4) {
+      AMBIENT.push(
+        'The terminal blinks. You ignore it. Then you don\'t.',
+        'A number on the screen is larger than yesterday.',
+      );
+    }
+    if (state.phase >= 5) {
+      AMBIENT.push(
+        'The rocket does not look real from this angle.',
+        'You wonder what a widget looks like from orbit.',
       );
     }
     addLog(AMBIENT[Math.floor(Math.random() * AMBIENT.length)], '#555555');
     state.lastAmbientTick  = state.tick;
-    state.nextAmbientDelay = 30 + Math.floor(Math.random() * 91); // 30–120
+    state.nextAmbientDelay = 20 + Math.floor(Math.random() * 61); // 20–80
   }
 
   // Pond shimmer — §4.2
@@ -4199,28 +4305,8 @@ setInterval(() => {
     }
   }
 
-  // Day/night full-screen flash advance
-  if (dayNightFlash) {
-    dayNightFlash.frameCt++;
-    const stage = dayNightFlash.stages[dayNightFlash.stageIdx];
-    if (stage && dayNightFlash.frameCt >= stage.frames) {
-      dayNightFlash.frameCt = 0;
-      dayNightFlash.stageIdx++;
-      if (dayNightFlash.stageIdx >= dayNightFlash.stages.length) {
-        // Flash complete — restore full map
-        for (let y = 0; y < WORLD_ROWS; y++)
-          for (let x = 0; x < DISPLAY_WIDTH; x++)
-            markDirty(x, y);
-        renderDirty();
-        display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
-        for (const w of state.workers.apprentices) display.draw(w.x, w.y, 'a', '#66ccff', BG);
-        for (const c of state.workers.couriers)    display.draw(c.x, c.y, 'c', '#cc66cc', BG);
-        dayNightFlash = null;
-      } else {
-        _applyDayNightStage();
-      }
-    }
-  }
+  // Day/night slow wave advance (~60fps)
+  _advanceDayNightWave();
 
   requestAnimationFrame(effectsLoop);
 })(0);
