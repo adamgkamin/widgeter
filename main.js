@@ -96,7 +96,9 @@ const state = {
   demandCrashOccurred:  false,
   demandHistory:        [],
   derivativesUnlocked:  false,
-  derivatives:          { forwards: [], pnlToday: 0 },
+  derivatives:          { forwards: [], futures: [], options: [], pnlToday: 0, totalPnL: 0, marginCallActive: false, marginCallDay: 0 },
+  volatility:           0.2,
+  endingTriggered:      false,
   widgetsMade:          0,
   peakCredits:          0,
   bank: { deposit: 0, loan: null },
@@ -163,6 +165,8 @@ function saveGame() {
     demandHistory:        state.demandHistory,
     derivativesUnlocked:  state.derivativesUnlocked,
     derivatives:          state.derivatives,
+    volatility:           state.volatility,
+    endingTriggered:      state.endingTriggered,
     widgetsMade:          state.widgetsMade,
     peakCredits:          state.peakCredits,
     bank:                 state.bank,
@@ -210,9 +214,16 @@ function loadGame() {
     state.demandCrashOccurred  = data.demandCrashOccurred  ?? false;
     state.demandHistory        = data.demandHistory        ?? [];
     state.derivativesUnlocked  = data.derivativesUnlocked  ?? false;
-    state.derivatives          = data.derivatives          ?? { forwards: [], pnlToday: 0 };
-    state.derivatives.forwards = state.derivatives.forwards ?? [];
-    state.derivatives.pnlToday = state.derivatives.pnlToday ?? 0;
+    state.derivatives                    = data.derivatives ?? { forwards: [], futures: [], options: [], pnlToday: 0, totalPnL: 0, marginCallActive: false, marginCallDay: 0 };
+    state.derivatives.forwards           = state.derivatives.forwards           ?? [];
+    state.derivatives.futures            = state.derivatives.futures            ?? [];
+    state.derivatives.options            = state.derivatives.options            ?? [];
+    state.derivatives.pnlToday          = state.derivatives.pnlToday          ?? 0;
+    state.derivatives.totalPnL          = state.derivatives.totalPnL          ?? 0;
+    state.derivatives.marginCallActive  = state.derivatives.marginCallActive  ?? false;
+    state.derivatives.marginCallDay     = state.derivatives.marginCallDay     ?? 0;
+    state.volatility                     = data.volatility                     ?? 0.2;
+    state.endingTriggered                = data.endingTriggered                ?? false;
     state.widgetsMade          = data.widgetsMade          ?? 0;
     state.peakCredits          = data.peakCredits          ?? 0;
     state.bank                 = data.bank                 ?? { deposit: 0, loan: null };
@@ -861,7 +872,9 @@ function resetState() {
   state.demandCrashOccurred  = false;
   state.demandHistory        = [];
   state.derivativesUnlocked  = false;
-  state.derivatives          = { forwards: [], pnlToday: 0 };
+  state.derivatives          = { forwards: [], futures: [], options: [], pnlToday: 0, totalPnL: 0, marginCallActive: false, marginCallDay: 0 };
+  state.volatility           = 0.2;
+  state.endingTriggered      = false;
   state.widgetsMade          = 0;
   state.peakCredits          = 0;
   state.bank                 = { deposit: 0, loan: null };
@@ -2245,7 +2258,366 @@ function showBankruptcyScreen() {
   window.addEventListener('keydown', bankruptcyKeyHandler);
 }
 
+// ── Derivatives helpers ───────────────────────────────────────────────────────
+
+function calcOptionPremium(type, strike, daysToExpiry) {
+  const spot      = state.marketPrice;
+  const intrinsic = type === 'call' ? Math.max(spot - strike, 0) : Math.max(strike - spot, 0);
+  const timeValue = state.volatility * Math.sqrt(daysToExpiry) * spot * 0.1;
+  return Math.round((intrinsic + timeValue) * 10) / 10;
+}
+
+function calculateVolatility() {
+  if (state.demandHistory.length < 2) { state.volatility = 0.2; return; }
+  const prices  = state.demandHistory.slice(-14).map(h => h.price);
+  const returns = [];
+  for (let i = 1; i < prices.length; i++) {
+    if (prices[i - 1] > 0) returns.push((prices[i] - prices[i - 1]) / prices[i - 1]);
+  }
+  if (returns.length === 0) { state.volatility = 0.2; return; }
+  const mean     = returns.reduce((s, r) => s + r, 0) / returns.length;
+  const variance = returns.reduce((s, r) => s + (r - mean) ** 2, 0) / returns.length;
+  state.volatility = Math.min(0.5, Math.max(0.1, Math.round(Math.sqrt(variance) * 1000) / 1000));
+}
+
+// Module-level handle so tick loop can refresh the positions dashboard
+let dashboardRedrawFn = null;
+
+function checkAbstractionCollapse() {
+  if (state.endingTriggered || state.derivatives.totalPnL < 50000) return;
+  state.endingTriggered = true;
+  state.gameState = 'ending';
+  saveGame();
+  addLog('The numbers have stopped meaning anything.', '#cc66cc');
+  setTimeout(() => addLog('Your widgets. Your credits. Your contracts. All of it — weightless.', '#cc66cc'), 3000);
+  setTimeout(() => addLog('You look at the workbench. You look at the terminal. You understand something.', '#cc66cc'), 6000);
+  setTimeout(() => {
+    const BLINK_TEXT = '[ABSTRACTION COLLAPSE IMMINENT]';
+    const bx = Math.floor((DISPLAY_WIDTH - BLINK_TEXT.length) / 2);
+    let blinkOn = true;
+    const blinkInterval = setInterval(() => {
+      blinkOn = !blinkOn;
+      for (let i = 0; i < BLINK_TEXT.length; i++)
+        display.draw(bx + i, LOG_END_ROW, blinkOn ? BLINK_TEXT[i] : ' ', '#ff5555', BG);
+    }, 500);
+    setTimeout(() => { clearInterval(blinkInterval); showAbstractionCollapseNote(); }, 3000);
+  }, 9000);
+}
+
+function showAbstractionCollapseNote() {
+  state.gameState = 'ending';
+  clearScreen();
+  const MC  = '#cc66cc';
+  const WC  = '#555555';
+  const BOX_W  = 56;
+  const BOX_X  = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
+  const BOX_Y  = 4;
+  const CONT_X = BOX_X + 2;
+  const CONT_W = BOX_W - 4;
+
+  const TEXT_PARAS = [
+    "You started with a workbench and ten credits.",
+    "You made widgets. Then you made money.\nThen you made money from the idea of money.\nThen you made money from the idea of the idea.",
+    "The market is still out there. The widgets\nare still being made. Somewhere a courier\nis still walking the same worn path.",
+    "You don't need to be there anymore.",
+  ];
+
+  // Build rows
+  const rows = [null, { text: '– A NOTE –', center: true, fg: MC }, null];
+  for (const para of TEXT_PARAS) {
+    for (const ln of para.split('\n')) {
+      for (const wrapped of wordWrap(ln, CONT_W)) rows.push({ text: wrapped, fg: BRIGHT_WHITE });
+    }
+    rows.push(null);
+  }
+  rows.push(null);
+  rows.push({ text: '[press any key to continue]', center: true, fg: MC });
+
+  const BOX_H = rows.length + 2;
+
+  display.draw(BOX_X, BOX_Y, '+', MC, BG); display.draw(BOX_X + BOX_W - 1, BOX_Y, '+', MC, BG);
+  for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, BOX_Y, '-', MC, BG);
+  const bY = BOX_Y + BOX_H - 1;
+  display.draw(BOX_X, bY, '+', MC, BG); display.draw(BOX_X + BOX_W - 1, bY, '+', MC, BG);
+  for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, bY, '-', MC, BG);
+  for (let y = 1; y < BOX_H - 1; y++) {
+    display.draw(BOX_X, BOX_Y + y, '|', MC, BG); display.draw(BOX_X + BOX_W - 1, BOX_Y + y, '|', MC, BG);
+    for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, BOX_Y + y, ' ', BRIGHT_WHITE, BG);
+  }
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    if (!row) continue;
+    const y = BOX_Y + 1 + i;
+    if (y >= BOX_Y + BOX_H - 1) break;
+    if (row.center) {
+      const cx = CONT_X + Math.floor((CONT_W - row.text.length) / 2);
+      for (let j = 0; j < row.text.length; j++) display.draw(cx + j, y, row.text[j], row.fg, BG);
+    } else {
+      for (let j = 0; j < row.text.length; j++) display.draw(CONT_X + j, y, row.text[j], row.fg, BG);
+    }
+  }
+
+  function noteKeyHandler() {
+    window.removeEventListener('keydown', noteKeyHandler);
+    state.gameState = 'playing';
+    clearScreen();
+    drawWorld();
+    addLog('> To be continued.', '#555555');
+  }
+  window.addEventListener('keydown', noteKeyHandler);
+}
+
 // ── Derivatives Terminal (§5.5) ──────────────────────────────────────────────
+
+function openFuturesMenu() {
+  if (!state.skills.futures) return;
+  state.gameState = 'menu';
+  const BOX_W = 58, BOX_H = 18;
+  const BOX_X = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
+  const BOX_Y = Math.max(2, Math.floor((WORLD_ROWS - BOX_H) / 2));
+  const CONT_X = BOX_X + 2, CONT_W = BOX_W - 4;
+  const WC = '#555555', MC = '#cc66cc';
+
+  function line(row, text, fg) { for (let i = 0; i < text.length; i++) display.draw(CONT_X + i, BOX_Y + row, text[i], fg, BG); }
+  function centered(row, text, fg) { const cx = CONT_X + Math.floor((CONT_W - text.length) / 2); for (let i = 0; i < text.length; i++) display.draw(cx + i, BOX_Y + row, text[i], fg, BG); }
+
+  function redraw() {
+    display.draw(BOX_X, BOX_Y, '+', MC, BG); display.draw(BOX_X + BOX_W - 1, BOX_Y, '+', MC, BG);
+    for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, BOX_Y, '-', MC, BG);
+    const bY = BOX_Y + BOX_H - 1;
+    display.draw(BOX_X, bY, '+', MC, BG); display.draw(BOX_X + BOX_W - 1, bY, '+', MC, BG);
+    for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, bY, '-', MC, BG);
+    for (let y = 1; y < BOX_H - 1; y++) {
+      display.draw(BOX_X, BOX_Y + y, '|', MC, BG); display.draw(BOX_X + BOX_W - 1, BOX_Y + y, '|', MC, BG);
+      for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, BOX_Y + y, ' ', BRIGHT_WHITE, BG);
+    }
+    centered(1, '– FUTURES –', MC);
+    const futs = state.derivatives.futures;
+    const totalContracts = futs.length;
+    const totalMargin    = Math.round(futs.reduce((s, f) => s + f.marginHeld, 0) * 10) / 10;
+    const dl = demandLabel(state.demand);
+    line(3, `Current price:  ${state.marketPrice}cr`, BRIGHT_WHITE);
+    line(4, `Today's demand: ${state.demand} (${dl.text})`, dl.fg);
+    line(5, `Open futures:   ${totalContracts} contracts (${totalContracts * 10} widgets notional)`, BRIGHT_WHITE);
+    line(6, `Margin held:    ${totalMargin}cr`, '#ffd633');
+    for (let i = 0; i < CONT_W; i++) display.draw(CONT_X + i, BOX_Y + 8, '.', WC, BG);
+    const initMargin = Math.round(state.marketPrice * 10 * 0.20 * 10) / 10;
+    const canOpen = state.player.credits >= initMargin;
+    line(9,  `1. Buy 1 contract (long — profit if price rises)  ${canOpen ? '[AVAILABLE]' : '[Need ' + initMargin + 'cr]'}`, canOpen ? MC : '#ff5555');
+    line(10, `2. Sell 1 contract (short — profit if price falls) ${canOpen ? '[AVAILABLE]' : '[Need ' + initMargin + 'cr]'}`, canOpen ? MC : '#ff5555');
+    line(11, `3. Close all positions  ${futs.length > 0 ? '[settle now]' : '[none open]'}`, futs.length > 0 ? '#ff9933' : WC);
+    line(12, `4. Back`, WC);
+    centered(BOX_H - 2, 'ESC / 4 to go back', WC);
+  }
+
+  redraw();
+
+  function closeF() {
+    window.removeEventListener('keydown', futKeyHandler);
+    for (let y = BOX_Y; y < BOX_Y + BOX_H; y++) for (let x = BOX_X; x < BOX_X + BOX_W; x++) if (y < WORLD_ROWS) markDirty(x, y);
+    renderDirty(); display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
+    state.gameState = 'playing';
+  }
+
+  function futKeyHandler(e) {
+    if (e.key === 'Escape' || e.key === '4') { closeF(); openDerivativesMenu(); return; }
+    const initMargin = Math.round(state.marketPrice * 10 * 0.20 * 10) / 10;
+    if ((e.key === '1' || e.key === '2') && state.player.credits >= initMargin) {
+      const type = e.key === '1' ? 'long' : 'short';
+      state.player.credits = Math.round((state.player.credits - initMargin) * 10) / 10;
+      state.derivatives.futures.push({ type, quantity: 10, entryPrice: state.marketPrice, lastSettlementPrice: state.marketPrice, openDay: state.day, marginHeld: initMargin });
+      addLog(`Opened ${type} future at ${state.marketPrice}cr. Margin: ${initMargin}cr.`, MC);
+      drawStatusBar(); redraw(); return;
+    }
+    if (e.key === '3' && state.derivatives.futures.length > 0) {
+      let totalPnL = 0;
+      for (const f of state.derivatives.futures) {
+        const pnl = Math.round((state.marketPrice - f.entryPrice) * f.quantity * (f.type === 'long' ? 1 : -1) * 10) / 10;
+        state.player.credits = Math.round((state.player.credits + f.marginHeld + pnl) * 10) / 10;
+        totalPnL += pnl;
+      }
+      totalPnL = Math.round(totalPnL * 10) / 10;
+      state.derivatives.futures = [];
+      state.derivatives.pnlToday = Math.round((state.derivatives.pnlToday + totalPnL) * 10) / 10;
+      state.derivatives.totalPnL = Math.round((state.derivatives.totalPnL + totalPnL) * 10) / 10;
+      state.derivatives.marginCallActive = false;
+      addLog(`Futures closed. PnL: ${totalPnL >= 0 ? '+' : ''}${totalPnL}cr.`, totalPnL >= 0 ? '#66cc66' : '#ff5555');
+      drawStatusBar(); redraw(); return;
+    }
+  }
+  window.addEventListener('keydown', futKeyHandler);
+}
+
+function openCallPutFlow(type, side) {
+  const EXPIRIES = [1, 3, 7, 14];
+  const spot = state.marketPrice;
+  showMenu(`${side === 'buy' ? 'Buy' : 'Write'} ${type.toUpperCase()} — Select Expiry`, [
+    ...EXPIRIES.map(days => ({
+      label: `${days}-day expiry  (ATM premium: ${calcOptionPremium(type, spot, days)}cr)`,
+      enabled: true,
+      action: () => {
+        showNumericPrompt(`Strike (ATM=${spot}, exp ${days}d)`, 999,
+          (strike) => {
+            const premium = calcOptionPremium(type, strike, days);
+            if (side === 'buy') {
+              if (state.player.credits < premium) { addLog(`Need ${premium}cr for premium.`, '#ff5555'); openDerivativesMenu(); return; }
+              state.player.credits = Math.round((state.player.credits - premium) * 10) / 10;
+              state.derivatives.options.push({ type, strike, expiry: state.day + days, premium, quantity: 1, side: 'buy', marginHeld: 0 });
+              addLog(`Bought ${type} strike ${strike}cr exp day ${state.day + days}. Premium: ${premium}cr.`, '#cc66cc');
+            } else {
+              const margin = Math.round(premium * 3 * 10) / 10;
+              const netCost = Math.round((margin - premium) * 10) / 10;
+              if (state.player.credits < netCost) { addLog(`Need ${netCost}cr net margin to write.`, '#ff5555'); openDerivativesMenu(); return; }
+              state.player.credits = Math.round((state.player.credits + premium - margin) * 10) / 10;
+              state.derivatives.options.push({ type, strike, expiry: state.day + days, premium, quantity: 1, side: 'write', marginHeld: margin });
+              addLog(`Written ${type} strike ${strike}cr exp day ${state.day + days}. Premium rcvd: ${premium}cr.`, '#cc66cc');
+            }
+            drawStatusBar(); openDerivativesMenu();
+          },
+          () => openDerivativesMenu()
+        );
+      },
+    })),
+    { label: 'Back', enabled: true, action: () => openDerivativesMenu() },
+  ]);
+}
+
+function openOptionsMenu(side) {
+  if (side === 'buy'   && !state.skills.optionsBuy)   return;
+  if (side === 'write' && !state.skills.optionsWrite) return;
+  const prefix = side === 'buy' ? 'Buy' : 'Write';
+  showMenu(`Options — ${prefix} Side`, [
+    { label: `1. ${prefix} Call`, enabled: true, action: () => openCallPutFlow('call', side) },
+    { label: `2. ${prefix} Put`,  enabled: true, action: () => openCallPutFlow('put',  side) },
+    { label: 'Back',              enabled: true, action: () => openDerivativesMenu() },
+  ]);
+}
+
+function showVolatilityChart() {
+  if (!state.skills.volatilitySurface) return;
+  const hist = state.demandHistory.slice(-14);
+  if (hist.length < 2) { addLog('Not enough price history for volatility chart.', '#555555'); return; }
+  const prices  = hist.map(h => h.price);
+  const dailyRets = prices.map((p, i) => i === 0 ? 0 : Math.abs((p - prices[i - 1]) / prices[i - 1]));
+  const maxRet = Math.max(...dailyRets.slice(1), 0.01);
+  const rows = hist.map((h, i) => ({
+    label:  `Day ${String(h.day).padStart(2)}  `,
+    demand: Math.round(dailyRets[i] * 100),
+    price:  Math.round(dailyRets[i] * 1000) / 10,
+  }));
+  rows.shift(); // remove first (no return)
+  const volPct = Math.round(state.volatility * 100);
+  drawDemandChart(`– VOLATILITY (14-day) — vol: ${volPct}% –`, rows, null);
+}
+
+function showPositionsDashboard() {
+  state.gameState = 'dashboard';
+
+  const BOX_W = 72;
+  const BOX_H = 38;
+  const BOX_X = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
+  const BOX_Y = Math.max(1, Math.floor((WORLD_ROWS - BOX_H) / 2));
+  const CONT_X = BOX_X + 2;
+  const CONT_W = BOX_W - 4;
+  const WC = '#555555', MC = '#cc66cc';
+
+  function r10(n) { return Math.round(n * 10) / 10; }
+  function pnlFg(v) { return v > 0 ? '#66cc66' : v < 0 ? '#ff5555' : WC; }
+  function pStr(v) { return `${v >= 0 ? '+' : ''}${v}`; }
+
+  function drawFrame() {
+    display.draw(BOX_X, BOX_Y, '+', MC, BG); display.draw(BOX_X + BOX_W - 1, BOX_Y, '+', MC, BG);
+    for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, BOX_Y, '-', MC, BG);
+    const bY = BOX_Y + BOX_H - 1;
+    display.draw(BOX_X, bY, '+', MC, BG); display.draw(BOX_X + BOX_W - 1, bY, '+', MC, BG);
+    for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, bY, '-', MC, BG);
+    for (let y = 1; y < BOX_H - 1; y++) {
+      display.draw(BOX_X, BOX_Y + y, '|', MC, BG); display.draw(BOX_X + BOX_W - 1, BOX_Y + y, '|', MC, BG);
+      for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, BOX_Y + y, ' ', BRIGHT_WHITE, BG);
+    }
+  }
+
+  function textRow(row, text, fg) { for (let i = 0; i < text.length && i < CONT_W; i++) display.draw(CONT_X + i, BOX_Y + row, text[i], fg, BG); }
+  function divRow(row) { for (let i = 0; i < CONT_W; i++) display.draw(CONT_X + i, BOX_Y + row, '.', WC, BG); }
+
+  function redraw() {
+    drawFrame();
+    const cx = CONT_X + Math.floor((CONT_W - 20) / 2);
+    for (let i = 0; i < '– OPEN POSITIONS –'.length; i++) display.draw(cx + i, BOX_Y + 1, '– OPEN POSITIONS –'[i], MC, BG);
+    const spot = state.marketPrice;
+    let row = 3;
+
+    // FORWARDS
+    const fwds = state.derivatives.forwards;
+    textRow(row++, `FORWARDS (${fwds.length} open)`, '#ffd633');
+    if (fwds.length === 0) { textRow(row++, '  none', WC); }
+    else {
+      for (const f of fwds) {
+        const unr = r10((f.lockedPrice - spot) * f.quantity);
+        textRow(row++, `  Day ${f.settlementDay - 1} → Day ${f.settlementDay}   ${f.quantity} widgets @ ${f.lockedPrice}cr   PnL: ${pStr(unr)}cr`, pnlFg(unr));
+      }
+    }
+    divRow(row++);
+
+    // FUTURES
+    const futs = state.derivatives.futures;
+    textRow(row++, `FUTURES (${futs.length} contracts)`, '#ffd633');
+    if (futs.length === 0) { textRow(row++, '  none', WC); }
+    else {
+      const grouped = {};
+      for (const f of futs) { grouped[f.type] = (grouped[f.type] || []); grouped[f.type].push(f); }
+      for (const type of ['long', 'short']) {
+        if (!grouped[type] || grouped[type].length === 0) continue;
+        const grp = grouped[type];
+        const avgEntry = r10(grp.reduce((s, f) => s + f.entryPrice, 0) / grp.length);
+        const unr = r10(grp.reduce((s, f) => s + (spot - f.entryPrice) * f.quantity * (type === 'long' ? 1 : -1), 0));
+        textRow(row++, `  ${grp.length}× ${type.toUpperCase()}  entry ${avgEntry}cr  current ${spot}cr  unreal PnL: ${pStr(unr)}cr`, pnlFg(unr));
+      }
+    }
+    divRow(row++);
+
+    // OPTIONS
+    const opts = state.derivatives.options;
+    textRow(row++, `OPTIONS (${opts.length} open)`, '#ffd633');
+    if (opts.length === 0) { textRow(row++, '  none', WC); }
+    else {
+      for (const o of opts) {
+        const intrinsic = o.type === 'call' ? Math.max(spot - o.strike, 0) : Math.max(o.strike - spot, 0);
+        const val = r10(intrinsic);
+        const unr = o.side === 'buy' ? r10(val - o.premium) : r10(o.premium - val);
+        const side = o.side === 'write' ? ' [written]' : '';
+        textRow(row++, `  ${o.type.toUpperCase().padEnd(4)}  strike ${o.strike}cr  exp day ${o.expiry}  prem ${o.premium}cr  val: ${val}cr${side}`, pnlFg(unr));
+      }
+    }
+    divRow(row++);
+
+    // Totals
+    const totalUnr = r10(
+      fwds.reduce((s, f) => s + (f.lockedPrice - spot) * f.quantity, 0) +
+      futs.reduce((s, f) => s + (spot - f.entryPrice) * f.quantity * (f.type === 'long' ? 1 : -1), 0) +
+      opts.filter(o => o.side === 'buy').reduce((s, o) => s + (o.type === 'call' ? Math.max(spot - o.strike, 0) : Math.max(o.strike - spot, 0)) - o.premium, 0)
+    );
+    textRow(row++, `Total unrealized PnL: ${pStr(totalUnr)}cr`, pnlFg(totalUnr));
+    textRow(row++, `Total realized PnL today: ${pStr(state.derivatives.pnlToday)}cr`, pnlFg(state.derivatives.pnlToday));
+
+    const esc = '[ ESC to close ]';
+    const eX = CONT_X + Math.floor((CONT_W - esc.length) / 2);
+    for (let i = 0; i < esc.length; i++) display.draw(eX + i, BOX_Y + BOX_H - 2, esc[i], WC, BG);
+  }
+
+  dashboardRedrawFn = redraw;
+  redraw();
+
+  function closeDash() {
+    dashboardRedrawFn = null;
+    window.removeEventListener('keydown', dashKeyHandler);
+    for (let y = BOX_Y; y < BOX_Y + BOX_H; y++) for (let x = BOX_X; x < BOX_X + BOX_W; x++) if (y < WORLD_ROWS) markDirty(x, y);
+    renderDirty(); display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
+    state.gameState = 'playing';
+  }
+  function dashKeyHandler(e) { if (e.key === 'Escape') closeDash(); }
+  window.addEventListener('keydown', dashKeyHandler);
+}
 
 function openDerivativesMenu() {
   if (!state.stations.derivatives || !state.stations.derivatives.unlocked) return;
@@ -2281,23 +2653,27 @@ function openDerivativesMenu() {
 
     centered(1, '– DERIVATIVES TERMINAL –', MC);
 
-    const dl        = state.phase >= 3 ? demandLabel(state.demand) : { text: 'N/A', fg: WC };
-    const unrealized = state.derivatives.forwards.reduce((sum, f) => sum + Math.round((f.lockedPrice - state.marketPrice) * f.quantity * 10) / 10, 0);
-    const totalPnL  = Math.round((state.derivatives.pnlToday + unrealized) * 10) / 10;
+    const dl         = state.phase >= 3 ? demandLabel(state.demand) : { text: 'N/A', fg: WC };
+    const fwdUnr     = state.derivatives.forwards.reduce((s, f) => s + (f.lockedPrice - state.marketPrice) * f.quantity, 0);
+    const futUnr     = state.derivatives.futures.reduce((s, f) => s + (state.marketPrice - f.entryPrice) * f.quantity * (f.type === 'long' ? 1 : -1), 0);
+    const totalUnrPnL = Math.round((fwdUnr + futUnr) * 10) / 10;
+    const dispPnL    = Math.round((state.derivatives.pnlToday + totalUnrPnL) * 10) / 10;
     line(3, `Current widget price:  ${state.marketPrice}cr`, BRIGHT_WHITE);
     line(4, `Today's demand:        ${state.demand} (${dl.text})`, dl.fg);
-    const pnlFg = totalPnL > 0 ? '#66cc66' : totalPnL < 0 ? '#ff5555' : WC;
-    line(5, `Your position PnL:     ${totalPnL >= 0 ? '+' : ''}${totalPnL}cr`, pnlFg);
+    line(5, `Volatility:            ${Math.round(state.volatility * 100)}%`, '#66ccff');
+    const pFg = dispPnL > 0 ? '#66cc66' : dispPnL < 0 ? '#ff5555' : WC;
+    line(6, `Your position PnL:     ${dispPnL >= 0 ? '+' : ''}${dispPnL}cr`, pFg);
 
-    for (let i = 0; i < CONT_W; i++) display.draw(CONT_X+i, BOX_Y+7, '.', WC, BG);
+    for (let i = 0; i < CONT_W; i++) display.draw(CONT_X+i, BOX_Y+8, '.', WC, BG);
 
-    const fwdCount = state.derivatives.forwards.length;
-    line(8,  `1. Forward Contracts       [AVAILABLE]`, MC);
-    line(9,  `2. Futures Trading         ${state.skills.futures ? '[AVAILABLE]' : '[LOCKED — purchase in Office]'}`, state.skills.futures ? MC : WC);
-    line(10, `3. Options — Buy Side      ${state.skills.optionsBuy ? '[AVAILABLE]' : '[LOCKED — purchase in Office]'}`, state.skills.optionsBuy ? MC : WC);
-    line(11, `4. Options — Write Side    ${state.skills.optionsWrite ? '[AVAILABLE]' : '[LOCKED — purchase in Office]'}`, state.skills.optionsWrite ? MC : WC);
-    line(12, `5. View Open Positions     ${fwdCount > 0 ? `[${fwdCount} open]` : '[none]'}`, fwdCount > 0 ? BRIGHT_WHITE : WC);
-    line(13, `6. Close All Positions     ${fwdCount > 0 ? '[settle now]' : '[no positions]'}`, fwdCount > 0 ? '#ff9933' : WC);
+    const allPositions = state.derivatives.forwards.length + state.derivatives.futures.length + state.derivatives.options.length;
+    line(9,  `1. Forward Contracts       [AVAILABLE]`, MC);
+    line(10, `2. Futures Trading         ${state.skills.futures ? '[AVAILABLE]' : '[LOCKED — purchase in Office]'}`, state.skills.futures ? MC : WC);
+    line(11, `3. Options — Buy Side      ${state.skills.optionsBuy ? '[AVAILABLE]' : '[LOCKED — purchase in Office]'}`, state.skills.optionsBuy ? MC : WC);
+    line(12, `4. Options — Write Side    ${state.skills.optionsWrite ? '[AVAILABLE]' : '[LOCKED — purchase in Office]'}`, state.skills.optionsWrite ? MC : WC);
+    line(13, `5. View Open Positions     ${allPositions > 0 ? `[${allPositions} open]` : '[none]'}`, allPositions > 0 ? BRIGHT_WHITE : WC);
+    line(14, `6. Close All Positions     ${allPositions > 0 ? '[settle now]' : '[no positions]'}`, allPositions > 0 ? '#ff9933' : WC);
+    if (state.skills.volatilitySurface) line(15, `7. View Volatility Surface [AVAILABLE]`, '#66ccff');
 
     centered(BOX_H-2, 'ESC to close', WC);
   }
@@ -2318,13 +2694,12 @@ function openDerivativesMenu() {
     if (e.key === 'Escape') { closeDV(); return; }
 
     if (e.key === '1') {
-      // Forward contracts
       const maxQty = state.storage.widgets + state.player.inventory.widgets;
-      if (maxQty <= 0) { addLog('No widgets to forward contract.', WC); return; }
+      if (maxQty <= 0) { addLog('No widgets available for forward contract.', WC); return; }
       window.removeEventListener('keydown', dvKeyHandler);
       const expD = Math.max(5, Math.round(50 + 30 * Math.sin((state.day + 1) / 7 * 2 * Math.PI)));
       const expP = Math.round(8 * Math.pow(expD / 50, 0.5) * 10) / 10;
-      showNumericPrompt(`Forward (today:${state.marketPrice}cr, est.tomorrow:${expP}cr)`, maxQty,
+      showNumericPrompt(`Forward (today:${state.marketPrice}cr, est.tmrw:${expP}cr)`, maxQty,
         (qty) => {
           state.derivatives.forwards.push({ quantity: qty, lockedPrice: state.marketPrice, settlementDay: state.day + 1 });
           addLog(`Forward: ${qty} widgets at ${state.marketPrice}cr, settling day ${state.day + 1}.`, MC);
@@ -2335,33 +2710,32 @@ function openDerivativesMenu() {
       return;
     }
 
+    if (e.key === '2' && state.skills.futures)    { closeDV(); openFuturesMenu(); return; }
+    if (e.key === '3' && state.skills.optionsBuy)  { closeDV(); openOptionsMenu('buy');   return; }
+    if (e.key === '4' && state.skills.optionsWrite){ closeDV(); openOptionsMenu('write');  return; }
+
     if (e.key === '5') {
-      // View open positions
-      const fwds = state.derivatives.forwards;
-      if (fwds.length === 0) { addLog('No open positions.', WC); return; }
-      closeDV();
-      showForwardPositions();
-      return;
+      closeDV(); showPositionsDashboard(); return;
     }
 
     if (e.key === '6') {
-      // Close all positions at current price
-      const fwds = state.derivatives.forwards;
-      if (fwds.length === 0) return;
+      const allPos = state.derivatives.forwards.length + state.derivatives.futures.length + state.derivatives.options.length;
+      if (allPos === 0) return;
       let totalPnL = 0;
-      for (const f of fwds) {
-        const pnl = Math.round((f.lockedPrice - state.marketPrice) * f.quantity * 10) / 10;
-        totalPnL += pnl;
-      }
+      for (const f of state.derivatives.forwards) totalPnL += (f.lockedPrice - state.marketPrice) * f.quantity;
+      for (const f of state.derivatives.futures)  { totalPnL += (state.marketPrice - f.entryPrice) * f.quantity * (f.type === 'long' ? 1 : -1); state.player.credits = Math.round((state.player.credits + f.marginHeld) * 10) / 10; }
+      for (const o of state.derivatives.options)  { if (o.side === 'buy') { const ev = o.type === 'call' ? Math.max(state.marketPrice - o.strike, 0) : Math.max(o.strike - state.marketPrice, 0); totalPnL += ev - o.premium; } else { const ev = o.type === 'call' ? Math.max(state.marketPrice - o.strike, 0) : Math.max(o.strike - state.marketPrice, 0); totalPnL += o.premium - ev; state.player.credits = Math.round((state.player.credits + o.marginHeld) * 10) / 10; } }
       totalPnL = Math.round(totalPnL * 10) / 10;
       state.player.credits = Math.round((state.player.credits + totalPnL) * 10) / 10;
       state.derivatives.pnlToday = Math.round((state.derivatives.pnlToday + totalPnL) * 10) / 10;
-      state.derivatives.forwards = [];
-      addLog(`Closed all positions. PnL: ${totalPnL >= 0 ? '+' : ''}${totalPnL}cr.`, totalPnL >= 0 ? '#66cc66' : '#ff5555');
-      drawStatusBar();
-      redraw();
-      return;
+      state.derivatives.totalPnL = Math.round((state.derivatives.totalPnL + totalPnL) * 10) / 10;
+      state.derivatives.forwards = []; state.derivatives.futures = []; state.derivatives.options = [];
+      state.derivatives.marginCallActive = false;
+      addLog(`All positions closed. PnL: ${totalPnL >= 0 ? '+' : ''}${totalPnL}cr.`, totalPnL >= 0 ? '#66cc66' : '#ff5555');
+      drawStatusBar(); redraw(); return;
     }
+
+    if (e.key === '7' && state.skills.volatilitySurface) { closeDV(); showVolatilityChart(); return; }
   }
   window.addEventListener('keydown', dvKeyHandler);
 }
@@ -2901,7 +3275,7 @@ function showPauseMenu() {
 // ── Tick loop — 1 tick/second (§7.1) ─────────────────────────────────────────
 
 setInterval(() => {
-  if (state.gameState !== 'playing' && state.gameState !== 'crafting') return;
+  if (state.gameState !== 'playing' && state.gameState !== 'crafting' && state.gameState !== 'dashboard') return;
 
   state.tick++;
   state.dayTick++;
@@ -2924,15 +3298,16 @@ setInterval(() => {
         const totalWidgets = state.storage.widgets + state.player.inventory.widgets;
         if (totalWidgets >= f.quantity) {
           const pnl = Math.round((f.lockedPrice - actualPrice) * f.quantity * 10) / 10;
-          state.player.credits = Math.round((state.player.credits + pnl) * 10) / 10;
+          state.player.credits       = Math.round((state.player.credits + pnl) * 10) / 10;
           state.derivatives.pnlToday = Math.round((state.derivatives.pnlToday + pnl) * 10) / 10;
-          const pnlStr = `${pnl >= 0 ? '+' : ''}${pnl}cr`;
-          addLog(`Forward settled: ${f.quantity}wg at ${f.lockedPrice}cr vs ${actualPrice}cr. PnL: ${pnlStr}.`, pnl >= 0 ? '#66cc66' : '#ff5555');
+          state.derivatives.totalPnL = Math.round((state.derivatives.totalPnL + pnl) * 10) / 10;
+          addLog(`Forward settled: ${f.quantity}wg at ${f.lockedPrice}cr vs ${actualPrice}cr. PnL: ${pnl >= 0 ? '+' : ''}${pnl}cr.`, pnl >= 0 ? '#66cc66' : '#ff5555');
         } else {
           const shortfall = f.quantity - totalWidgets;
           const penalty   = Math.round(actualPrice * shortfall * 10) / 10;
-          state.player.credits = Math.round((state.player.credits - penalty) * 10) / 10;
+          state.player.credits       = Math.round((state.player.credits - penalty) * 10) / 10;
           state.derivatives.pnlToday = Math.round((state.derivatives.pnlToday - penalty) * 10) / 10;
+          state.derivatives.totalPnL = Math.round((state.derivatives.totalPnL - penalty) * 10) / 10;
           addLog(`Short delivery on forward. Penalty: ${penalty}cr.`, '#ff5555');
         }
         drawStatusBar();
@@ -2940,6 +3315,56 @@ setInterval(() => {
     }
     // Reset daily PnL
     state.derivatives.pnlToday = 0;
+
+    // Volatility recalculation
+    if (state.phase >= 3) calculateVolatility();
+
+    // Options expiry
+    const dueOpts = state.derivatives.options.filter(o => o.expiry === state.day);
+    state.derivatives.options = state.derivatives.options.filter(o => o.expiry !== state.day);
+    for (const o of dueOpts) {
+      const ev = o.type === 'call' ? Math.max(state.marketPrice - o.strike, 0) : Math.max(o.strike - state.marketPrice, 0);
+      if (o.side === 'buy') {
+        state.player.credits = Math.round((state.player.credits + ev) * 10) / 10;
+        const pnl = Math.round((ev - o.premium) * 10) / 10;
+        state.derivatives.pnlToday = Math.round((state.derivatives.pnlToday + pnl) * 10) / 10;
+        state.derivatives.totalPnL = Math.round((state.derivatives.totalPnL + pnl) * 10) / 10;
+        if (ev > 0) { addLog(`Option expired: exercise ${ev}cr. Net PnL: ${pnl >= 0 ? '+' : ''}${pnl}cr.`, pnl >= 0 ? '#66cc66' : '#ff5555'); }
+        else        { addLog(`Option expired worthless. Premium lost.`, '#ff5555'); }
+      } else {
+        state.player.credits = Math.round((state.player.credits + o.marginHeld) * 10) / 10;
+        const pnl = Math.round((o.premium - ev) * 10) / 10;
+        state.derivatives.pnlToday = Math.round((state.derivatives.pnlToday + pnl) * 10) / 10;
+        state.derivatives.totalPnL = Math.round((state.derivatives.totalPnL + pnl) * 10) / 10;
+        if (ev > 0) {
+          if (state.player.credits >= ev) {
+            state.player.credits = Math.round((state.player.credits - ev) * 10) / 10;
+            addLog(`Written option exercised. Paid ${ev}cr. Net PnL: ${pnl >= 0 ? '+' : ''}${pnl}cr.`, pnl >= 0 ? '#66cc66' : '#ff5555');
+          } else {
+            state.debt = Math.round((state.debt + ev - state.player.credits) * 10) / 10;
+            state.player.credits = 0;
+            addLog(`Written option exercised against you. Debt: ${state.debt}cr.`, '#ff5555');
+          }
+        } else { addLog(`Written option expired. Premium kept: ${o.premium}cr.`, '#66cc66'); }
+      }
+      drawStatusBar();
+    }
+
+    // Margin call enforcement
+    if (state.derivatives.marginCallActive && state.day > state.derivatives.marginCallDay) {
+      let closePnL = 0;
+      for (const f of state.derivatives.futures) {
+        const pnl = Math.round((state.marketPrice - f.entryPrice) * f.quantity * (f.type === 'long' ? 1 : -1) * 10) / 10;
+        state.player.credits = Math.round((state.player.credits + f.marginHeld) * 10) / 10;
+        closePnL += pnl;
+      }
+      state.derivatives.futures = [];
+      state.derivatives.marginCallActive = false;
+      state.derivatives.pnlToday = Math.round((state.derivatives.pnlToday + closePnL) * 10) / 10;
+      state.derivatives.totalPnL = Math.round((state.derivatives.totalPnL + closePnL) * 10) / 10;
+      addLog('Positions force-closed due to margin call.', '#ff5555');
+      drawStatusBar();
+    }
 
     // Loan overdue check
     if (state.bank.loan && state.day > state.bank.loan.deadline) {
@@ -3032,10 +3457,44 @@ setInterval(() => {
       addLog(`Loan interest: ${lInterest}cr. Total owed: ${state.bank.loan.remaining.toFixed(1)}cr.`, '#ff5555');
     }
     if (state.bank.deposit > 0 || state.bank.loan) drawStatusBar();
+
+    // Futures mark-to-market
+    if (state.derivatives.futures.length > 0) {
+      let totalMTM = 0;
+      for (const f of state.derivatives.futures) {
+        const dailyPnL = Math.round((state.marketPrice - f.lastSettlementPrice) * f.quantity * (f.type === 'long' ? 1 : -1) * 10) / 10;
+        f.lastSettlementPrice = state.marketPrice;
+        totalMTM += dailyPnL;
+      }
+      totalMTM = Math.round(totalMTM * 10) / 10;
+      state.player.credits       = Math.round((state.player.credits + totalMTM) * 10) / 10;
+      state.derivatives.pnlToday = Math.round((state.derivatives.pnlToday + totalMTM) * 10) / 10;
+      state.derivatives.totalPnL = Math.round((state.derivatives.totalPnL + totalMTM) * 10) / 10;
+      addLog(`Futures MTM: ${totalMTM >= 0 ? '+' : ''}${totalMTM}cr.`, totalMTM >= 0 ? '#66cc66' : '#ff5555');
+      drawStatusBar();
+      // Maintenance margin check
+      const totalNotional = state.derivatives.futures.reduce((s, f) => s + state.marketPrice * f.quantity, 0);
+      const maintenanceMargin = totalNotional * 0.10;
+      if (state.player.credits < maintenanceMargin) {
+        if (!state.derivatives.marginCallActive) {
+          state.derivatives.marginCallActive = true;
+          state.derivatives.marginCallDay    = state.day;
+          addLog('MARGIN CALL. Deposit credits or positions will close.', '#ff5555');
+        }
+      } else {
+        state.derivatives.marginCallActive = false;
+      }
+    }
   }
 
   // Update peak credits each tick
   if (state.player.credits > state.peakCredits) state.peakCredits = state.player.credits;
+
+  // Live-refresh positions dashboard
+  if (state.gameState === 'dashboard' && dashboardRedrawFn) dashboardRedrawFn();
+
+  // Abstraction collapse check
+  if (state.phase >= 4 && !state.endingTriggered) checkAbstractionCollapse();
 
   // Ambient flavor events — §13
   if (state.tick - state.lastAmbientTick  > state.nextAmbientDelay &&
