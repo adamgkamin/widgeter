@@ -107,10 +107,14 @@ const state = {
     mapX:     40,
     mapY:     21,
     playerX:  10,
-    playerY:  10,
-    furniture: [],
+    playerY:  5,
+    furniture: {},
     visited:   false,
+    catX:     9,
+    catY:     7,
+    matLoggedThisVisit: false,
   },
+  bookshelfLog: [],
   officeUnlocked:      false,
   officeTab:           'upgrades', // 'upgrades' | 'workers'
   officeUpgradesPage:  1,          // 1-indexed page within UPGRADES tab
@@ -230,6 +234,7 @@ function saveGame() {
     skills:               state.skills,
     craftingTimeRemote:   state.craftingTimeRemote,
     cottage:              state.cottage,
+    bookshelfLog:         state.bookshelfLog,
   };
   localStorage.setItem(SAVE_KEY, JSON.stringify(data));
 }
@@ -342,14 +347,20 @@ function loadGame() {
     }
     state.craftingTimeRemote = data.craftingTimeRemote ?? 10;
     state.stats.pondStepsWalked = state.stats.pondStepsWalked ?? 0;
-    state.cottage = data.cottage ?? { owned: false, mapX: 40, mapY: 21, playerX: 10, playerY: 10, furniture: [], visited: false };
+    state.cottage = data.cottage ?? { owned: false, mapX: 40, mapY: 21, playerX: 10, playerY: 5, furniture: {}, visited: false, catX: 9, catY: 7, matLoggedThisVisit: false };
     state.cottage.owned     = state.cottage.owned     ?? false;
     state.cottage.mapX      = state.cottage.mapX      ?? 40;
     state.cottage.mapY      = state.cottage.mapY      ?? 21;
     state.cottage.playerX   = state.cottage.playerX   ?? 10;
-    state.cottage.playerY   = state.cottage.playerY   ?? 10;
-    state.cottage.furniture = state.cottage.furniture ?? [];
+    state.cottage.playerY   = state.cottage.playerY   ?? 5;
+    // Migrate old furniture array to object
+    if (Array.isArray(state.cottage.furniture)) state.cottage.furniture = {};
+    state.cottage.furniture = state.cottage.furniture ?? {};
     state.cottage.visited   = state.cottage.visited   ?? false;
+    state.cottage.catX      = state.cottage.catX      ?? 9;
+    state.cottage.catY      = state.cottage.catY      ?? 7;
+    state.cottage.matLoggedThisVisit = state.cottage.matLoggedThisVisit ?? false;
+    state.bookshelfLog = data.bookshelfLog ?? [];
   } catch (_) {
     // corrupt save — start fresh
   }
@@ -1036,7 +1047,8 @@ function resetState() {
   state.skills = { apprenticeCount: 0, courierCount: 0, workerCarryLevel: 0, workerSpeedLevel: 0, courierCarryLevel: 0, courierSpeedLevel: 0, storageExp1: 0, storageExp2: 0, reducedCarry: 0, discountDump: 0, demandHistory: 0, forecast: 0, bulkRM: 0, futures: 0, optionsBuy: 0, optionsWrite: 0, volatilitySurface: 0, endurance: { pips: 0 }, aquatics: { purchased: false }, interfacing: { pips: 0 } };
   state.craftingTimeRemote = 10;
   state.stats.pondStepsWalked = 0;
-  state.cottage = { owned: false, mapX: 40, mapY: 21, playerX: 10, playerY: 10, furniture: [], visited: false };
+  state.cottage = { owned: false, mapX: 40, mapY: 21, playerX: 10, playerY: 5, furniture: {}, visited: false, catX: 9, catY: 7, matLoggedThisVisit: false };
+  state.bookshelfLog = [];
   const lfDef = STATION_DEFS.find(s => s.label === 'LF');
   const stDef = STATION_DEFS.find(s => s.label === 'ST');
   const bkDef = STATION_DEFS.find(s => s.label === 'BK');
@@ -1142,21 +1154,50 @@ window.addEventListener('keydown', onAnyKey);
 
 window.addEventListener('keydown', (e) => {
   if (state.gameState === 'cottage') {
-    const DIRS = { ArrowLeft: [-1,0], ArrowRight: [1,0], ArrowUp: [0,-1], ArrowDown: [0,1] };
+    // Escape: close overlays or exit cottage
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      if (bookshelfOverlayActive) { bookshelfOverlayActive = false; drawCottageInterior(); }
+      else if (cottageLookActive) { cottageLookActive = false; drawCottageInterior(); }
+      else exitCottage();
+      return;
+    }
+    // o: toggle look mode
+    if (e.key === 'o') {
+      e.preventDefault();
+      if (bookshelfOverlayActive) return;
+      cottageLookActive = !cottageLookActive;
+      if (cottageLookActive) { cottageLookX = state.cottage.playerX; cottageLookY = state.cottage.playerY; }
+      drawCottageInterior(); return;
+    }
+    const DIRS = { ArrowLeft:[-1,0], ArrowRight:[1,0], ArrowUp:[0,-1], ArrowDown:[0,1] };
     const d = DIRS[e.key];
     if (d) {
       e.preventDefault();
-      const nx = state.cottage.playerX + d[0];
-      const ny = state.cottage.playerY + d[1];
-      if (nx >= 1 && nx <= 18 && ny >= 1 && ny <= 10) {
-        state.cottage.playerX = nx;
-        state.cottage.playerY = ny;
+      if (bookshelfOverlayActive) return;
+      if (cottageLookActive) {
+        const nx = cottageLookX + d[0], ny = cottageLookY + d[1];
+        if (nx >= 0 && nx <= 19 && ny >= 0 && ny <= 11) { cottageLookX = nx; cottageLookY = ny; drawCottageInterior(); }
+        return;
+      }
+      const nx = state.cottage.playerX + d[0], ny = state.cottage.playerY + d[1];
+      if (nx >= 1 && nx <= 18 && ny >= 1 && ny <= 9) {
+        const destWalkable = !interiorTileMap[nx] || !interiorTileMap[nx][ny] || interiorTileMap[nx][ny].walkable;
+        if (!destWalkable) return;
+        state.cottage.playerX = nx; state.cottage.playerY = ny;
+        // Welcome mat check
+        if (state.cottage.furniture.mat && ny===9 && nx>=9 && nx<=14 && !state.cottage.matLoggedThisVisit) {
+          state.cottage.matLoggedThisVisit = true; addLog('Welcome home.', '#aa66ff'); renderLog();
+        }
         drawCottageInterior();
-      } else if (d[1] === 1 && state.cottage.playerY === 10) {
+      } else if (d[1]===1 && state.cottage.playerY===9) {
         exitCottage();
       }
     } else if (e.key === ' ') {
-      e.preventDefault(); exitCottage();
+      e.preventDefault();
+      if (bookshelfOverlayActive) { bookshelfOverlayActive = false; drawCottageInterior(); return; }
+      if (cottageLookActive) { cottageLookActive = false; drawCottageInterior(); return; }
+      if (!handleCottageInteract()) exitCottage();
     }
     return;
   }
@@ -1911,6 +1952,7 @@ function checkPhase2Trigger() {
   if (state.lifetimeCreditsEarned >= 100 && state.phase === 1) {
     state.phase = 2;
     state.officeUnlocked = true;
+    logHistory('Hired first worker.');
     state.stations.storage.unlocked       = true;
     state.stations.general_store.unlocked = true;
     addLog('Something stirs. The Office door swings open.', '#cc66cc');
@@ -1942,6 +1984,7 @@ function calculateDailyDemand() {
   const raw      = 50 + 30 * Math.sin(state.day / 7 * 2 * Math.PI) + gaussianNoise(0, 10);
   state.demand      = Math.max(5, Math.round(raw));
   state.marketPrice = Math.round(8 * Math.pow(state.demand / 50, 0.5) * 10) / 10;
+  if (state.demand < 20 && !state.demandCrashOccurred) logHistory('The market collapsed.');
   if (state.demand < 20) state.demandCrashOccurred = true;
   state.demandHistory.push({ day: state.day, demand: state.demand, price: state.marketPrice });
   if (state.demandHistory.length > 30) state.demandHistory.shift();
@@ -1951,6 +1994,7 @@ function checkPhase3Trigger() {
   if (state.phase === 2 && (state.lifetimeCreditsEarned >= 500 || (state.couriersOwned >= 1 && state.day >= 2))) {
     state.phase = 3;
     state.stations.bank = { unlocked: true };
+    logHistory('The market began fluctuating.');
     calculateDailyDemand();
     addLog('The bank lights come on for the first time.', '#66cc66');
     setTimeout(() => addLog('New possibilities are available.', '#66cc66'), 2000);
@@ -1963,6 +2007,7 @@ function checkPhase4Trigger() {
     state.phase = 4;
     state.terminalUnlocked = true;
     state.stations.terminal = { unlocked: true };
+    logHistory('A man in a clean suit appeared.');
     addLog('A man in a clean suit appears at the market.', '#cc66cc');
     setTimeout(() => addLog("He offers you a contract. Lock in tomorrow's price, he says.", '#cc66cc'), 2000);
     setTimeout(() => {
@@ -1975,6 +2020,7 @@ function checkPhase4Trigger() {
 function checkPhase5Trigger() {
   if (state.phase === 4 && state.lifetimeCreditsEarned >= 10000) {
     state.phase = 5;
+    logHistory('The launch facility opened.');
     addLog('Something has been under construction this whole time.', '#cc66cc');
     setTimeout(() => addLog('The structure in the corner. You always wondered.', '#cc66cc'), 3000);
     setTimeout(() => {
@@ -2008,7 +2054,7 @@ function sellWidgets(n) {
   state.stats.revenueToday        = Math.round((state.stats.revenueToday + earned) * 10) / 10;
   if (state.phase >= 3) state.widgetsSoldToday += n;
   addLog(`Sold ${n} widget${n !== 1 ? 's' : ''} for ${formatCredits(earned)}cr.`, BRIGHT_CYAN);
-  if (isFirstSale) addLog('Congrats on your first sale.', '#cc66cc');
+  if (isFirstSale) { addLog('Congrats on your first sale.', '#cc66cc'); logHistory('Sold the first widget.'); }
   drawStatusBar();
   { const mtD = STATION_DEFS.find(s => s.label === 'MT'); if (mtD) effectsManager.creditRain(mtD.x + 1, mtD.y + 2, n, isFirstSale, earned); }
   checkPhase2Trigger();
@@ -2912,6 +2958,15 @@ function handlePonder() {
   wrapLog(hint, '#66ccff');
 }
 
+// ── Interior state (§4.2) ────────────────────────────────────────────────────
+let interiorTileMap  = [];     // [x][y] = {walkable, glyph, fg, description, furniture}
+let fireplaceFrame   = 0;      // 0 or 1
+let candlePhase      = false;  // toggles glow dot
+let cottageLookActive = false;
+let cottageLookX     = 1;
+let cottageLookY     = 1;
+let bookshelfOverlayActive = false;
+
 // Outfit definitions — ten purchasable colors for the player @ glyph
 const OUTFITS = [
   { key: 'crimson', name: 'CRIMSON', color: '#cc2233' },
@@ -2926,6 +2981,22 @@ const OUTFITS = [
   { key: 'violet',  name: 'VIOLET',  color: '#8844cc' },
 ];
 
+// HOME GOODS catalog (§4.2) — 12 purchasable items in order A–L
+const FURNITURE_DEFS = [
+  { key: 'cottage',      name: 'COTTAGE',       price: 50000, glyph: '⌂', color: '#886633' },
+  { key: 'rug',          name: 'BRAIDED RUG',   price: 500,   glyph: '≈', color: '#886633' },
+  { key: 'table',        name: 'WOODEN TABLE',  price: 1000,  glyph: '=', color: '#aa7744' },
+  { key: 'fireplace',    name: 'FIREPLACE',     price: 2500,  glyph: '{', color: '#ff9933' },
+  { key: 'bookshelf',    name: 'BOOKSHELF',     price: 1500,  glyph: '[', color: '#886633' },
+  { key: 'clock',        name: 'CLOCK',         price: 750,   glyph: 'o', color: '#aaaaaa' },
+  { key: 'cat',          name: 'PET (CAT)',     price: 2000,  glyph: 'f', color: '#cc9933' },
+  { key: 'kitchen',      name: 'KITCHEN',       price: 3000,  glyph: '#', color: '#aaaaaa' },
+  { key: 'bed',          name: 'BED',           price: 2000,  glyph: 'z', color: '#6688cc' },
+  { key: 'candles',      name: 'CANDLES',       price: 300,   glyph: 'i', color: '#ffd633' },
+  { key: 'rockingchair', name: 'ROCKING CHAIR', price: 800,   glyph: '~', color: '#aa7744' },
+  { key: 'mat',          name: 'WELCOME MAT',   price: 400,   glyph: '-', color: '#aa7744' },
+];
+
 function openGeneralStoreMenu() {
   if (!state.stations.general_store?.unlocked) return;
   state.gameState = 'menu';
@@ -2938,7 +3009,7 @@ function openGeneralStoreMenu() {
   const IW    = 52;
   const AW    = 14;
   const IPW   = 37;
-  const BOX_H = 24;
+  const BOX_H = 25;
   const BOX_X = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
   const BOX_Y = Math.max(1, Math.floor((WORLD_ROWS - BOX_H) / 2));
   const RPX   = BOX_X + 1 + AW + 1;
@@ -2946,190 +3017,127 @@ function openGeneralStoreMenu() {
   let gsTab = 'clothing'; // 'clothing' | 'home_goods'
 
   const GS_ART = [
-    '  +--------+  ',
-    ' /  GENERAL\\ ',
-    '/    STORE  \\ ',
-    '  |--------|  ',
-    '  | [~~~~] |  ',
-    '  | [~~~~] |  ',
-    '  | [~~~~] |  ',
-    '  |--------|  ',
-    '  +--------+  ',
-    '              ',
+    '  +--------+  ', ' /  GENERAL\\ ', '/    STORE  \\ ',
+    '  |--------|  ', '  | [~~~~] |  ', '  | [~~~~] |  ',
+    '  | [~~~~] |  ', '  |--------|  ', '  +--------+  ', '              ',
   ];
-
   function drawArtRow(r, ay) {
     const s = GS_ART[r];
     for (let i = 0; i < AW; i++) {
-      const ch = s[i] || ' ';
       let fg = TC;
-      if (r === 1 && i >= 4 && i <= 10) fg = AC;
-      if (r === 2 && i >= 5 && i <= 9)  fg = AC;
-      if (r >= 4 && r <= 6 && i >= 5 && i <= 8) fg = OUTFITS[(state.tick + (r - 4)) % OUTFITS.length].color;
-      display.draw(BOX_X + 1 + i, ay, ch, fg, BG);
+      if (r===1&&i>=4&&i<=10) fg=AC; if (r===2&&i>=5&&i<=9) fg=AC;
+      if (r>=4&&r<=6&&i>=5&&i<=8) fg=OUTFITS[(state.tick+(r-4))%OUTFITS.length].color;
+      display.draw(BOX_X+1+i, ay, s[i]||' ', fg, BG);
     }
   }
-
-  function border(ay) {
-    display.draw(BOX_X, ay, '║', TC, BG);
-    display.draw(BOX_X + BOX_W - 1, ay, '║', TC, BG);
-  }
-
-  function crow(ay, r) {
-    border(ay);
-    drawArtRow(r, ay);
-    display.draw(BOX_X + 1 + AW, ay, '│', DC, BG);
-    for (let i = 0; i < IPW; i++) display.draw(RPX + i, ay, ' ', BRIGHT_WHITE, BG);
-  }
-
-  function drp(ay, text, fg) {
-    const p = menuPad(text, IPW);
-    for (let i = 0; i < IPW; i++) display.draw(RPX + i, ay, p[i] || ' ', fg, BG);
-  }
+  function border(ay) { display.draw(BOX_X,ay,'║',TC,BG); display.draw(BOX_X+BOX_W-1,ay,'║',TC,BG); }
+  function crow(ay,r) { border(ay); drawArtRow(r,ay); display.draw(BOX_X+1+AW,ay,'│',DC,BG); for(let i=0;i<IPW;i++) display.draw(RPX+i,ay,' ',BRIGHT_WHITE,BG); }
+  function drp(ay,text,fg) { const p=menuPad(text,IPW); for(let i=0;i<IPW;i++) display.draw(RPX+i,ay,p[i]||' ',fg,BG); }
 
   function drawOutfitCell(cx, ay, outfit, idx) {
-    const letter    = 'abcdefghij'[idx];
-    const owned     = state.player.ownedOutfits.includes(outfit.key);
-    const equipped  = state.player.colorName === outfit.name;
-    const canAfford = state.player.credits >= 100;
-    let marker = ' ', markerFg = BRIGHT_WHITE;
-    let bracketFg = canAfford ? TC : DC;
-    if (equipped) { marker = '»'; markerFg = LC; bracketFg = LC; }
-    else if (owned) { marker = '✓'; markerFg = '#66cc66'; bracketFg = TC; }
-    const nameFg = equipped ? LC : (owned ? '#aaaaaa' : (canAfford ? '#aaaaaa' : '#555555'));
-    const name13 = outfit.name.padEnd(13);
-    display.draw(cx,    ay, letter, equipped ? LC : '#555555', BG);
-    display.draw(cx+1,  ay, ')',    '#555555', BG);
-    display.draw(cx+2,  ay, ' ',   BRIGHT_WHITE, BG);
-    display.draw(cx+3,  ay, '[',   bracketFg, BG);
-    display.draw(cx+4,  ay, '@',   outfit.color, BG);
-    display.draw(cx+5,  ay, ' ',   BRIGHT_WHITE, BG);
-    for (let i = 0; i < 13; i++) display.draw(cx+6+i, ay, name13[i], nameFg, BG);
-    display.draw(cx+19, ay, ' ',   BRIGHT_WHITE, BG);
-    display.draw(cx+20, ay, marker, markerFg, BG);
-    display.draw(cx+21, ay, ' ',   BRIGHT_WHITE, BG);
-    display.draw(cx+22, ay, ']',   bracketFg, BG);
-    return cx + 23;
+    const letter=('abcdefghij')[idx], owned=state.player.ownedOutfits.includes(outfit.key), equipped=state.player.colorName===outfit.name, canAfford=state.player.credits>=100;
+    let marker=' ',markerFg=BRIGHT_WHITE,bracketFg=canAfford?TC:DC;
+    if(equipped){marker='»';markerFg=LC;bracketFg=LC;}else if(owned){marker='✓';markerFg='#66cc66';bracketFg=TC;}
+    const nameFg=equipped?LC:(owned?'#aaaaaa':(canAfford?'#aaaaaa':'#555555'));
+    const name13=outfit.name.padEnd(13);
+    display.draw(cx,ay,letter,equipped?LC:'#555555',BG); display.draw(cx+1,ay,')','#555555',BG); display.draw(cx+2,ay,' ',BRIGHT_WHITE,BG);
+    display.draw(cx+3,ay,'[',bracketFg,BG); display.draw(cx+4,ay,'@',outfit.color,BG); display.draw(cx+5,ay,' ',BRIGHT_WHITE,BG);
+    for(let i=0;i<13;i++) display.draw(cx+6+i,ay,name13[i],nameFg,BG);
+    display.draw(cx+19,ay,' ',BRIGHT_WHITE,BG); display.draw(cx+20,ay,marker,markerFg,BG); display.draw(cx+21,ay,' ',BRIGHT_WHITE,BG); display.draw(cx+22,ay,']',bracketFg,BG);
+    return cx+23;
+  }
+
+  function drawHGCell(cx, ay, item, letter) {
+    const isCottage = item.key === 'cottage';
+    const owned     = isCottage ? state.cottage.owned : !!state.cottage.furniture[item.key];
+    const locked    = !isCottage && !state.cottage.owned;
+    const canAfford = state.player.credits >= item.price;
+    const letterFg  = owned ? '#888888' : (canAfford && !locked ? TC : '#555555');
+    display.draw(cx,  ay, letter,  letterFg, BG);
+    display.draw(cx+1,ay, ')',     '#555555', BG);
+    display.draw(cx+2,ay, ' ',    BRIGHT_WHITE, BG);
+    const name13 = item.name.padEnd(13).slice(0, 13);
+    const nameFg = owned ? '#888888' : (locked ? '#444444' : (canAfford ? '#aaaaaa' : '#666666'));
+    for (let i = 0; i < 13; i++) display.draw(cx+3+i, ay, name13[i]||' ', nameFg, BG);
+    if (owned) {
+      if (isCottage) { const s='VISIT  '; for(let i=0;i<7;i++) display.draw(cx+16+i,ay,s[i],TC,BG); }
+      else { display.draw(cx+16,ay,'✓','#66cc66',BG); for(let i=1;i<7;i++) display.draw(cx+16+i,ay,' ',BRIGHT_WHITE,BG); }
+    } else {
+      const priceStr = (item.price+'cr').padStart(7);
+      const priceFg  = locked ? '#444444' : (canAfford ? '#66cc66' : '#ff5555');
+      for (let i=0;i<7;i++) display.draw(cx+16+i,ay,priceStr[i]||' ',priceFg,BG);
+    }
   }
 
   function redraw() {
-    for (let r = 1; r < BOX_H - 1; r++)
-      for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, BOX_Y + r, ' ', BRIGHT_WHITE, BG);
-
-    // Row 0: ╔═╗
-    display.draw(BOX_X, BOX_Y, '╔', TC, BG); display.draw(BOX_X + BOX_W - 1, BOX_Y, '╗', TC, BG);
-    for (let i = 1; i < BOX_W - 1; i++) display.draw(BOX_X + i, BOX_Y, '═', TC, BG);
-
+    for(let r=1;r<BOX_H-1;r++) for(let x=1;x<BOX_W-1;x++) display.draw(BOX_X+x,BOX_Y+r,' ',BRIGHT_WHITE,BG);
+    // Row 0
+    display.draw(BOX_X,BOX_Y,'╔',TC,BG); display.draw(BOX_X+BOX_W-1,BOX_Y,'╗',TC,BG);
+    for(let i=1;i<BOX_W-1;i++) display.draw(BOX_X+i,BOX_Y,'═',TC,BG);
     // Row 1: header
-    { const ay = BOX_Y + 1; border(ay);
-      const title = 'GENERAL STORE', hint = 'press esc to exit';
-      for (let i = 0; i < IW; i++) {
-        const ch = i < title.length ? title[i] : (i >= IW - hint.length ? hint[i-(IW-hint.length)] : ' ');
-        const fg = i < title.length ? LC : (i >= IW - hint.length ? DC : BRIGHT_WHITE);
-        display.draw(BOX_X + 1 + i, ay, ch, fg, BG);
-      }
+    { const ay=BOX_Y+1; border(ay);
+      const title='GENERAL STORE',hint='press esc to exit';
+      for(let i=0;i<IW;i++){const ch=i<title.length?title[i]:(i>=IW-hint.length?hint[i-(IW-hint.length)]:'');const fg=i<title.length?LC:(i>=IW-hint.length?DC:BRIGHT_WHITE);display.draw(BOX_X+1+i,ay,ch||' ',fg,BG);} }
+    // Row 2: ═
+    { const ay=BOX_Y+2; border(ay); for(let i=0;i<IW;i++) display.draw(BOX_X+1+i,ay,'═',DC,BG); }
+    // Row 3: tab bar
+    { const ay=BOX_Y+3; border(ay);
+      const LEFT='[ CLOTHING ]',RIGHT='[ HOME GOODS ]';
+      const lp=Math.floor((25-LEFT.length)/2), rp=Math.floor((26-RIGHT.length)/2);
+      for(let i=0;i<25;i++){const ci=i-lp;const ch=(ci>=0&&ci<LEFT.length)?LEFT[ci]:' ';const fg=(gsTab==='clothing'&&ch!==' ')?TC:DC;display.draw(BOX_X+1+i,ay,ch,fg,BG);}
+      display.draw(BOX_X+26,ay,'│',DC,BG);
+      for(let i=0;i<26;i++){const ci=i-rp;const ch=(ci>=0&&ci<RIGHT.length)?RIGHT[ci]:' ';const fg=(gsTab==='home_goods'&&ch!==' ')?TC:DC;display.draw(BOX_X+27+i,ay,ch,fg,BG);}
     }
-
-    // Row 2: ═ separator
-    { const ay = BOX_Y + 2; border(ay);
-      for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '═', DC, BG); }
-
-    // Row 3: tab bar — 25 + │ + 26 = 52
-    { const ay = BOX_Y + 3; border(ay);
-      // left tab "[ CLOTHING ]" centered in 25
-      const LEFT  = '[ CLOTHING ]';   // 12
-      const RIGHT = '[ HOME GOODS ]'; // 14
-      const leftPad  = Math.floor((25 - LEFT.length)  / 2);
-      const rightPad = Math.floor((26 - RIGHT.length) / 2);
-      for (let i = 0; i < 25; i++) {
-        const ci = i - leftPad;
-        const ch = (ci >= 0 && ci < LEFT.length) ? LEFT[ci] : ' ';
-        const fg = (gsTab === 'clothing') ? (ch !== ' ' ? TC : DC) : DC;
-        display.draw(BOX_X + 1 + i, ay, ch, fg, BG);
-      }
-      display.draw(BOX_X + 1 + 25, ay, '│', DC, BG);
-      for (let i = 0; i < 26; i++) {
-        const ci = i - rightPad;
-        const ch = (ci >= 0 && ci < RIGHT.length) ? RIGHT[ci] : ' ';
-        const fg = (gsTab === 'home_goods') ? (ch !== ' ' ? TC : DC) : DC;
-        display.draw(BOX_X + 1 + 26 + i, ay, ch, fg, BG);
-      }
-    }
-
-    // Row 4: ─ separator (below tabs)
-    { const ay = BOX_Y + 4; border(ay);
-      for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '─', DC, BG); }
-
-    // Rows 5-14: art rows
-    for (let r = 0; r < 10; r++) crow(BOX_Y + 5 + r, r);
-
-    // Right pane content — changes by tab
-    if (gsTab === 'clothing') {
-      drp(BOX_Y + 6,  'CLOTHING SHOP', TC);
-      drp(BOX_Y + 7,  'Change your look.', '#555555');
-      drp(BOX_Y + 9,  'Each item: 100cr', '#555555');
-      drp(BOX_Y + 11, 'Current look:', '#555555');
-      { const ay = BOX_Y + 12;
-        const cn = (state.player.colorName === 'DEFAULT') ? 'default white' : state.player.colorName.toLowerCase();
-        drp(ay, `@ ${cn}`, '#555555');
-        display.draw(RPX, ay, '@', state.player.color || BRIGHT_WHITE, BG);
-      }
+    // Row 4: ─
+    { const ay=BOX_Y+4; border(ay); for(let i=0;i<IW;i++) display.draw(BOX_X+1+i,ay,'─',DC,BG); }
+    // Rows 5-14: art
+    for(let r=0;r<10;r++) crow(BOX_Y+5+r,r);
+    // Right pane
+    if(gsTab==='clothing'){
+      drp(BOX_Y+6,'CLOTHING SHOP',TC); drp(BOX_Y+7,'Change your look.','#555555');
+      drp(BOX_Y+9,'Each item: 100cr','#555555'); drp(BOX_Y+11,'Current look:','#555555');
+      { const ay=BOX_Y+12; const cn=(state.player.colorName==='DEFAULT')?'default white':state.player.colorName.toLowerCase();
+        drp(ay,`@ ${cn}`,'#555555'); display.draw(RPX,ay,'@',state.player.color||BRIGHT_WHITE,BG); }
     } else {
-      // HOME GOODS tab
-      drp(BOX_Y + 6,  'HOME GOODS', TC);
-      drp(BOX_Y + 7,  'Furniture for a larger life.', '#555555');
-      drp(BOX_Y + 9,  'RURAL COTTAGE', '#ddcc99');
-      drp(BOX_Y + 10, 'A small house, south of', '#555555');
-      drp(BOX_Y + 11, 'the path. Quiet inside.', '#555555');
-      drp(BOX_Y + 12, '50,000cr', '#555555');
-      if (state.cottage.owned) {
-        drp(BOX_Y + 14, '[a] visit your cottage', TC);
-      } else {
-        const canAfford = state.player.credits >= 50000;
-        drp(BOX_Y + 14, '[a] purchase  50,000cr', canAfford ? TC : DC);
-      }
+      drp(BOX_Y+6,'HOME GOODS',TC); drp(BOX_Y+7,'Items for a life well-built.','#555555');
+      drp(BOX_Y+9,'Buy items A–L below.','#555555');
+      drp(BOX_Y+10,'Cottage required for B–L.','#555555');
+      if(state.cottage.owned) drp(BOX_Y+12,'Cottage: OWNED','#66cc66');
+      else drp(BOX_Y+12,'Cottage: not yet','#555555');
     }
-
-    // Row 15: ─ separator
-    { const ay = BOX_Y + 15; border(ay);
-      for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '─', DC, BG); }
-
-    if (gsTab === 'clothing') {
-      // Rows 16-20: 2-column clothing grid (5 rows × 2 outfits)
-      for (let row = 0; row < 5; row++) {
-        const ay = BOX_Y + 16 + row;
-        border(ay);
-        let cx = BOX_X + 1 + 2;
-        cx = drawOutfitCell(cx, ay, OUTFITS[row * 2],     row * 2);
-        cx += 2;
-        cx = drawOutfitCell(cx, ay, OUTFITS[row * 2 + 1], row * 2 + 1);
-        while (cx < BOX_X + 1 + IW) display.draw(cx++, ay, ' ', BRIGHT_WHITE, BG);
+    // Row 15: ─
+    { const ay=BOX_Y+15; border(ay); for(let i=0;i<IW;i++) display.draw(BOX_X+1+i,ay,'─',DC,BG); }
+    // Rows 16-21: grid (6 rows)
+    const letters='abcdefghijkl';
+    if(gsTab==='clothing'){
+      for(let row=0;row<5;row++){
+        const ay=BOX_Y+16+row; border(ay);
+        let cx=BOX_X+3;
+        cx=drawOutfitCell(cx,ay,OUTFITS[row*2],row*2); cx+=2;
+        cx=drawOutfitCell(cx,ay,OUTFITS[row*2+1],row*2+1);
+        while(cx<BOX_X+1+IW) display.draw(cx++,ay,' ',BRIGHT_WHITE,BG);
       }
-      // Row 21: ═ separator
-      { const ay = BOX_Y + 21; border(ay);
-        for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '═', DC, BG); }
-      // Row 22: footer
-      { const ay = BOX_Y + 22; border(ay);
-        const txt = 'a–j: buy or equip   Tab: home goods   ESC: exit';
-        const padded = menuPad(' '.repeat(Math.floor((IW - txt.length) / 2)) + txt, IW);
-        for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, padded[i] || ' ', '#555555', BG); }
+      { const ay=BOX_Y+21; border(ay); for(let i=0;i<IW;i++) display.draw(BOX_X+1+i,ay,' ',BRIGHT_WHITE,BG); }
     } else {
-      for (let row = 0; row < 5; row++) {
-        const ay = BOX_Y + 16 + row;
-        border(ay);
-        for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, ' ', BRIGHT_WHITE, BG);
+      for(let row=0;row<6;row++){
+        const ay=BOX_Y+16+row; border(ay);
+        const li=row*2, ri=row*2+1;
+        for(let i=0;i<IW;i++) display.draw(BOX_X+1+i,ay,' ',BRIGHT_WHITE,BG);
+        if(li<FURNITURE_DEFS.length) drawHGCell(BOX_X+3,ay,FURNITURE_DEFS[li],letters[li]);
+        if(ri<FURNITURE_DEFS.length) drawHGCell(BOX_X+28,ay,FURNITURE_DEFS[ri],letters[ri]);
       }
-      { const ay = BOX_Y + 21; border(ay);
-        for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '═', DC, BG); }
-      { const ay = BOX_Y + 22; border(ay);
-        const txt = 'a: purchase / visit   Tab: clothing   ESC: exit';
-        const padded = menuPad(' '.repeat(Math.floor((IW - txt.length) / 2)) + txt, IW);
-        for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, padded[i] || ' ', '#555555', BG); }
     }
-
-    // Row 23: ╚═╝
-    display.draw(BOX_X, BOX_Y + 23, '╚', TC, BG); display.draw(BOX_X + BOX_W - 1, BOX_Y + 23, '╝', TC, BG);
-    for (let i = 1; i < BOX_W - 1; i++) display.draw(BOX_X + i, BOX_Y + 23, '═', TC, BG);
+    // Row 22: ═
+    { const ay=BOX_Y+22; border(ay); for(let i=0;i<IW;i++) display.draw(BOX_X+1+i,ay,'═',DC,BG); }
+    // Row 23: footer
+    { const ay=BOX_Y+23; border(ay);
+      const txt=gsTab==='clothing'?'a–j: buy/equip  Tab: home goods  ESC: exit':'a–l: buy/visit  Tab: clothing  ESC: exit';
+      const pad=' '.repeat(Math.max(0,Math.floor((IW-txt.length)/2)));
+      const padded=menuPad(pad+txt,IW);
+      for(let i=0;i<IW;i++) display.draw(BOX_X+1+i,ay,padded[i]||' ','#555555',BG); }
+    // Row 24: ╚═╝
+    display.draw(BOX_X,BOX_Y+24,'╚',TC,BG); display.draw(BOX_X+BOX_W-1,BOX_Y+24,'╝',TC,BG);
+    for(let i=1;i<BOX_W-1;i++) display.draw(BOX_X+i,BOX_Y+24,'═',TC,BG);
   }
 
   gsMenuRedrawFn = redraw;
@@ -3138,71 +3146,59 @@ function openGeneralStoreMenu() {
   function closeGS() {
     gsMenuRedrawFn = null;
     window.removeEventListener('keydown', gsKeyHandler);
-    for (let y = BOX_Y; y < BOX_Y + BOX_H; y++)
-      for (let x = BOX_X; x < BOX_X + BOX_W; x++)
-        if (x >= 0 && x < DISPLAY_WIDTH && y >= 0 && y < WORLD_ROWS) markDirty(x, y);
+    for(let y=BOX_Y;y<BOX_Y+BOX_H;y++) for(let x=BOX_X;x<BOX_X+BOX_W;x++) if(x>=0&&x<DISPLAY_WIDTH&&y>=0&&y<WORLD_ROWS) markDirty(x,y);
     renderDirty();
-    display.draw(state.player.x, state.player.y, '@', state.player.color || BRIGHT_WHITE, BG);
-    state.gameState = 'playing';
+    display.draw(state.player.x,state.player.y,'@',state.player.color||BRIGHT_WHITE,BG);
+    state.gameState='playing';
   }
 
   function gsKeyHandler(e) {
     if (e.key === 'Escape') { closeGS(); return; }
-
-    if (e.key === 'Tab') {
-      e.preventDefault();
-      gsTab = gsTab === 'clothing' ? 'home_goods' : 'clothing';
-      redraw(); return;
-    }
+    if (e.key === 'Tab') { e.preventDefault(); gsTab=gsTab==='clothing'?'home_goods':'clothing'; redraw(); return; }
 
     if (gsTab === 'home_goods') {
-      if (e.key === 'a') {
-        if (state.cottage.owned) {
-          closeGS();
-          enterCottage();
-        } else if (state.player.credits >= 50000) {
-          state.player.credits -= 50000;
-          state.cottage.owned = true;
-          addLog('You purchase the cottage. The deed changes hands.', '#ddcc99');
-          drawStatusBar();
-          redraw();
-        } else {
-          addLog("You can't afford the cottage yet.", '#ff5555');
-        }
+      const idx = 'abcdefghijkl'.indexOf(e.key);
+      if (idx < 0 || !FURNITURE_DEFS[idx]) return;
+      const item = FURNITURE_DEFS[idx];
+      const isCottage = item.key === 'cottage';
+      const owned = isCottage ? state.cottage.owned : !!state.cottage.furniture[item.key];
+      if (owned) {
+        if (isCottage) { closeGS(); enterCottage(); }
+        else { addLog(`You already have a ${item.name.toLowerCase()}.`, '#555555'); }
+        return;
       }
-      return;
+      if (!isCottage && !state.cottage.owned) { addLog('You need a cottage first.', '#555555'); return; }
+      if (state.player.credits < item.price) { addLog("You can't afford that.", '#ff5555'); return; }
+      state.player.credits -= item.price;
+      if (isCottage) {
+        state.cottage.owned = true;
+        logHistory('Bought a cottage.');
+        addLog('You purchase the cottage. The deed changes hands.', '#ddcc99');
+      } else {
+        state.cottage.furniture[item.key] = true;
+        if (item.key === 'cat') { state.cottage.catX = 9; state.cottage.catY = 7; }
+        logHistory(`Brought home a ${item.name.toLowerCase()}.`);
+        addLog(`${item.name} placed in your cottage.`, '#aa66ff');
+        buildInteriorTileMap();
+      }
+      drawStatusBar(); redraw(); return;
     }
 
     // CLOTHING tab: a–j
     const letterIdx = 'abcdefghij'.indexOf(e.key);
     if (letterIdx < 0) return;
-    const outfit = OUTFITS[letterIdx];
-    if (!outfit) return;
-
-    const owned    = state.player.ownedOutfits.includes(outfit.key);
-    const equipped = state.player.colorName === outfit.name;
-
-    if (equipped) { addLog("You're already wearing that.", '#555555'); return; }
+    const outfit = OUTFITS[letterIdx]; if (!outfit) return;
+    const owned=state.player.ownedOutfits.includes(outfit.key), equipped=state.player.colorName===outfit.name;
+    if (equipped) { addLog("You're already wearing that.",'#555555'); return; }
     if (owned) {
-      state.player.color     = outfit.color;
-      state.player.colorName = outfit.name;
-      markDirty(state.player.x, state.player.y);
-      renderDirty();
-      display.draw(state.player.x, state.player.y, '@', state.player.color, BG);
-      addLog(`You change into something ${outfit.name.toLowerCase()}.`, outfit.color);
-      redraw(); return;
+      state.player.color=outfit.color; state.player.colorName=outfit.name;
+      markDirty(state.player.x,state.player.y); renderDirty(); display.draw(state.player.x,state.player.y,'@',state.player.color,BG);
+      addLog(`You change into something ${outfit.name.toLowerCase()}.`,outfit.color); redraw(); return;
     }
-    if (state.player.credits < 100) { addLog("You can't afford that.", '#ff5555'); return; }
-    state.player.credits -= 100;
-    state.player.ownedOutfits.push(outfit.key);
-    state.player.color     = outfit.color;
-    state.player.colorName = outfit.name;
-    markDirty(state.player.x, state.player.y);
-    renderDirty();
-    display.draw(state.player.x, state.player.y, '@', state.player.color, BG);
-    addLog(`You purchase and put on the ${outfit.name.toLowerCase()} outfit.`, outfit.color);
-    drawStatusBar();
-    redraw();
+    if (state.player.credits<100) { addLog("You can't afford that.",'#ff5555'); return; }
+    state.player.credits-=100; state.player.ownedOutfits.push(outfit.key); state.player.color=outfit.color; state.player.colorName=outfit.name;
+    markDirty(state.player.x,state.player.y); renderDirty(); display.draw(state.player.x,state.player.y,'@',state.player.color,BG);
+    addLog(`You purchase and put on the ${outfit.name.toLowerCase()} outfit.`,outfit.color); drawStatusBar(); redraw();
   }
   window.addEventListener('keydown', gsKeyHandler);
 }
@@ -5362,53 +5358,290 @@ function openLFMenu() {
 
 // ── Cottage interior (§4.2) ───────────────────────────────────────────────────
 
+function logHistory(text) {
+  if (!Array.isArray(state.bookshelfLog)) state.bookshelfLog = [];
+  state.bookshelfLog.push({ day: state.day, text });
+  if (state.bookshelfLog.length > 50) state.bookshelfLog.shift();
+}
+
+function buildInteriorTileMap() {
+  const W = 20, H = 12;
+  const FC = '#1a1208', WC = '#886633';
+  for (let x = 0; x < W; x++) {
+    interiorTileMap[x] = [];
+    for (let y = 0; y < H; y++) {
+      const isBorder = x === 0 || x === W-1 || y === 0 || y === H-1 || y === 10;
+      const isDoor   = y === 10 && x === 10;
+      interiorTileMap[x][y] = {
+        walkable:    !isBorder,
+        glyph:       isBorder ? (y===0||y===H-1 ? '═' : '║') : '.',
+        fg:          isBorder ? WC : FC,
+        description: isBorder ? (isDoor ? 'The way out. The world is still there.' : 'The cottage wall. It keeps the weather out.') : 'Wooden floorboards. They creak in the same spot every time.',
+        furniture:   null,
+      };
+    }
+  }
+  // Fix border corners
+  interiorTileMap[0][0].glyph    = '╔'; interiorTileMap[W-1][0].glyph    = '╗';
+  interiorTileMap[0][H-1].glyph  = '╚'; interiorTileMap[W-1][H-1].glyph  = '╝';
+
+  function stamp(x1, x2, y1, y2, key, glyph, fg, desc, walkable) {
+    for (let x = x1; x <= Math.min(x2, 18); x++) {
+      for (let y = y1; y <= Math.min(y2, 9); y++) {
+        if (x < 1 || x > 18 || y < 1 || y > 9) continue;
+        interiorTileMap[x][y] = { walkable, glyph: glyph[0]||'.', fg, description: desc, furniture: key };
+      }
+    }
+  }
+  const fur = state.cottage.furniture;
+  if (fur.kitchen)      stamp(1,8, 1,3, 'kitchen',      '#', '#aaaaaa', 'A modest kitchen. Functional.', false);
+  if (fur.fireplace)    stamp(8,14,1,3, 'fireplace',    '{', '#ff9933', 'A small fireplace. The warmth is real.', false);
+  if (fur.bed)          stamp(12,18,1,3,'bed',          '[', '#6688cc', 'A small bed. Adequate.', false);
+  if (fur.clock)        stamp(1,5, 2,3, 'clock',        'o', '#aaaaaa', 'A wall clock. It keeps better time than you do.', false);
+  if (fur.bookshelf)    stamp(14,18,2,4,'bookshelf',    '[', '#886633', 'Shelves of records. Your history, such as it is.', false);
+  if (fur.table)        stamp(7,13,3,4, 'table',        '=', '#aa7744', 'A sturdy wooden table. Older than it looks.', false);
+  if (fur.rockingchair) stamp(3,7, 5,6, 'rockingchair', '~', '#aa7744', 'A rocking chair. It faces the fire.', false);
+  if (fur.rug)          stamp(8,12,5,5, 'rug',          '≈', '#886633', 'A braided rug. It anchors the room.', true);
+  if (fur.candles)      stamp(7,11,6,6, 'candles',      'i', '#ffd633', "Two candles. They've been burning a while.", true);
+  if (fur.mat)          stamp(9,14,9,9, 'mat',          '-', '#aa7744', 'A welcome mat. It says nothing but means it.', true);
+  // Cat desc
+  if (fur.cat) {
+    const cx = state.cottage.catX, cy = state.cottage.catY;
+    if (cx >= 1 && cx <= 18 && cy >= 1 && cy <= 9)
+      interiorTileMap[cx][cy].description = 'Your cat. It has opinions but shares few of them.';
+  }
+}
+
+function getCottageGlyphAt(ix, iy) {
+  // Returns {ch, fg} for the look cursor to display
+  const W = 20, H = 12;
+  const fur = state.cottage.furniture;
+  if (ix === state.cottage.playerX && iy === state.cottage.playerY) return { ch: '@', fg: state.player.color || BRIGHT_WHITE };
+  if (fur.cat && ix === state.cottage.catX && iy === state.cottage.catY) return { ch: 'f', fg: '#cc9933' };
+  if (interiorTileMap[ix] && interiorTileMap[ix][iy]) {
+    const t = interiorTileMap[ix][iy];
+    return { ch: t.glyph, fg: t.fg };
+  }
+  return { ch: ' ', fg: '#555555' };
+}
+
+function drawInteriorFurniture() {
+  const OX = 30, OY = 15;
+  const fur = state.cottage.furniture;
+  function dp(ix, iy, ch, fg) { if (ix>=0&&ix<=19&&iy>=0&&iy<=11) display.draw(OX+ix, OY+iy, ch, fg, BG); }
+
+  if (fur.kitchen) {
+    ['[##][##]','|  ||  |','|__|  |_'].forEach((row, r) => {
+      const fg = r===0?'#aaaaaa':'#886633';
+      for (let i=0;i<row.length;i++) dp(1+i,1+r,row[i],fg);
+    });
+  }
+  if (fur.fireplace) {
+    const frames = [['{ ^ ^ }','#ff9933'],['{ * * }','#ffd633']];
+    dp(8,1,'{',  '#886633'); dp(14,1,'}','#886633');
+    for(let i=1;i<=5;i++) dp(8+i,1,' ','#886633');
+    const [fRow, fFg] = frames[fireplaceFrame];
+    for(let i=0;i<7;i++) dp(8+i,2,fRow[i],fFg);
+    for(let i=0;i<7;i++) dp(8+i,3,('{_____}')[i],'#aaaaaa');
+  }
+  if (fur.bed) {
+    ['[______]','|  zz  |','[______]'].forEach((row, r) => {
+      for(let i=0;i<row.length&&12+i<=18;i++) {
+        let ch=row[i], fg=r===1?'#aaaaaa':'#6688cc';
+        if(r===1&&(i===3||i===4)){ch='z';fg='#ccccff';}
+        dp(12+i,1+r,ch,fg);
+      }
+    });
+  }
+  if (fur.bookshelf) {
+    for(let r=0;r<3;r++) for(let i=0;i<5;i++) dp(14+i,2+r,'[|||]'[i],'#886633');
+  }
+  if (fur.clock) {
+    const faceColor = state.marketOpen?'#ffd633':'#cc66cc';
+    [' (o) ',' |_| '].forEach((row, r) => {
+      for(let i=0;i<5;i++) dp(1+i,2+r,row[i],(r===0&&i===2)?faceColor:'#aaaaaa');
+    });
+  }
+  if (fur.table) {
+    for(let i=0;i<7;i++) dp(7+i,3,'[=====]'[i],'#aa7744');
+    for(let i=0;i<7;i++) dp(7+i,4,'  | |  '[i],'#886633');
+  }
+  if (fur.rockingchair) {
+    [' (~) ','/___\\'].forEach((row,r) => {
+      for(let i=0;i<5;i++) dp(3+i,5+r,row[i],r===0?'#aa7744':'#886633');
+    });
+  }
+  if (fur.rug) {
+    for(let i=0;i<5;i++) dp(8+i,5,'≈','#886633');
+  }
+  if (fur.candles) {
+    const dot = candlePhase ? '·' : ' ';
+    dp(7,6,'i','#ffd633'); dp(8,6,' ','#ffd633'); dp(9,6,dot,'#ffd633'); dp(10,6,' ','#ffd633'); dp(11,6,'i','#ffd633');
+  }
+  if (fur.mat) {
+    for(let i=0;i<6;i++) dp(9+i,9,'[----]'[i],'#aa7744');
+  }
+}
+
+function handleCottageInteract() {
+  const px = state.cottage.playerX, py = state.cottage.playerY;
+  const fur = state.cottage.furniture;
+  // Cat adjacent
+  if (fur.cat) {
+    if (Math.abs(px-state.cottage.catX)<=1 && Math.abs(py-state.cottage.catY)<=1) {
+      addLog('You pet the cat. It tolerates this.', '#cc9933'); renderLog(); return true;
+    }
+  }
+  // Bookshelf adjacent (x=14..18, y=2..4)
+  if (fur.bookshelf) {
+    let adj=false;
+    for(let bx=14;bx<=18&&!adj;bx++) for(let by=2;by<=4&&!adj;by++) if(Math.abs(px-bx)<=1&&Math.abs(py-by)<=1) adj=true;
+    if(adj){ openBookshelfHistory(); return true; }
+  }
+  // Bed adjacent (x=12..18, y=1..3)
+  if (fur.bed) {
+    let adj=false;
+    for(let bx=12;bx<=18&&!adj;bx++) for(let by=1;by<=3&&!adj;by++) if(Math.abs(px-bx)<=1&&Math.abs(py-by)<=1) adj=true;
+    if(adj){ addLog('You lie down for a moment. The ceiling is very white.','#ccccff'); renderLog(); return true; }
+  }
+  // Rocking chair adjacent (x=3..7, y=5..6)
+  if (fur.rockingchair) {
+    let adj=false;
+    for(let bx=3;bx<=7&&!adj;bx++) for(let by=5;by<=6&&!adj;by++) if(Math.abs(px-bx)<=1&&Math.abs(py-by)<=1) adj=true;
+    if(adj){ addLog('You sit for a moment. The chair rocks slowly.','#aa7744'); renderLog(); return true; }
+  }
+  return false;
+}
+
+function openBookshelfHistory() {
+  bookshelfOverlayActive = true;
+  // Draw overlay on top of cottage interior
+  const OX=30, OY=14, OW=20, OH=14;
+  const TC='#aa66ff', DC='#333333';
+  display.draw(OX,OY,'╔',TC,BG); display.draw(OX+OW-1,OY,'╗',TC,BG);
+  for(let i=1;i<OW-1;i++) display.draw(OX+i,OY,'═',TC,BG);
+  // Title
+  { const ay=OY+1; display.draw(OX,'║',TC,BG); display.draw(OX+OW-1,OY+1,'║',TC,BG);
+    const t='-- YOUR HISTORY --';
+    for(let i=0;i<OW-2;i++) {
+      const ci=i-(Math.floor((OW-2-t.length)/2));
+      display.draw(OX+1+i,ay,(ci>=0&&ci<t.length)?t[ci]:' ',(ci>=0&&ci<t.length)?TC:DC,BG);
+    }
+  }
+  // Separator
+  { const ay=OY+2; display.draw(OX,'║',TC,BG); display.draw(OX+OW-1,ay,'║',TC,BG);
+    for(let i=1;i<OW-1;i++) display.draw(OX+i,ay,'─',DC,BG); }
+  // Entries (newest first)
+  const entries = (state.bookshelfLog||[]).slice().reverse();
+  const maxRows = OH-4;
+  for(let r=0;r<maxRows;r++) {
+    const ay=OY+3+r;
+    display.draw(OX,'║',TC,BG); display.draw(OX+OW-1,ay,'║',TC,BG);
+    if(r<entries.length) {
+      const e=entries[r];
+      const dayStr=`Day ${e.day}: `;
+      const text=(dayStr+e.text).slice(0,OW-2);
+      for(let i=0;i<OW-2;i++) {
+        const ch=i<text.length?text[i]:' ';
+        const fg=i<dayStr.length?TC:'#aaaaaa';
+        display.draw(OX+1+i,ay,ch,fg,BG);
+      }
+    } else if(entries.length===0&&r===0) {
+      const t='Nothing recorded yet.';
+      for(let i=0;i<OW-2;i++) display.draw(OX+1+i,ay,i<t.length?t[i]:' ','#555555',BG);
+    } else {
+      for(let i=0;i<OW-2;i++) display.draw(OX+1+i,ay,' ',BRIGHT_WHITE,BG);
+    }
+  }
+  // Footer + bottom
+  { const ay=OY+OH-2; display.draw(OX,'║',TC,BG); display.draw(OX+OW-1,ay,'║',TC,BG);
+    const f='ESC: close'; for(let i=0;i<OW-2;i++) display.draw(OX+1+i,ay,i<f.length?f[i]:' ',DC,BG); }
+  display.draw(OX,OY+OH-1,'╚',TC,BG); display.draw(OX+OW-1,OY+OH-1,'╝',TC,BG);
+  for(let i=1;i<OW-1;i++) display.draw(OX+i,OY+OH-1,'═',TC,BG);
+}
+
 function drawCottageInterior() {
-  const OX = 30, OY = 15; // overlay: cols 30-49, rows 15-26
+  const OX = 30, OY = 15;
   const W = 20, H = 12;
   const TC = '#886633';
-  const FC = '#1a1208';  // dark floor
-  const IW = W - 2;      // 18 inner cols
+  const FC = '#1a1208';
+  const WARMC = '#2a1a0a';
+  const fur = state.cottage.furniture;
 
+  // Top border
   display.draw(OX, OY, '╔', TC, BG);
   for (let i = 1; i < W-1; i++) display.draw(OX+i, OY, '═', TC, BG);
   display.draw(OX+W-1, OY, '╗', TC, BG);
 
-  // Interior rows: y=1..10 map to screen rows OY+1..OY+10
-  for (let iy = 1; iy <= 10; iy++) {
+  // Walkable rows y=1..9
+  for (let iy = 1; iy <= 9; iy++) {
     const sy = OY + iy;
     display.draw(OX, sy, '║', TC, BG);
-    for (let ix = 1; ix <= IW; ix++) {
-      const sx = OX + ix;
-      if (iy === 1) {
-        // header row
-        const HEADER = '  YOUR COTTAGE  ';
-        const ch = ix <= HEADER.length ? HEADER[ix-1] : ' ';
-        display.draw(sx, sy, ch || ' ', ix >= 3 && ix <= 14 ? '#ddcc99' : '#555555', BG);
-      } else if (iy === 10) {
-        // bottom floor row with door indicator at ix=10
-        display.draw(sx, sy, ix === 10 ? '.' : '.', ix === 10 ? '#cc9933' : FC, BG);
-      } else {
-        display.draw(sx, sy, '.', FC, BG);
-      }
+    for (let ix = 1; ix <= 18; ix++) {
+      const warm = fur.fireplace && iy === 4 && ix >= 7 && ix <= 14;
+      display.draw(OX+ix, sy, '.', warm ? WARMC : FC, BG);
     }
     display.draw(OX+W-1, sy, '║', TC, BG);
   }
 
+  // Row 10: bottom wall with door indicator
+  { const sy = OY + 10;
+    display.draw(OX, sy, '║', TC, BG);
+    for (let ix = 1; ix <= 18; ix++)
+      display.draw(OX+ix, sy, ix===10?'.':' ', ix===10?'#cc9933':'#333333', BG);
+    display.draw(OX+W-1, sy, '║', TC, BG);
+  }
+
+  // Bottom border
   display.draw(OX, OY+H-1, '╚', TC, BG);
   for (let i = 1; i < W-1; i++) display.draw(OX+i, OY+H-1, '═', TC, BG);
   display.draw(OX+W-1, OY+H-1, '╝', TC, BG);
 
-  // Player @
-  display.draw(OX + state.cottage.playerX, OY + state.cottage.playerY, '@', state.player.color || BRIGHT_WHITE, BG);
+  // Furniture
+  drawInteriorFurniture();
 
-  // Hint at row below box
-  const hint = '[ arrows: move | space: exit ]';
-  for (let i = 0; i < W*2; i++) display.draw(OX+i, OY+H, i < hint.length ? hint[i] : ' ', '#444444', BG);
+  // Cat
+  if (fur.cat) display.draw(OX+state.cottage.catX, OY+state.cottage.catY, 'f', '#cc9933', BG);
+
+  // Player
+  display.draw(OX+state.cottage.playerX, OY+state.cottage.playerY, '@', state.player.color||BRIGHT_WHITE, BG);
+
+  // Hint row
+  if (cottageLookActive) {
+    // Look mode: show description
+    const ix = cottageLookX, iy = cottageLookY;
+    let desc = '';
+    if (iy===0||iy===H-1||ix===0||ix===W-1||iy===10) {
+      desc = (ix===10&&iy===10) ? 'The way out. The world is still there.' : 'The cottage wall. It keeps the weather out.';
+    } else if (ix===state.cottage.playerX && iy===state.cottage.playerY) {
+      desc = "That's you. You're home.";
+    } else if (fur.cat && ix===state.cottage.catX && iy===state.cottage.catY) {
+      desc = 'Your cat. It has opinions but shares few of them.';
+    } else if (interiorTileMap[ix] && interiorTileMap[ix][iy]) {
+      desc = interiorTileMap[ix][iy].description;
+    } else {
+      desc = 'Wooden floorboards. They creak in the same spot every time.';
+    }
+    const dStr = desc.slice(0, DISPLAY_WIDTH);
+    for (let i = 0; i < DISPLAY_WIDTH; i++) display.draw(i, OY+H, i<dStr.length?dStr[i]:' ', '#aa66ff', BG);
+    // Look cursor
+    const { ch, fg } = getCottageGlyphAt(ix, iy);
+    display.draw(OX+ix, OY+iy, ch, BG, fg);
+  } else {
+    const hint = '[ move: arrows | interact: space | look: o | exit: esc ]';
+    for (let i = 0; i < DISPLAY_WIDTH; i++) display.draw(i, OY+H, i<hint.length?hint[i]:' ', '#444444', BG);
+  }
+
+  if (bookshelfOverlayActive) openBookshelfHistory();
 }
 
 function enterCottage() {
   state.cottage.playerX = 10;
   state.cottage.playerY = 5;
+  state.cottage.matLoggedThisVisit = false;
+  cottageLookActive = false;
+  bookshelfOverlayActive = false;
+  buildInteriorTileMap();
   state.gameState = 'cottage';
   clearScreen();
   drawCottageInterior();
@@ -5421,8 +5654,9 @@ function enterCottage() {
 }
 
 function exitCottage() {
+  cottageLookActive = false;
+  bookshelfOverlayActive = false;
   state.gameState = 'playing';
-  // Place player just below the cottage door
   state.player.x = state.cottage.mapX + 3;
   state.player.y = state.cottage.mapY + 4;
   drawWorld();
@@ -6585,6 +6819,26 @@ setInterval(() => {
   if (storageMenuRedrawFn) storageMenuRedrawFn();
   if (bankMenuRedrawFn) bankMenuRedrawFn();
   if (gsMenuRedrawFn) gsMenuRedrawFn();
+
+  // Cottage animations + cat AI (§4.2)
+  if (state.cottage.owned) {
+    if (state.cottage.furniture.fireplace && state.tick % 6 === 0) fireplaceFrame = 1 - fireplaceFrame;
+    if (state.cottage.furniture.candles   && state.tick % 12 === 0) candlePhase = !candlePhase;
+    if (state.cottage.furniture.cat && state.tick % 8 === 0 && state.gameState === 'cottage') {
+      const cx = state.cottage.catX, cy = state.cottage.catY;
+      const nearFire = state.cottage.furniture.fireplace && cx >= 6 && cx <= 14 && cy <= 5;
+      if (!(nearFire && Math.random() < 0.7)) {
+        const DIRS = [[-1,0],[1,0],[0,-1],[0,1]];
+        const valid = DIRS.filter(([dx,dy]) => {
+          const nx=cx+dx, ny=cy+dy;
+          if(nx<1||nx>18||ny<1||ny>9) return false;
+          if(!interiorTileMap[nx]||!interiorTileMap[nx][ny]) return false;
+          return interiorTileMap[nx][ny].walkable && !(nx===state.cottage.playerX&&ny===state.cottage.playerY);
+        });
+        if(valid.length>0){const[dx,dy]=valid[Math.floor(Math.random()*valid.length)];state.cottage.catX=cx+dx;state.cottage.catY=cy+dy;}
+      }
+    }
+  }
   if (state.gameState === 'cottage') drawCottageInterior();
 
   // Live-refresh LF menu + rocket animation frame
@@ -6666,6 +6920,14 @@ setInterval(() => {
         'A courier passes without acknowledging you.',
         'You realize you haven\'t made a widget by hand in a while.',
       );
+      if (state.cottage.furniture && state.cottage.furniture.cat) {
+        AMBIENT.push(
+          'Your cat is asleep near the fireplace.',
+          'Your cat watches you from the bookshelf.',
+          'Your cat sits in the doorway, indifferent.',
+          'Your cat bats at something you can\'t see.',
+        );
+      }
     }
     if (state.phase >= 3) {
       AMBIENT.push(
