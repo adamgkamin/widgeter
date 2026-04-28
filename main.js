@@ -86,6 +86,11 @@ const state = {
   wbFullLogged:      false,
   rmPurchasedToday:  0,
   rmLimitLogged:     false,
+  couriersOwned:     0,
+  demand:            50,
+  marketPrice:       8,
+  widgetsSoldToday:  0,
+  demandMetLogged:   false,
   audio: { muted: false },
   workers: { apprentices: [], couriers: [] },
   skills: {
@@ -127,6 +132,11 @@ function saveGame() {
     wbFullLogged:         state.wbFullLogged,
     rmPurchasedToday:     state.rmPurchasedToday,
     rmLimitLogged:        state.rmLimitLogged,
+    couriersOwned:        state.couriersOwned,
+    demand:               state.demand,
+    marketPrice:          state.marketPrice,
+    widgetsSoldToday:     state.widgetsSoldToday,
+    demandMetLogged:      state.demandMetLogged,
     audio:                state.audio,
     workers:              state.workers,
     skills:               state.skills,
@@ -161,6 +171,11 @@ function loadGame() {
     state.wbFullLogged         = data.wbFullLogged       ?? false;
     state.rmPurchasedToday     = data.rmPurchasedToday   ?? 0;
     state.rmLimitLogged        = data.rmLimitLogged       ?? false;
+    state.couriersOwned        = data.couriersOwned        ?? 0;
+    state.demand               = data.demand               ?? 50;
+    state.marketPrice          = data.marketPrice          ?? 8;
+    state.widgetsSoldToday     = data.widgetsSoldToday     ?? 0;
+    state.demandMetLogged      = data.demandMetLogged       ?? false;
     state.audio                = data.audio               ?? { muted: false };
     state.workers              = data.workers           ?? { apprentices: [], couriers: [] };
     state.workers.couriers     = state.workers.couriers ?? []; // normalise old saves
@@ -294,7 +309,8 @@ function drawStatusBar() {
     sx = seg(sx, `D:${state.rmPurchasedToday}/100`,        '#ff9933') + 1;
     sx = seg(sx, `W:${activeW}`,                           '#66ccff') + 1;
     sx = seg(sx, `C:${activeC}`,                           '#cc66cc') + 1;
-         seg(sx, `ST:${state.storage.widgets}/50`,         '#66ccff');
+    sx = seg(sx, `ST:${state.storage.widgets}/50`,         '#66ccff') + 1;
+    if (state.phase >= 3) seg(sx, `P:${state.marketPrice}cr`, '#66cc66');
   } else {
     sx = seg(sx, `Credits: ${state.player.credits}`,       '#ffd633') + 4;
     sx = seg(sx, `Raw: ${inv.rm}`,                         '#ff9933') + 4;
@@ -366,6 +382,12 @@ function buildTileMap() {
       [14,28],[13,28],[12,28],[11,28],[11,29],[11,30],[11,31], // to Factory
       [24,29],[24,30],[24,31],                                  // to Storage
     ]) tileMap[px][py] = mk(':', pc, true);
+  }
+
+  // Phase 3 paths — static when already unlocked (animated on first unlock)
+  if (state.phase >= 3) {
+    for (const [px, py] of [[62,13],[62,12],[62,11],[62,10],[62,9],[62,8],[62,7]])
+      tileMap[px][py] = mk(':', pc, true);
   }
 
   // Trees — §4.5
@@ -492,6 +514,10 @@ function buildTileMap() {
     const st2 = STATION_DEFS.find(s => s.label === 'ST');
     if (fc2) { fc2.wc = '#555555'; fc2.lc = '#ff9933'; }
     if (st2) { st2.wc = '#555555'; st2.lc = '#66ccff'; }
+  }
+  if (state.phase >= 3) {
+    const bk3 = STATION_DEFS.find(s => s.label === 'BK');
+    if (bk3) { bk3.wc = '#555555'; bk3.lc = '#66cc66'; }
   }
 
   // Stations — §3.5 (overwrites floor/trees in their footprint)
@@ -755,13 +781,20 @@ function resetState() {
   state.wbFullLogged     = false;
   state.rmPurchasedToday = 0;
   state.rmLimitLogged    = false;
+  state.couriersOwned    = 0;
+  state.demand           = 50;
+  state.marketPrice      = 8;
+  state.widgetsSoldToday = 0;
+  state.demandMetLogged  = false;
   state.audio            = { muted: false };
   state.workers = { apprentices: [], couriers: [] };
   state.skills = { apprentice: 0, courier: 0, workerCarry: 0, workerSpeed: 0, courierCarry: 0, courierSpeed: 0 };
   const fcDef = STATION_DEFS.find(s => s.label === 'FC');
   const stDef = STATION_DEFS.find(s => s.label === 'ST');
+  const bkDef = STATION_DEFS.find(s => s.label === 'BK');
   if (fcDef) { fcDef.wc = DIM_GRAY; fcDef.lc = DIM_GRAY; }
   if (stDef) { stDef.wc = DIM_GRAY; stDef.lc = DIM_GRAY; }
+  if (bkDef) { bkDef.wc = DIM_GRAY; bkDef.lc = DIM_GRAY; }
 }
 
 function showNewGameConfirm() {
@@ -1219,12 +1252,69 @@ function checkPhase2Trigger() {
   }
 }
 
+function gaussianNoise(mean, std) {
+  const u = 1 - Math.random(), v = Math.random();
+  return mean + std * Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+}
+
+function demandLabel(D) {
+  if (D > 65)  return { text: 'HIGH',      fg: '#66cc66' };
+  if (D >= 35) return { text: 'AVERAGE',   fg: '#f0f0f0' };
+  if (D >= 15) return { text: 'WEAK',      fg: '#ff9933' };
+  return             { text: 'COLLAPSED',  fg: '#ff5555' };
+}
+
+function calculateDailyDemand() {
+  const raw      = 50 + 30 * Math.sin(state.day / 7 * 2 * Math.PI) + gaussianNoise(0, 10);
+  state.demand      = Math.max(5, Math.round(raw));
+  state.marketPrice = Math.round(8 * Math.pow(state.demand / 50, 0.5) * 10) / 10;
+}
+
+function checkPhase3Trigger() {
+  if (state.phase === 2 && (state.lifetimeCreditsEarned >= 500 || (state.couriersOwned >= 1 && state.day >= 2))) {
+    state.phase = 3;
+    state.stations.bank = { unlocked: true };
+    calculateDailyDemand();
+    addLog('The bank lights come on for the first time.', '#66cc66');
+    setTimeout(() => addLog('New options are becoming available.', '#66cc66'), 2000);
+    setTimeout(() => {
+      colorInStation('BK', '#555555', '#66cc66');
+      setTimeout(animateBankPath, 1000);
+    }, 4000);
+  }
+}
+
+function animateBankPath() {
+  const pc = '#3a3530';
+  const mk = (glyph, fg, walkable) => ({ glyph, fg, bg: BG, walkable });
+  const tiles = [[62,13],[62,12],[62,11],[62,10],[62,9],[62,8],[62,7]];
+  tiles.forEach(([px, py], i) => {
+    setTimeout(() => {
+      tileMap[px][py] = mk(':', pc, true);
+      markDirty(px, py);
+      renderDirty();
+    }, i * 200);
+  });
+}
+
 function sellWidgets(n) {
-  const PRICE  = 8;
-  const earned = n * PRICE;
-  state.player.credits            += earned;
-  state.player.inventory.widgets  -= n;
-  state.lifetimeCreditsEarned     += earned;
+  if (state.phase >= 3) {
+    const remaining = state.demand - state.widgetsSoldToday;
+    if (remaining <= 0) {
+      if (!state.demandMetLogged) {
+        addLog("The market has taken all it will take today.", '#ff9933');
+        state.demandMetLogged = true;
+      }
+      return;
+    }
+    n = Math.min(n, remaining);
+  }
+  const price  = state.marketPrice;
+  const earned = n * price;
+  state.player.credits           += earned;
+  state.player.inventory.widgets -= n;
+  state.lifetimeCreditsEarned    += earned;
+  if (state.phase >= 3) state.widgetsSoldToday += n;
   addLog(`Sold ${n} widget${n !== 1 ? 's' : ''} for ${earned}cr.`, BRIGHT_CYAN);
   drawStatusBar();
   checkPhase2Trigger();
@@ -1232,7 +1322,7 @@ function sellWidgets(n) {
 
 function openMarketMenu() {
   const widgets = state.player.inventory.widgets;
-  const PRICE   = 8;
+  const price   = state.marketPrice;
 
   if (!state.marketOpen) {
     addLog('The market is shuttered. The bell rings at dawn.', '#555555');
@@ -1243,16 +1333,25 @@ function openMarketMenu() {
     return;
   }
 
-  showMenu('Market', [
+  if (state.phase >= 3 && state.widgetsSoldToday >= state.demand) {
+    addLog("The market has taken all it will take today.", '#ff9933');
+    return;
+  }
+
+  const dl    = state.phase >= 3 ? demandLabel(state.demand) : null;
+  const title = dl ? `Market — Demand: ${dl.text}` : 'Market';
+  const avail = state.phase >= 3 ? Math.min(widgets, state.demand - state.widgetsSoldToday) : widgets;
+
+  showMenu(title, [
     {
-      label:   `Sell 1 widget (+${PRICE}cr)`,
+      label:   `Sell 1 widget (+${price}cr)`,
       enabled: true,
       action:  () => sellWidgets(1),
     },
     {
-      label:   `Sell max (+${widgets * PRICE}cr)`,
+      label:   `Sell max (+${avail * price}cr)`,
       enabled: true,
-      action:  () => sellWidgets(widgets),
+      action:  () => sellWidgets(avail),
     },
     { label: 'Cancel', enabled: true, action: () => {} },
   ]);
@@ -1374,6 +1473,7 @@ function showOfficeMenu() {
           carryWidgets: 0,
           target: { x: 0, y: 0 },
         });
+        state.couriersOwned++;
       }
       addLog(`${node.name} purchased.`, '#cc66cc');
       drawStatusBar();
@@ -1851,7 +1951,7 @@ function tickCouriers() {
   const mtDoor = { x: mtDef.x + 1, y: mtDef.y + 2 }; // (62, 25)
   const speed    = Math.max(1, Math.round(1 + state.skills.courierSpeed * 0.5));
   const carryMax = 10 + state.skills.courierCarry * 5;
-  const PRICE    = 8;
+  const PRICE    = state.marketPrice;
 
   function moveToward(c, target) {
     for (let s = 0; s < speed; s++) {
@@ -1890,19 +1990,24 @@ function tickCouriers() {
     if (c.courierState === 'delivering') {
       if (!near(c, mtDoor)) moveToward(c, mtDoor);
       if (near(c, mtDoor)) {
-        if (state.marketOpen && c.carryWidgets > 0) {
-          const n = c.carryWidgets;
+        const demandLeft = state.phase >= 3 ? (state.demand - state.widgetsSoldToday) : Infinity;
+        if (state.marketOpen && c.carryWidgets > 0 && demandLeft > 0) {
+          const n = state.phase >= 3 ? Math.min(c.carryWidgets, demandLeft) : c.carryWidgets;
           const earned = n * PRICE;
           state.player.credits += earned;
           state.lifetimeCreditsEarned += earned;
-          c.carryWidgets = 0;
+          if (state.phase >= 3) state.widgetsSoldToday += n;
+          c.carryWidgets -= n;
           addLog(`Courier sold ${n} widget${n !== 1 ? 's' : ''} for ${earned}cr.`, '#66cc66');
           drawStatusBar();
           checkPhase2Trigger();
           c.target = { ...stDoor };
           c.courierState = 'returning';
+        } else if (!state.marketOpen || demandLeft <= 0) {
+          // market closed or demand exhausted: return
+          c.target = { ...stDoor };
+          c.courierState = 'returning';
         }
-        // market closed: stay put and wait
       }
     }
 
@@ -1947,7 +2052,13 @@ function devJumpToPhase(n) {
     if (fcD) { fcD.wc = '#555555'; fcD.lc = '#ff9933'; }
     if (stD) { stD.wc = '#555555'; stD.lc = '#66ccff'; }
   }
-  if (n >= 3) state.stations.bank        = { unlocked: true };
+  if (n >= 3) {
+    state.stations.bank = { unlocked: true };
+    const bkD = STATION_DEFS.find(s => s.label === 'BK');
+    if (bkD) { bkD.wc = '#555555'; bkD.lc = '#66cc66'; }
+    calculateDailyDemand();
+    state.widgetsSoldToday = 0;
+  }
   if (n >= 4) state.stations.derivatives = { unlocked: true };
   state.gameState = 'playing';
   clearScreen();
@@ -2064,11 +2175,16 @@ setInterval(() => {
 
   state.tick++;
   state.dayTick++;
-  if (state.dayTick >= 240) { state.dayTick = 0; state.day++; state.bellFiredToday = false; state.rmPurchasedToday = 0; state.rmLimitLogged = false; }
+  if (state.dayTick >= 240) { state.dayTick = 0; state.day++; state.bellFiredToday = false; state.rmPurchasedToday = 0; state.rmLimitLogged = false; state.widgetsSoldToday = 0; state.demandMetLogged = false; }
   state.marketOpen = state.dayTick < 180;
   if (state.dayTick === 0 && !state.bellFiredToday) {
     state.bellFiredToday = true;
     addLog('The morning bell has rung.', BRIGHT_CYAN);
+    if (state.phase >= 3) {
+      calculateDailyDemand();
+      const dl = demandLabel(state.demand);
+      wrapLog(`Market demand today: ${dl.text}. Price: ${state.marketPrice}cr/widget.`, dl.fg);
+    }
   }
   drawTimeIndicator();
 
@@ -2104,6 +2220,7 @@ setInterval(() => {
     display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
   }
   checkProductionHalt();
+  checkPhase3Trigger();
 
   // Ambient flavor events — §13
   if (state.tick - state.lastAmbientTick  > state.nextAmbientDelay &&
