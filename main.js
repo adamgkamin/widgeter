@@ -10,7 +10,7 @@ import { EffectsManager } from './src/effects.js';
 
 // ── Display init ──────────────────────────────────────────────────────────────
 
-const display = new ROT.Display({
+let display = new ROT.Display({
   width: DISPLAY_WIDTH,
   height: DISPLAY_HEIGHT,
   fontSize: 16,
@@ -19,7 +19,13 @@ const display = new ROT.Display({
   fg: BRIGHT_WHITE,
 });
 
-document.body.appendChild(display.getContainer());
+document.getElementById('game-container').appendChild(display.getContainer());
+
+// Fullscreen / resize helpers — module-level so any function can use them
+let pauseMenuRedrawFn = null; // set by showPauseMenu, cleared on close
+let fsError = '';             // shown in settings menu when requestFullscreen fails
+let fsErrorTimer = null;
+let resizeDebounceTimer = null;
 
 // ── Effects manager (§3.4) ────────────────────────────────────────────────────
 const effectsManager = new EffectsManager({
@@ -66,6 +72,93 @@ function wordWrap(text, maxWidth) {
   if (line) lines.push(line);
   return lines;
 }
+
+// ── Display scaling — crisp native-resolution rendering (§3.1) ───────────────
+
+function recalculateDisplaySize(availW, availH) {
+  availW = availW ?? window.innerWidth;
+  availH = availH ?? window.innerHeight;
+  const maxFontW = Math.floor(availW / DISPLAY_WIDTH);
+  const maxFontH = Math.floor(availH / DISPLAY_HEIGHT);
+  const fontSize = Math.max(8, Math.min(maxFontW, maxFontH));
+  if (state && state.settings) state.settings.currentFontSize = fontSize;
+  const container = document.getElementById('game-container');
+  container.innerHTML = '';
+  display = new ROT.Display({
+    width:      DISPLAY_WIDTH,
+    height:     DISPLAY_HEIGHT,
+    fontSize,
+    fontFamily: "'IBM Plex Mono', 'Courier New', monospace",
+    bg:         BG,
+    fg:         BRIGHT_WHITE,
+  });
+  container.appendChild(display.getContainer());
+}
+
+function setFullscreen(enabled) {
+  if (state && state.settings) state.settings.fullscreen = enabled;
+  localStorage.setItem('widgeter.settings.fullscreen', JSON.stringify(enabled));
+  if (enabled) {
+    // Resize to screen dimensions immediately, then request browser fullscreen
+    recalculateDisplaySize(window.screen.width, window.screen.height);
+    document.documentElement.requestFullscreen().catch(() => {
+      // Browser denied — fsError shows in settings menu, size stays at window-fill
+      fsError = 'Fullscreen unavailable in this browser.';
+      clearTimeout(fsErrorTimer);
+      fsErrorTimer = setTimeout(() => { fsError = ''; if (pauseMenuRedrawFn) pauseMenuRedrawFn(); }, 3000);
+      if (pauseMenuRedrawFn) pauseMenuRedrawFn();
+    });
+  } else {
+    recalculateDisplaySize(window.innerWidth, window.innerHeight);
+    if (document.fullscreenElement) document.exitFullscreen();
+  }
+}
+
+function fullRedraw() {
+  const gs = state ? state.gameState : 'title';
+  if (gs === 'title' || gs === 'title_menu') {
+    clearScreen(); drawArt(); drawPrompt(true);
+  } else if (gs === 'cottage') {
+    clearScreen(); drawCottageInterior(); drawStatusBar(); renderLog();
+  } else if (gs !== 'transitioning' && gs !== 'intro') {
+    drawWorld(); drawStatusBar(); renderLog();
+    // Redraw any open menu
+    if (rmMenuRedrawFn)      rmMenuRedrawFn();
+    if (wbMenuRedrawFn)      wbMenuRedrawFn();
+    if (mtMenuRedrawFn)      mtMenuRedrawFn();
+    if (dvMenuRedrawFn)      dvMenuRedrawFn();
+    if (storageMenuRedrawFn) storageMenuRedrawFn();
+    if (bankMenuRedrawFn)    bankMenuRedrawFn();
+    if (gsMenuRedrawFn)      gsMenuRedrawFn();
+    if (lfMenuRedrawFn)      lfMenuRedrawFn();
+    if (dashboardRedrawFn)   dashboardRedrawFn();
+    if (inventoryRedrawFn)   inventoryRedrawFn();
+  }
+  if (pauseMenuRedrawFn) pauseMenuRedrawFn();
+}
+
+// Sync state when user exits fullscreen via F11 / browser ESC
+document.addEventListener('fullscreenchange', () => {
+  const isFS = !!document.fullscreenElement;
+  if (state && state.settings && state.settings.fullscreen !== isFS) {
+    // User exited/entered fullscreen without going through our menu
+    if (state.settings) state.settings.fullscreen = isFS;
+    localStorage.setItem('widgeter.settings.fullscreen', JSON.stringify(isFS));
+    recalculateDisplaySize(isFS ? window.screen.width : window.innerWidth, isFS ? window.screen.height : window.innerHeight);
+    fullRedraw();
+  }
+});
+
+// Windowed mode: stay crisp when the browser window is resized
+window.addEventListener('resize', () => {
+  if (document.fullscreenElement) return; // handled by fullscreenchange
+  clearTimeout(resizeDebounceTimer);
+  resizeDebounceTimer = setTimeout(() => {
+    recalculateDisplaySize(window.innerWidth, window.innerHeight);
+    fullRedraw();
+    if (pauseMenuRedrawFn) pauseMenuRedrawFn();
+  }, 200);
+});
 
 // ── Game state (§8) ───────────────────────────────────────────────────────────
 
@@ -143,6 +236,7 @@ const state = {
   peakCredits:          0,
   bank: { deposit: 0, loan: null },
   audio: { muted: false },
+  settings: { fullscreen: false, currentFontSize: 16 },
   workers: { apprentices: [], couriers: [] },
   stats: {
     rmLastTen:        [],
@@ -226,6 +320,7 @@ function saveGame() {
     peakCredits:          state.peakCredits,
     bank:                 state.bank,
     audio:                state.audio,
+    settings:             state.settings,
     workers:              state.workers,
     stats:                state.stats,
     rocketWidgets:        state.rocketWidgets,
@@ -305,6 +400,12 @@ function loadGame() {
     state.bank.deposit         = state.bank.deposit        ?? 0;
     state.bank.loan            = state.bank.loan           ?? null;
     state.audio                = data.audio               ?? { muted: false };
+    state.settings             = data.settings            ?? {};
+    state.settings.fullscreen  = state.settings.fullscreen  ?? false;
+    state.settings.currentFontSize = state.settings.currentFontSize ?? 16;
+    // Separate LS key overrides save file so fullscreen survives New Game
+    { const lsFS = localStorage.getItem('widgeter.settings.fullscreen');
+      if (lsFS !== null) state.settings.fullscreen = JSON.parse(lsFS); }
     state.workers              = data.workers           ?? { apprentices: [], couriers: [] };
     state.workers.couriers     = state.workers.couriers ?? []; // normalise old saves
     state.stats                = data.stats ?? { rmLastTen: [], widgetsLastTen: [], creditsLastTen: [], widgetsMadeToday: 0, revenueToday: 0, costsToday: 0 };
@@ -368,6 +469,9 @@ function loadGame() {
 
 const hasSave = !!localStorage.getItem(SAVE_KEY);
 loadGame();
+
+// Resize display to fill the current window at native font size (§3.1)
+recalculateDisplaySize(window.innerWidth, window.innerHeight);
 
 // ── Descriptions (§6.1) ───────────────────────────────────────────────────────
 
@@ -1042,6 +1146,8 @@ function resetState() {
   state.peakCredits          = 0;
   state.bank                 = { deposit: 0, loan: null };
   state.audio            = { muted: false };
+  { const savedFS = localStorage.getItem('widgeter.settings.fullscreen');
+    state.settings = { fullscreen: savedFS ? JSON.parse(savedFS) : false, currentFontSize: state.settings?.currentFontSize ?? 16 }; }
   state.workers = { apprentices: [], couriers: [] };
   state.stats = { rmLastTen: [], widgetsLastTen: [], creditsLastTen: [], widgetsMadeToday: 0, revenueToday: 0, costsToday: 0 };
   state.skills = { apprenticeCount: 0, courierCount: 0, workerCarryLevel: 0, workerSpeedLevel: 0, courierCarryLevel: 0, courierSpeedLevel: 0, storageExp1: 0, storageExp2: 0, reducedCarry: 0, discountDump: 0, demandHistory: 0, forecast: 0, bulkRM: 0, futures: 0, optionsBuy: 0, optionsWrite: 0, volatilitySurface: 0, endurance: { pips: 0 }, aquatics: { purchased: false }, interfacing: { pips: 0 } };
@@ -1140,6 +1246,8 @@ function showContinueMenu() {
 function onAnyKey() {
   clearInterval(blinkInterval);
   window.removeEventListener('keydown', onAnyKey);
+  // Apply fullscreen preference — browsers require a user gesture before requestFullscreen
+  if (state.settings.fullscreen) setFullscreen(true);
   if (hasSave) {
     showContinueMenu();
   } else {
@@ -6368,16 +6476,19 @@ function showPauseMenu() {
   const CONT_W = BOX_W - 4; // 50
   const WC     = '#555555';
 
-  // Draw fixed frame (stays across all sub-screens)
-  display.draw(BOX_X, BOX_Y, '+', WC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y, '+', WC, BG);
-  for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, BOX_Y, '-', WC, BG);
-  const bY = BOX_Y + BOX_H - 1;
-  display.draw(BOX_X, bY, '+', WC, BG); display.draw(BOX_X+BOX_W-1, bY, '+', WC, BG);
-  for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, bY, '-', WC, BG);
-  for (let y = 1; y < BOX_H-1; y++) {
-    display.draw(BOX_X, BOX_Y+y, '|', WC, BG);
-    display.draw(BOX_X+BOX_W-1, BOX_Y+y, '|', WC, BG);
+  function drawBorder() {
+    display.draw(BOX_X, BOX_Y, '+', WC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y, '+', WC, BG);
+    for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, BOX_Y, '-', WC, BG);
+    const bY = BOX_Y + BOX_H - 1;
+    display.draw(BOX_X, bY, '+', WC, BG); display.draw(BOX_X+BOX_W-1, bY, '+', WC, BG);
+    for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, bY, '-', WC, BG);
+    for (let y = 1; y < BOX_H-1; y++) {
+      display.draw(BOX_X, BOX_Y+y, '|', WC, BG);
+      display.draw(BOX_X+BOX_W-1, BOX_Y+y, '|', WC, BG);
+    }
   }
+
+  drawBorder();
 
   let screen = 'pause';
 
@@ -6405,8 +6516,15 @@ function showPauseMenu() {
     } else if (screen === 'settings') {
       centered(1, '– SETTINGS –', '#66ccff');
       line(3, `1. Mute / Unmute sounds  [${state.audio.muted ? 'OFF' : 'ON '}]`, BRIGHT_WHITE);
-      line(4, '2. Developer Mode',  BRIGHT_WHITE);
-      line(5, '3. Back',            BRIGHT_WHITE);
+      { const fsOn = state.settings.fullscreen;
+        line(4, `2. Fullscreen            [${fsOn ? 'ON ' : 'OFF'}]`, BRIGHT_WHITE);
+        // Color the bracket value
+        const valStr = fsOn ? 'ON ' : 'OFF', valFg = fsOn ? '#66cc66' : '#555555';
+        const valCol = CONT_X + '2. Fullscreen            ['.length;
+        for (let i=0;i<valStr.length;i++) display.draw(valCol+i, BOX_Y+4, valStr[i], valFg, BG); }
+      line(5, '3. Developer Mode',  BRIGHT_WHITE);
+      line(6, '4. Back',            BRIGHT_WHITE);
+      if (fsError) line(8, fsError, '#ff5555');
       centered(10, 'ESC to go back', WC);
     } else {
       centered(1, '– DEV MODE –', '#ff5555');
@@ -6425,7 +6543,10 @@ function showPauseMenu() {
 
   render();
 
+  pauseMenuRedrawFn = () => { drawBorder(); render(); };
+
   function close() {
+    pauseMenuRedrawFn = null;
     window.removeEventListener('keydown', pauseKeyHandler);
     for (let y = BOX_Y; y < BOX_Y+BOX_H; y++)
       for (let x = BOX_X; x < BOX_X+BOX_W; x++)
@@ -6442,14 +6563,21 @@ function showPauseMenu() {
       if (e.key === '1' || e.key === 'Escape') { close(); }
       else if (e.key === '2') { screen = 'settings'; render(); }
       else if (e.key === '3') {
+        pauseMenuRedrawFn = null;
         window.removeEventListener('keydown', pauseKeyHandler);
         saveGame();
         showContinueMenu();
       }
     } else if (screen === 'settings') {
       if (e.key === '1') { state.audio.muted = !state.audio.muted; saveGame(); render(); }
-      else if (e.key === '2') { screen = 'dev'; render(); }
-      else if (e.key === '3' || e.key === 'Escape') { screen = 'pause'; render(); }
+      else if (e.key === '2') {
+        // Fullscreen toggle
+        const newFS = !state.settings.fullscreen;
+        setFullscreen(newFS);
+        drawBorder(); render(); // redraw menu on newly-sized display
+      }
+      else if (e.key === '3') { screen = 'dev'; render(); }
+      else if (e.key === '4' || e.key === 'Escape') { screen = 'pause'; render(); }
     } else {
       const num = parseInt(e.key);
       if (num >= 1 && num <= 5) {

@@ -8,8 +8,26 @@ html, body {
   background-color: #0a0a0a;
   color: #f0f0f0;
   font-family: 'IBM Plex Mono', 'Courier New', Courier, monospace;
+  width: 100%;
   height: 100%;
   overflow: hidden;
   /* §3.2 — CRT phosphor glow */
   text-shadow: 0 0 8px rgba(240, 240, 240, 0.35);
+}
+
+/* §3.1 — Game container: centers canvas, never scales it */
+#game-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100vw;
+  height: 100vh;
+  background: #0a0a0a;
+  overflow: hidden;
+}
+
+/* Canvas rendered at native resolution — nearest-neighbour for any fractional padding */
+#game-container canvas {
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
 }
