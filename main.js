@@ -2141,6 +2141,50 @@ function openWorkbenchMenu(isRemote = false) {
   window.addEventListener('keydown', wbKeyHandler);
 }
 
+// Instantly applies all state flags and tile colors for every phase up to `phase`.
+// Safe to call multiple times (idempotent for already-unlocked stations).
+// Used by devJumpToPhase and as a safety net in the tick loop.
+function applyPhaseUnlocks(phase) {
+  if (phase >= 2) {
+    state.officeUnlocked = true;
+    if (!state.stations.storage.unlocked) {
+      state.stations.storage.unlocked = true;
+      colorInStation('ST', '#66ccff', '#aaddff');
+    }
+    if (!state.stations.general_store.unlocked) {
+      state.stations.general_store.unlocked = true;
+      colorInStation('GS', '#aa66ff', '#cc99ff');
+    }
+  }
+  if (phase >= 3) {
+    if (!state.stations.bank) state.stations.bank = { unlocked: false };
+    if (!state.stations.bank.unlocked) {
+      state.stations.bank.unlocked = true;
+      colorInStation('BK', '#66cc66', '#aaffaa');
+    }
+    if (!state.stations.newspaper.unlocked) {
+      state.stations.newspaper.unlocked = true;
+      colorInStation('NP', '#ccaa44', '#ffdd66');
+    }
+  }
+  if (phase >= 4) {
+    state.terminalUnlocked = true;
+    if (!state.stations.terminal) state.stations.terminal = { unlocked: false };
+    if (!state.stations.terminal.unlocked) {
+      state.stations.terminal.unlocked = true;
+      colorInStation('TR', '#cc66cc', '#cc66cc');
+    }
+  }
+  if (phase >= 5) {
+    if (!state.stations.launch_facility.unlocked) {
+      state.stations.launch_facility.unlocked = true;
+      colorInStation('LF', COLOR_LF_FRAME, COLOR_LF_LABEL, '#cc3333');
+      state.rocketWidgets = state.rocketWidgets ?? 0;
+      state.courierDestination = state.courierDestination ?? 'market';
+    }
+  }
+}
+
 function colorInStation(label, wc, lc, dc) {
   const s = STATION_DEFS.find(sd => sd.label === label);
   if (!s) return;
@@ -7388,39 +7432,17 @@ function devJumpToPhase(n) {
   state.player.credits = credits[n] ?? 10000;
   state.lifetimeCreditsEarned = credits[n] ?? 10000;
   if (n >= 2) {
-    state.officeUnlocked = true;
-    state.stations.storage.unlocked       = true;
-    state.stations.general_store.unlocked = true;
     state.skills.apprenticeCount = 1;
-    state.skills.courierCount    = 0;
     state.storage.widgets        = 30;
     const ofDef = STATION_DEFS.find(s => s.label === 'OF');
     if (ofDef) state.workers.apprentices.push({ x: ofDef.x+1, y: ofDef.y+2, workerState: 'idle', carryRM: 0, carryWidgets: 0, target: {x:0,y:0}, craftTimer: 0, paused: false });
-    const stD = STATION_DEFS.find(s => s.label === 'ST');
-    if (stD) { stD.wc = '#66ccff'; stD.lc = '#aaddff'; }
-    const gsD2 = STATION_DEFS.find(s => s.label === 'GS');
-    if (gsD2) { gsD2.wc = '#aa66ff'; gsD2.lc = '#cc99ff'; }
   }
   if (n >= 3) {
-    state.stations.bank = { unlocked: true };
-    const bkD = STATION_DEFS.find(s => s.label === 'BK');
-    if (bkD) { bkD.wc = '#66cc66'; bkD.lc = '#aaffaa'; }
     calculateDailyDemand();
     state.widgetsSoldToday = 0;
   }
-  if (n >= 4) {
-    state.stations.terminal = { unlocked: true };
-    state.terminalUnlocked  = true;
-    const dvD = STATION_DEFS.find(s => s.label === 'TR');
-    if (dvD) { dvD.wc = '#cc66cc'; dvD.lc = '#cc66cc'; }
-  }
-  if (n >= 5) {
-    state.stations.launch_facility = { unlocked: true };
-    state.rocketWidgets     = 0;
-    state.courierDestination = 'market';
-    const lfD = STATION_DEFS.find(s => s.label === 'LF');
-    if (lfD) { lfD.wc = COLOR_LF_FRAME; lfD.lc = COLOR_LF_LABEL; lfD.dc = '#cc3333'; }
-  }
+  // applyPhaseUnlocks sets all state.stations flags and colorInStation for each tier
+  applyPhaseUnlocks(n);
   state.gameState = 'playing';
   clearScreen();
   drawWorld();
@@ -7908,6 +7930,8 @@ setInterval(() => {
   checkPhase3Trigger();
   checkPhase4Trigger();
   checkPhase5Trigger();
+  // Safety net: if phase advanced but station unlock was missed, apply it now
+  if (state.phase >= 3 && !state.stations.newspaper.unlocked) applyPhaseUnlocks(state.phase);
 
   // Cost of carry — fires on the last tick of each day (§5.4)
   if (state.dayTick === 239 && state.phase >= 3) {
