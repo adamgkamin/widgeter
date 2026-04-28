@@ -6,6 +6,7 @@ import {
   COLOR_LF_FRAME, COLOR_LF_LABEL,
   COLOR_HINT_LINE,
   COLOR_STAMPS,
+  DEV_PASSWORD,
 } from './constants.js';
 import { EffectsManager } from './src/effects.js';
 
@@ -426,7 +427,6 @@ function loadGame() {
     state.peakCredits          = data.peakCredits          ?? 0;
     state.bank                 = data.bank                 ?? { deposit: 0, loan: null };
     state.bank.deposit         = state.bank.deposit        ?? 0;
-    state.bank.loan            = state.bank.loan           ?? null;
     state.bank.creditRating           = state.bank.creditRating           ?? 'B';
     state.bank.creditRatingScore      = state.bank.creditRatingScore      ?? 3.0;
     state.bank.ratingHistory          = state.bank.ratingHistory          ?? [];
@@ -1224,7 +1224,7 @@ function resetState() {
   state.widgetsMade          = 0;
   state.peakCredits          = 0;
   state.bank                 = {
-    deposit: 0, loan: null,
+    deposit: 0,
     creditRating: 'B', creditRatingScore: 3.0,
     ratingHistory: [], consecutivePositiveDays: 0,
     creditNegativeLogged: false,
@@ -3602,9 +3602,7 @@ function handlePonder() {
   } else if (state.phase >= 3 && getBankRatingIdx() <= 2) {
     hint = 'Your credit record is showing strain. The bank has noticed.';
   } else if (state.phase >= 3 && getBankRatingIdx() >= 6) {
-    hint = 'Strong fundamentals. The bank will lend on better terms now.';
-  } else if (state.phase >= 3 && state.bank.loan && (state.bank.loan.deadline - state.day) <= 5) {
-    hint = 'The bank will want its money soon.';
+    hint = 'Strong fundamentals. Your deposit compounds fast at this rating.';
   } else if (state.phase >= 3 && state.debt > 0) {
     hint = 'You owe more than you have. The bank may help — or make things worse.';
   } else if (state.phase >= 3 && state.demand < 20) {
@@ -4265,15 +4263,15 @@ function showNumericPrompt(title, maxVal, onConfirm, onCancel) {
 
 const RATING_TIERS = ['F','D','C','B','BB','BBB','A','AA','AAA'];
 const RATING_INFO = [
-  { tier:'F',   loanFactor:0,    rate:0,     cardLimit:0    },
-  { tier:'D',   loanFactor:0,    rate:0,     cardLimit:0    },
-  { tier:'C',   loanFactor:0.25, rate:0.012, cardLimit:0    },
-  { tier:'B',   loanFactor:0.5,  rate:0.010, cardLimit:50   },
-  { tier:'BB',  loanFactor:0.6,  rate:0.009, cardLimit:100  },
-  { tier:'BBB', loanFactor:0.75, rate:0.008, cardLimit:200  },
-  { tier:'A',   loanFactor:1.0,  rate:0.007, cardLimit:400  },
-  { tier:'AA',  loanFactor:1.25, rate:0.006, cardLimit:800  },
-  { tier:'AAA', loanFactor:1.5,  rate:0.005, cardLimit:1600 },
+  { tier:'F',   cardLimit:0    },
+  { tier:'D',   cardLimit:0    },
+  { tier:'C',   cardLimit:0    },
+  { tier:'B',   cardLimit:0    },
+  { tier:'BB',  cardLimit:0    },
+  { tier:'BBB', cardLimit:200  },
+  { tier:'A',   cardLimit:400  },
+  { tier:'AA',  cardLimit:800  },
+  { tier:'AAA', cardLimit:1600 },
 ];
 
 function getBankRatingIdx() {
@@ -4283,7 +4281,6 @@ function getRatingColor(tier) {
   const map = { F:'#ff5555', D:'#ff7733', C:'#ffaa44', B:'#f0f0f0', BB:'#aaddff', BBB:'#66ccff', A:'#66cc66', AA:'#aaffaa', AAA:'#ffd633' };
   return map[tier] ?? '#f0f0f0';
 }
-function getLoanTerms() { return RATING_INFO[getBankRatingIdx()]; }
 function changeRating(delta, reason) {
   const prevIdx = getBankRatingIdx();
   state.bank.creditRatingScore = Math.max(0, Math.min(8, state.bank.creditRatingScore + delta));
@@ -4313,64 +4310,145 @@ function openBankMenu() {
   if (!state.stations.bank || !state.stations.bank.unlocked) return;
   state.gameState = 'menu';
 
-  const TC    = '#66cc66';
-  const CC    = '#66ccff';
-  const DC    = '#333333';
-  const LC    = '#ffffff';
-  const BOX_W = 54;
-  const IW    = 52;
-  const AW    = 14;
-  const IPW   = 37;
-  const BOX_H = 36;
-  const BOX_X = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
-  const BOX_Y = Math.max(1, Math.floor((WORLD_ROWS - BOX_H) / 2));
-  const RPX   = BOX_X + 1 + AW + 1;
+  const TC      = '#66cc66';
+  const CC      = '#66ccff';
+  const DC      = '#333333';
+  const LC      = '#ffffff';
+  const BOX_W   = 54;
+  const IW      = 52;
+  const AW      = 14;
+  const IPW     = 37;
+  const IPI     = IPW - 2; // inner section box width (35)
+  const BOX_H   = 32;
+  const BOX_X   = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
+  const BOX_Y   = Math.max(1, Math.floor((WORLD_ROWS - BOX_H) / 2));
+  const RPX     = BOX_X + 1 + AW + 1;
+  const DIVX    = BOX_X + 1 + AW;
 
   const BK_ART = [
-    '  _________   ',
-    ' |  BANK   |  ',
-    ' |---------|  ',
-    ' |  _____  |  ',
-    ' | |VAULT| |  ',
-    ' | |     | |  ',
-    ' | |_____| |  ',
-    ' |---------|  ',
-    ' |_________|  ',
+    '  +--------+  ',
+    '  | BANK   |  ',
+    '  |--------|  ',
+    '  | $    $ |  ',
+    '  |   $$   |  ',
+    '  | $    $ |  ',
+    '  |--------|  ',
+    '  | VAULT  |  ',
+    '  +--------+  ',
     '              ',
+    ' .----------. ',
+    ' | *WIDGETR*| ',
+    ' | 4892 301 | ',
+    " '----------' ",
   ];
 
-  function drawArtRow(r, ay) {
-    const s = BK_ART[r];
-    for (let i = 0; i < AW; i++) {
-      let fg = TC;
-      if (r === 1 && i >= 4 && i <= 7) fg = LC;
-      if (r === 4 && i >= 4 && i <= 8) fg = '#ffd633';
-      display.draw(BOX_X + 1 + i, ay, s[i] || ' ', fg, BG);
-    }
-  }
   function border(ay) {
     display.draw(BOX_X, ay, '║', TC, BG);
     display.draw(BOX_X + BOX_W - 1, ay, '║', TC, BG);
   }
-  function irow(ay, text, fg) {
-    border(ay);
-    const p = menuPad(text, IW);
-    for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, p[i] || ' ', fg, BG);
+
+  function drawArtRow(r, ay) {
+    const card = state.bank.card;
+    const s    = BK_ART[r] || '              ';
+    const animTick = Math.floor(state.dayTick / 6) % 2;
+    const dollarColor = card.owned ? (animTick === 0 ? '#ffd633' : '#aaffaa') : '#ffd633';
+    const cardFrac    = card.owned && card.limit > 0 ? card.balance / card.limit : 0;
+    const cardBorder  = card.owned
+      ? (cardFrac > 0.8 ? '#ff5555' : cardFrac > 0.5 ? '#ff9933' : '#aaaaaa')
+      : '#333333';
+
+    for (let i = 0; i < AW; i++) {
+      const ch = s[i] || ' ';
+      let fg = BRIGHT_WHITE;
+      if (r <= 8) {
+        if (ch === '+' || ch === '-') fg = TC;
+        else if (ch === '|') fg = TC;
+        else if (r === 1 && i >= 4 && i <= 7) fg = '#aaffaa';   // BANK
+        else if (r === 7 && i >= 4 && i <= 8) fg = '#aaffaa';   // VAULT
+        else if ((r === 2 || r === 6) && ch === '-') fg = '#aaaaaa';
+        else if (r >= 3 && r <= 5 && ch === '$') fg = dollarColor;
+      } else if (r >= 10 && r <= 13) {
+        if (!card.owned) { display.draw(BOX_X + 1 + i, ay, ' ', BRIGHT_WHITE, BG); continue; }
+        if (r === 11) {
+          if (i === 1 || i === 12) fg = cardBorder;         // | border
+          else if (i >= 3 && i <= 11) fg = '#ffd633';        // *WIDGETR*
+          else fg = BRIGHT_WHITE;
+        } else if (r === 12) {
+          if (i === 1 || i === 12) fg = cardBorder;
+          else if (ch >= '0' && ch <= '9') fg = '#555555';
+          else fg = BRIGHT_WHITE;
+        } else {
+          if (ch === '.' || ch === '-' || ch === '\'') fg = cardBorder;
+          else fg = BRIGHT_WHITE;
+        }
+      }
+      display.draw(BOX_X + 1 + i, ay, ch, fg, BG);
+    }
   }
-  function crow(ay, r) {
+
+  function rowLeft(ay, artRow) {
+    // Draw left pane (art or blank) + divider
+    if (artRow !== undefined) drawArtRow(artRow, ay);
+    else for (let i = 0; i < AW; i++) display.draw(BOX_X + 1 + i, ay, ' ', BRIGHT_WHITE, BG);
+    display.draw(DIVX, ay, '│', DC, BG);
+  }
+
+  // Draw one right-pane section box row: │ + padded text + │
+  function srow(ay, text, fg, artRow) {
     border(ay);
-    drawArtRow(r, ay);
-    display.draw(BOX_X + 1 + AW, ay, '│', DC, BG);
+    rowLeft(ay, artRow);
+    display.draw(RPX, ay, '│', DC, BG);
+    const p = menuPad(text, IPI);
+    for (let i = 0; i < IPI; i++) display.draw(RPX + 1 + i, ay, p[i] || ' ', fg, BG);
+    display.draw(RPX + IPW - 1, ay, '│', DC, BG);
+  }
+
+  // Top/bottom of right-pane section box
+  function sbox_top(ay, artRow) {
+    border(ay);
+    rowLeft(ay, artRow);
+    display.draw(RPX, ay, '┌', DC, BG);
+    for (let i = 1; i < IPW - 1; i++) display.draw(RPX + i, ay, '─', DC, BG);
+    display.draw(RPX + IPW - 1, ay, '┐', DC, BG);
+  }
+  function sbox_bot(ay, artRow) {
+    border(ay);
+    rowLeft(ay, artRow);
+    display.draw(RPX, ay, '└', DC, BG);
+    for (let i = 1; i < IPW - 1; i++) display.draw(RPX + i, ay, '─', DC, BG);
+    display.draw(RPX + IPW - 1, ay, '┘', DC, BG);
+  }
+
+  // Gap row: border + left pane + blank right pane (no section box)
+  function gap(ay, artRow) {
+    border(ay);
+    rowLeft(ay, artRow);
     for (let i = 0; i < IPW; i++) display.draw(RPX + i, ay, ' ', BRIGHT_WHITE, BG);
   }
-  function drp(ay, text, fg) {
-    const p = menuPad(text, IPW);
-    for (let i = 0; i < IPW; i++) display.draw(RPX + i, ay, p[i] || ' ', fg, BG);
-  }
-  function sep(ay, label) {
+
+  // Rating bar row inside a section box
+  function ratingRow(ay) {
     border(ay);
-    const bar = label ? `─── ${label} ` : '';
-    for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, i < bar.length ? bar[i] : '─', DC, BG);
+    rowLeft(ay);
+    display.draw(RPX, ay, '│', DC, BG);
+    const rIdx = getBankRatingIdx();
+    const rTier = RATING_TIERS[rIdx];
+    const rCol  = getRatingColor(rTier);
+    const fill  = Math.round(rIdx / 8 * 10);
+    let cx = RPX + 1;
+    const prefix = ' Rating:  ';
+    for (let i = 0; i < prefix.length; i++) display.draw(cx++, ay, prefix[i], DC, BG);
+    const tierPad = rTier.padEnd(3, ' ');
+    for (let i = 0; i < tierPad.length; i++) display.draw(cx++, ay, tierPad[i], rCol, BG);
+    display.draw(cx++, ay, ' ', DC, BG);
+    display.draw(cx++, ay, ' ', DC, BG);
+    for (let i = 0; i < 10; i++) display.draw(cx++, ay, i < fill ? '█' : '░', i < fill ? rCol : '#333333', BG);
+    display.draw(cx++, ay, ' ', DC, BG);
+    display.draw(cx++, ay, ' ', DC, BG);
+    const scoreStr = `${rIdx}/8`;
+    for (let i = 0; i < scoreStr.length; i++) display.draw(cx++, ay, scoreStr[i], rCol, BG);
+    while (cx < RPX + IPW - 1) display.draw(cx++, ay, ' ', BRIGHT_WHITE, BG);
+    display.draw(RPX + IPW - 1, ay, '│', DC, BG);
   }
 
   function redraw() {
@@ -4383,10 +4461,10 @@ function openBankMenu() {
 
     // Row 1: header
     { const ay = BOX_Y + 1; border(ay);
-      const title = 'The Bank', hint = 'press esc to exit';
+      const title = 'THE BANK', hint = 'press esc to exit';
       for (let i = 0; i < IW; i++) {
         const ch = i < title.length ? title[i] : (i >= IW - hint.length ? hint[i-(IW-hint.length)] : ' ');
-        const fg = i < title.length ? LC : (i >= IW - hint.length ? DC : BRIGHT_WHITE);
+        const fg = i < title.length ? '#f0f0f0' : (i >= IW - hint.length ? DC : BRIGHT_WHITE);
         display.draw(BOX_X + 1 + i, ay, ch, fg, BG);
       }
     }
@@ -4395,139 +4473,116 @@ function openBankMenu() {
     { const ay = BOX_Y + 2; border(ay);
       for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '═', DC, BG); }
 
-    // Rows 3-12: art + credit rating info
-    for (let r = 0; r < 10; r++) crow(BOX_Y + 3 + r, r);
-
-    const rIdx  = getBankRatingIdx();
+    const dep  = state.bank.deposit;
+    const card = state.bank.card;
+    const rIdx = getBankRatingIdx();
     const rTier = RATING_TIERS[rIdx];
     const rCol  = getRatingColor(rTier);
-    const dep   = state.bank.deposit;
-    const loan  = state.bank.loan;
-    const card  = state.bank.card;
 
-    drp(BOX_Y + 3, 'CREDIT RATING', DC);
-    // Tier label centered
-    { const lbl = rTier;
-      const cx = RPX + Math.floor((IPW - lbl.length) / 2);
-      for (let i = 0; i < lbl.length; i++) display.draw(cx + i, BOX_Y + 4, lbl[i], rCol, BG);
+    // Rows 3–16: art + DEPOSITS section in right pane
+    sbox_top(BOX_Y +  3, 0);
+    srow(BOX_Y +  4, ' DEPOSITS', TC, 1);
+    srow(BOX_Y +  5, '', BRIGHT_WHITE, 2);
+    { const availDep = Math.max(0, state.player.credits - 10);
+      srow(BOX_Y +  6, ` Balance:  ${formatCredits(dep)}cr`, dep > 0 ? '#ffd633' : DC, 3);
+      srow(BOX_Y +  7, '', BRIGHT_WHITE, 4);
+      srow(BOX_Y +  8, ' Interest:  10.0% / day', TC, 5);
+      const projected = Math.round(dep * 0.10 * 10) / 10;
+      srow(BOX_Y +  9, ` Tomorrow: +${formatCredits(projected)}cr projected`, dep > 0 ? TC : DC, 6);
+      srow(BOX_Y + 10, '', BRIGHT_WHITE, 7);
+      srow(BOX_Y + 11, ` 1. Deposit all  ${availDep > 0 ? `[+${formatCredits(availDep)}cr]` : '[need >10cr]'}`, availDep > 0 ? TC : '#555555', 8);
+      srow(BOX_Y + 12, ` 2. Deposit custom  ${availDep > 0 ? '[enter]' : '[need >10cr]'}`, availDep > 0 ? TC : '#555555', 9);
+      srow(BOX_Y + 13, ` 3. Withdraw all  ${dep > 0 ? `[${formatCredits(dep)}cr]` : '[no deposit]'}`, dep > 0 ? TC : '#555555', 10);
     }
-    // Rating bar: F D C B BB BBB A AA AAA
-    { const tiers = RATING_TIERS;
-      let bx = RPX;
-      for (let ti = 0; ti < tiers.length; ti++) {
-        const t = tiers[ti];
-        const fc = ti === rIdx ? getRatingColor(t) : '#333333';
-        const bracket = ti === rIdx;
-        if (bracket) display.draw(bx++, BOX_Y + 5, '[', '#555555', BG);
-        for (let ci = 0; ci < t.length; ci++) display.draw(bx++, BOX_Y + 5, t[ci], fc, BG);
-        if (bracket) display.draw(bx++, BOX_Y + 5, ']', '#555555', BG);
-        else if (ti < tiers.length - 1) display.draw(bx++, BOX_Y + 5, ' ', DC, BG);
-      }
-    }
-    { const score = state.bank.creditRatingScore.toFixed(1);
-      const cpd = state.bank.consecutivePositiveDays;
-      const trend = cpd >= 3 ? ' ▲ ' + cpd + 'd' : '';
-      drp(BOX_Y + 6, `Score: ${score}${trend}`, '#555555');
-    }
-    // Last rating change
-    { const hist = state.bank.ratingHistory;
-      const last = hist.length > 0 ? hist[hist.length - 1] : null;
-      drp(BOX_Y + 7, last ? `Δ day ${last.day}: ${last.from}→${last.to}` : 'No changes on record.', '#444444');
-    }
-    drp(BOX_Y + 8, '', DC);
-    drp(BOX_Y + 9, `Deposit: ${dep.toFixed(1)}cr`, dep > 0 ? TC : DC);
-    drp(BOX_Y + 10, loan
-      ? (loan.deadline >= state.day
-          ? `Loan: ${loan.remaining.toFixed(1)}cr @ ${(loan.rate*100).toFixed(1)}%`
-          : `OVERDUE: ${loan.remaining.toFixed(1)}cr`)
-      : 'No active loan.', loan ? (loan.deadline >= state.day ? '#ffd633' : '#ff5555') : DC);
-    drp(BOX_Y + 11, card.owned
-      ? `Card: ${card.balance.toFixed(1)}/${card.limit}cr`
-      : (rIdx >= 3 ? 'Card: apply below (tier B+)' : 'Card: not available'), card.owned ? CC : '#444444');
-    drp(BOX_Y + 12, '', DC);
+    sbox_bot(BOX_Y + 14, 11);
+    gap(BOX_Y + 15, 12);
+    // Row 16: card section top (art row 13)
+    sbox_top(BOX_Y + 16, 13);
 
-    // Row 13: ─ DEPOSITS
-    sep(BOX_Y + 13, 'DEPOSITS');
-    const availDep = Math.max(0, state.player.credits - 10);
-    irow(BOX_Y + 14, `Deposit on account: ${dep.toFixed(1)}cr`, TC);
-    irow(BOX_Y + 15, `1. Deposit all              ${availDep > 0 ? `[+${availDep}cr]` : '[need >10cr]'}`, availDep > 0 ? TC : '#555555');
-    irow(BOX_Y + 16, `2. Deposit amount           ${availDep > 0 ? '[enter amount]' : '[need >10cr]'}`, availDep > 0 ? TC : '#555555');
-    irow(BOX_Y + 17, `3. Withdraw all             ${dep > 0 ? `[${dep.toFixed(1)}cr]` : '[no deposit]'}`, dep > 0 ? TC : '#555555');
+    // Rows 17–28: CREDIT CARD section (no art below row 16)
+    srow(BOX_Y + 17, ' CREDIT CARD', TC);
+    srow(BOX_Y + 18, '', BRIGHT_WHITE);
+    ratingRow(BOX_Y + 19);
+    srow(BOX_Y + 20, '', BRIGHT_WHITE);
 
-    // Row 18: ─ LOANS
-    sep(BOX_Y + 18, 'LOANS');
-    const terms     = getLoanTerms();
-    const loanLimit = terms.loanFactor > 0 ? Math.floor(state.lifetimeCreditsEarned * terms.loanFactor) : 0;
-    const loanRate  = terms.rate;
-    if (loan) {
-      const daysLeft = loan.deadline - state.day;
-      if (daysLeft >= 0) {
-        irow(BOX_Y + 19, `Active loan: ${loan.remaining.toFixed(1)}cr @ ${(loan.rate*100).toFixed(1)}%/day`, '#ffd633');
-        irow(BOX_Y + 20, `  Deadline day ${loan.deadline} — ${daysLeft} day${daysLeft !== 1 ? 's' : ''} left`, '#ffd633');
-      } else {
-        irow(BOX_Y + 19, `OVERDUE LOAN: ${loan.remaining.toFixed(1)}cr @ ${(loan.rate*100).toFixed(1)}%/day`, '#ff5555');
-        irow(BOX_Y + 20, `  ${Math.abs(daysLeft)} day${Math.abs(daysLeft) !== 1 ? 's' : ''} overdue — REPAY IMMEDIATELY`, '#ff5555');
-      }
-    } else {
-      irow(BOX_Y + 19, loanLimit > 0 ? `Loan limit: ${loanLimit}cr  Rate: ${(loanRate*100).toFixed(1)}%/day` : 'No loans available at current rating.', loanLimit > 0 ? DC : '#555555');
-      irow(BOX_Y + 20, '', BRIGHT_WHITE);
-    }
-    const can4 = !loan && loanLimit > 0;
-    const can5 = !!loan;
-    const dL   = loan ? loan.deadline - state.day : 999;
-    const can6 = !!loan && dL <= 5 && loan.rate < 0.05;
-    irow(BOX_Y + 21, `4. Take loan                ${can4 ? `[limit: ${loanLimit}cr]` : (loan ? '[loan active]' : '[no limit at this tier]')}`, can4 ? TC : '#555555');
-    irow(BOX_Y + 22, `5. Repay loan               ${can5 ? `[owed: ${loan.remaining.toFixed(1)}cr]` : '[no loan]'}`, can5 ? (state.player.credits >= loan.remaining ? TC : '#ff9933') : '#555555');
-    irow(BOX_Y + 23, `6. Refinance                ${can6 ? '[within refi window]' : (!loan ? '[no loan]' : (loan.rate >= 0.05 ? '[rate cap reached]' : '[>5 days left]'))}`, can6 ? '#ff9933' : '#555555');
-
-    // Row 24: ─ CREDIT CARD
-    sep(BOX_Y + 24, 'CREDIT CARD');
+    // Card content (rows 21–27): 7 lines
     if (!card.owned) {
-      const canApply = rIdx >= 3 && RATING_INFO[rIdx].cardLimit > 0;
-      irow(BOX_Y + 25, canApply ? `Card available: ${RATING_INFO[rIdx].cardLimit}cr limit at tier ${rTier}` : 'Card requires tier B or better.', canApply ? CC : '#444444');
-      irow(BOX_Y + 26, `7. Apply for card           ${canApply ? '[get ' + RATING_INFO[rIdx].cardLimit + 'cr limit]' : '[tier too low]'}`, canApply ? CC : '#555555');
-      irow(BOX_Y + 27, '', BRIGHT_WHITE);
-      irow(BOX_Y + 28, '', BRIGHT_WHITE);
+      const canApply = rIdx >= 5; // BBB+
+      if (!canApply) {
+        srow(BOX_Y + 21, ' Status:  NOT ELIGIBLE', '#555555');
+        srow(BOX_Y + 22, ' Reach BBB to apply.', '#555555');
+        srow(BOX_Y + 23, '', BRIGHT_WHITE);
+        srow(BOX_Y + 24, '', BRIGHT_WHITE);
+        srow(BOX_Y + 25, ` Current rating: ${rTier}`, '#555555');
+        srow(BOX_Y + 26, ' Need: BBB', '#555555');
+        srow(BOX_Y + 27, '', BRIGHT_WHITE);
+      } else {
+        const lim = RATING_INFO[rIdx].cardLimit;
+        srow(BOX_Y + 21, ' Status:  PRE-APPROVED v', TC);
+        srow(BOX_Y + 22, '', BRIGHT_WHITE);
+        srow(BOX_Y + 23, ` Limit:   ${lim}cr available`, '#aaffaa');
+        srow(BOX_Y + 24, ' Rate:    2% / cycle on balance', '#aaffaa');
+        srow(BOX_Y + 25, '', BRIGHT_WHITE);
+        srow(BOX_Y + 26, ' 4. Apply now — free', TC);
+        srow(BOX_Y + 27, '', BRIGHT_WHITE);
+      }
     } else {
+      const pct    = card.limit > 0 ? card.balance / card.limit : 0;
+      const balFg  = pct > 0.8 ? '#ff5555' : pct > 0.5 ? '#ff9933' : '#ffd633';
       const avail  = Math.max(0, card.limit - card.balance);
       const minPay = card.minimumPaymentDue;
-      irow(BOX_Y + 25, `Card balance: ${card.balance.toFixed(1)}cr  Limit: ${card.limit}cr  Available: ${avail.toFixed(1)}cr`, CC);
-      irow(BOX_Y + 26, minPay > 0 ? `  Min payment: ${minPay.toFixed(1)}cr due day ${card.paymentDueDay}` : (card.balance > 0 ? '  Statement pending — no payment due yet.' : '  No balance. Good standing.'), minPay > 0 ? '#ff9933' : DC);
-      const can7 = minPay > 0 && state.player.credits >= minPay;
-      const can8 = card.balance > 0 && state.player.credits > 0;
-      irow(BOX_Y + 27, `7. Pay minimum              ${can7 ? `[${minPay.toFixed(1)}cr]` : (minPay > 0 ? '[insufficient credits]' : '[none due]')}`, can7 ? CC : '#555555');
-      irow(BOX_Y + 28, `8. Pay full balance         ${can8 ? `[${Math.min(card.balance, state.player.credits).toFixed(1)}cr]` : '[no balance]'}`, can8 ? CC : '#555555');
-    }
-
-    // Row 29: ─ RATING LOG
-    sep(BOX_Y + 29, 'RATING LOG');
-    const hist = state.bank.ratingHistory;
-    const shown = hist.slice(-3);
-    for (let i = 0; i < 3; i++) {
-      const e = shown[i];
-      if (e) {
-        const up = RATING_TIERS.indexOf(e.to) > RATING_TIERS.indexOf(e.from);
-        irow(BOX_Y + 30 + i, `Day ${String(e.day).padStart(3,' ')} ${e.from}→${e.to}  ${e.reason}`, up ? '#66cc66' : '#ff5555');
+      if (card.balance <= 0) {
+        srow(BOX_Y + 21, ' Status:  ACTIVE v', TC);
+        srow(BOX_Y + 22, ` Limit:   ${card.limit}cr`, CC);
+        srow(BOX_Y + 23, ' Balance: 0.0cr  (clear)', TC);
+        srow(BOX_Y + 24, '', BRIGHT_WHITE);
+        srow(BOX_Y + 25, ' No payment due.', DC);
+        srow(BOX_Y + 26, '', BRIGHT_WHITE);
+        srow(BOX_Y + 27, '', BRIGHT_WHITE);
       } else {
-        irow(BOX_Y + 30 + i, '', BRIGHT_WHITE);
+        const usedPct = Math.round(pct * 100);
+        srow(BOX_Y + 21, ' Status:  ACTIVE', '#aaffaa');
+        srow(BOX_Y + 22, ` Limit:   ${card.limit}cr`, CC);
+        srow(BOX_Y + 23, ` Balance: ${formatCredits(card.balance)}cr  (${usedPct}% used)`, balFg);
+        if (minPay > 0) {
+          srow(BOX_Y + 24, ` Due:     ${formatCredits(minPay)}cr by day ${card.paymentDueDay}`, state.day >= card.paymentDueDay ? '#ff5555' : '#555555');
+        } else {
+          srow(BOX_Y + 24, '', BRIGHT_WHITE);
+        }
+        srow(BOX_Y + 25, '', BRIGHT_WHITE);
+        const can4 = minPay > 0 && state.player.credits >= minPay;
+        const can5 = card.balance > 0 && state.player.credits > 0;
+        srow(BOX_Y + 26, ` 4. Pay minimum  (${formatCredits(minPay)}cr)`, can4 ? TC : (minPay > 0 ? '#ff5555' : '#555555'));
+        srow(BOX_Y + 27, ` 5. Pay in full  (${formatCredits(Math.min(card.balance, state.player.credits))}cr)`, can5 ? TC : '#555555');
       }
     }
+    sbox_bot(BOX_Y + 28);
 
-    // Row 33: ═ footer
-    { const ay = BOX_Y + 33; border(ay);
+    // Row 29: ═ separator
+    { const ay = BOX_Y + 29; border(ay);
       for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '═', DC, BG); }
 
-    // Row 34: footer text
-    { const ay = BOX_Y + 34; border(ay);
-      const txt = state.debt > 0 ? `Outstanding debt: ${formatCredits(state.debt)}cr — pay to improve rating` : `Rating affects loan limits, rates, and card access.`;
-      const fc  = state.debt > 0 ? '#ff5555' : '#555555';
-      const pad = menuPad(txt.length < IW ? ' '.repeat(Math.floor((IW-txt.length)/2))+txt : txt, IW);
+    // Row 30: status message
+    { const ay = BOX_Y + 30; border(ay);
+      const msgs = [
+        [8, 'Your credit is impeccable.',                     '#ffd633'],
+        [7, 'You are a preferred customer.',                  '#aaffaa'],
+        [6, 'You are a preferred customer.',                  '#aaffaa'],
+        [5, 'Your account is in good standing.',              TC],
+        [4, 'Your account is in good standing.',              TC],
+        [3, 'Build your history to unlock better terms.',     '#555555'],
+        [2, 'Build your history to unlock better terms.',     '#555555'],
+        [1, 'Your rating needs attention.',                   '#ff9933'],
+        [0, 'No services available at this time.',            '#ff5555'],
+      ];
+      const [, txt, fc] = msgs.find(([min]) => rIdx >= min) ?? msgs[msgs.length - 1];
+      const pad = menuPad(' '.repeat(Math.floor((IW - txt.length) / 2)) + txt, IW);
       for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, pad[i] || ' ', fc, BG);
     }
 
-    // Row 35: ╚═╝
-    display.draw(BOX_X, BOX_Y + 35, '╚', TC, BG); display.draw(BOX_X + BOX_W - 1, BOX_Y + 35, '╝', TC, BG);
-    for (let i = 1; i < BOX_W - 1; i++) display.draw(BOX_X + i, BOX_Y + 35, '═', TC, BG);
+    // Row 31: ╚═╝
+    display.draw(BOX_X, BOX_Y + 31, '╚', TC, BG); display.draw(BOX_X + BOX_W - 1, BOX_Y + 31, '╝', TC, BG);
+    for (let i = 1; i < BOX_W - 1; i++) display.draw(BOX_X + i, BOX_Y + 31, '═', TC, BG);
   }
 
   bankMenuRedrawFn = redraw;
@@ -4546,7 +4601,6 @@ function openBankMenu() {
 
   function bankKeyHandler(e) {
     if (e.key === 'Escape') { closeBank(); return; }
-    const loan = state.bank.loan;
     const card = state.bank.card;
 
     if (e.key === '1') {
@@ -4554,7 +4608,7 @@ function openBankMenu() {
       if (amt <= 0) return;
       state.bank.deposit   = Math.round((state.bank.deposit + amt) * 10) / 10;
       state.player.credits = 10;
-      addLog(`Deposited ${amt}cr.`, TC);
+      addLog(`Deposited ${formatCredits(amt)}cr.`, TC);
       drawStatusBar(); redraw(); return;
     }
     if (e.key === '2') {
@@ -4563,7 +4617,7 @@ function openBankMenu() {
       window.removeEventListener('keydown', bankKeyHandler);
       bankMenuRedrawFn = null;
       showNumericPrompt('Deposit Amount', maxDep,
-        (val) => { state.bank.deposit = Math.round((state.bank.deposit + val) * 10) / 10; state.player.credits -= val; addLog(`Deposited ${val}cr.`, TC); drawStatusBar(); openBankMenu(); },
+        (val) => { state.bank.deposit = Math.round((state.bank.deposit + val) * 10) / 10; state.player.credits -= val; addLog(`Deposited ${formatCredits(val)}cr.`, TC); drawStatusBar(); openBankMenu(); },
         () => openBankMenu());
       return;
     }
@@ -4572,77 +4626,33 @@ function openBankMenu() {
       const amt = state.bank.deposit;
       state.player.credits = Math.round((state.player.credits + amt) * 10) / 10;
       state.bank.deposit   = 0;
-      addLog(`Withdrew ${amt.toFixed(1)}cr.`, TC);
+      addLog(`Withdrew ${formatCredits(amt)}cr.`, TC);
       drawStatusBar(); redraw(); return;
     }
     if (e.key === '4') {
-      if (loan) return;
-      const terms     = getLoanTerms();
-      const loanLimit = terms.loanFactor > 0 ? Math.floor(state.lifetimeCreditsEarned * terms.loanFactor) : 0;
-      if (loanLimit <= 0) return;
-      window.removeEventListener('keydown', bankKeyHandler);
-      bankMenuRedrawFn = null;
-      showNumericPrompt('Loan Amount', loanLimit,
-        (val) => {
-          state.bank.loan = { principal: val, remaining: val, rate: terms.rate, dayTaken: state.day, deadline: state.day + 20, refinanceCount: 0, overdueDays: 0 };
-          state.player.credits += val;
-          addLog(`Loan of ${val}cr approved at ${(terms.rate*100).toFixed(1)}%/day. Repay within 20 days.`, '#ffd633');
-          drawStatusBar(); openBankMenu();
-        },
-        () => openBankMenu());
-      return;
-    }
-    if (e.key === '5') {
-      if (!loan || state.player.credits <= 0) return;
-      const wasOnTime = state.day <= loan.deadline;
-      if (state.player.credits >= loan.remaining) {
-        state.player.credits -= loan.remaining;
-        addLog(`Loan of ${loan.remaining.toFixed(1)}cr repaid in full.`, TC);
-        state.bank.loan = null;
-        if (wasOnTime) changeRating(+1.0, 'Loan repaid on time');
-      } else {
-        const partial = state.player.credits;
-        loan.remaining = Math.round((loan.remaining - partial) * 10) / 10;
-        state.player.credits = 0;
-        addLog(`Partial repayment: ${partial}cr. Remaining: ${loan.remaining.toFixed(1)}cr.`, '#ff9933');
-      }
-      drawStatusBar(); redraw(); return;
-    }
-    if (e.key === '6') {
-      if (!loan) return;
-      const daysLeft = loan.deadline - state.day;
-      if (daysLeft > 5 || loan.rate >= 0.05) return;
-      loan.rate = Math.round((loan.rate + 0.005) * 1000) / 1000;
-      loan.deadline = state.day + 20;
-      loan.refinanceCount++;
-      addLog(`Loan refinanced at ${(loan.rate * 100).toFixed(1)}%/day. New deadline: day ${loan.deadline}.`, '#ff9933');
-      redraw(); return;
-    }
-    if (e.key === '7') {
+      const rIdx = getBankRatingIdx();
       if (!card.owned) {
-        const rIdx = getBankRatingIdx();
-        if (rIdx < 3) return;
+        if (rIdx < 5) return;
         const limit = RATING_INFO[rIdx].cardLimit;
         if (limit <= 0) return;
         card.owned = true; card.limit = limit; card.balance = 0;
         card.lastStatementDay = state.day; card.minimumPaymentDue = 0; card.paymentDueDay = 0;
-        addLog(`Credit card approved. Limit: ${limit}cr.`, CC);
+        addLog(`WIDGETR card approved. Limit: ${limit}cr.`, CC);
+        changeRating(+0.25, 'Credit card opened');
         drawStatusBar(); redraw();
-      } else {
-        // Pay minimum payment
-        if (card.minimumPaymentDue <= 0) return;
+      } else if (card.minimumPaymentDue > 0) {
         const pay = Math.min(card.minimumPaymentDue, state.player.credits);
         if (pay <= 0) return;
-        state.player.credits = Math.round((state.player.credits - pay) * 10) / 10;
-        card.balance         = Math.round((card.balance - pay) * 10) / 10;
+        state.player.credits   = Math.round((state.player.credits - pay) * 10) / 10;
+        card.balance           = Math.round((card.balance - pay) * 10) / 10;
         card.minimumPaymentDue = Math.max(0, Math.round((card.minimumPaymentDue - pay) * 10) / 10);
-        addLog(`Card payment: ${pay.toFixed(1)}cr paid.`, CC);
+        addLog(`Card payment: ${formatCredits(pay)}cr paid.`, CC);
         if (card.minimumPaymentDue === 0) changeRating(+0.5, 'Card payment made on time');
         drawStatusBar(); redraw();
       }
       return;
     }
-    if (e.key === '8') {
+    if (e.key === '5') {
       if (!card.owned || card.balance <= 0 || state.player.credits <= 0) return;
       const pay = Math.min(card.balance, state.player.credits);
       state.player.credits = Math.round((state.player.credits - pay) * 10) / 10;
@@ -4651,7 +4661,7 @@ function openBankMenu() {
         card.minimumPaymentDue = 0;
         changeRating(+0.5, 'Card balance paid in full');
       }
-      addLog(`Card balance paid: ${pay.toFixed(1)}cr. Remaining: ${card.balance.toFixed(1)}cr.`, CC);
+      addLog(`Card payment: ${formatCredits(pay)}cr. Remaining: ${formatCredits(card.balance)}cr.`, CC);
       drawStatusBar(); redraw(); return;
     }
   }
@@ -4697,7 +4707,7 @@ function showBankruptcyScreen() {
   line(5,  `Widgets made:    ${state.widgetsMade}`, BRIGHT_WHITE);
   line(6,  `Peak credits:    ${state.peakCredits}cr`, '#ffd633');
   line(7,  `Total earned:    ${state.lifetimeCreditsEarned}cr`, '#ffd633');
-  line(9,  `Final debt:      ${state.bank.loan ? state.bank.loan.remaining.toFixed(1) : 0}cr`, RC);
+  line(9,  `Outstanding debt: ${state.debt > 0 ? state.debt.toFixed(1) : 0}cr`, RC);
   centered(12, 'Press any key to return to menu.', WC);
 
   state.bank.creditRatingScore = 0;
@@ -7476,6 +7486,8 @@ function showPauseMenu() {
   drawBorder();
 
   let screen = 'pause';
+  let devPwBuf = '';
+  let devPwError = false;
 
   function clearInner() {
     for (let y = 1; y < BOX_H-1; y++)
@@ -7511,6 +7523,19 @@ function showPauseMenu() {
       line(6, '4. Back',            BRIGHT_WHITE);
       if (fsError) line(8, fsError, '#ff5555');
       centered(10, 'ESC to go back', WC);
+    } else if (screen === 'devPassword') {
+      centered(1, '– ENTER CODE –', '#66ccff');
+      const mask = devPwBuf.replace(/./g, '*').padEnd(10, ' ');
+      const prompt = `Enter code:  [${mask}]`;
+      const cx = CONT_X + Math.floor((CONT_W - prompt.length) / 2);
+      for (let i = 0; i < prompt.length; i++) {
+        const inBracket = i > 'Enter code:  '.length && i < prompt.length - 1;
+        const isBrace   = i === 'Enter code:  '.length || i === prompt.length - 1;
+        const fg = isBrace ? '#66ccff' : (inBracket ? '#66cc66' : BRIGHT_WHITE);
+        display.draw(cx + i, BOX_Y + 3, prompt[i], fg, BG);
+      }
+      if (devPwError) centered(6, 'Access denied.', '#ff5555');
+      centered(10, 'ESC to cancel', WC);
     } else {
       centered(1, '– DEV MODE –', '#ff5555');
       line(2, 'For testing only.', WC);
@@ -7561,8 +7586,22 @@ function showPauseMenu() {
         setFullscreen(newFS);
         drawBorder(); render(); // redraw menu on newly-sized display
       }
-      else if (e.key === '3') { screen = 'dev'; render(); }
+      else if (e.key === '3') { devPwBuf = ''; devPwError = false; screen = 'devPassword'; render(); }
       else if (e.key === '4' || e.key === 'Escape') { screen = 'pause'; render(); }
+    } else if (screen === 'devPassword') {
+      if (devPwError) return; // waiting for error timeout
+      if (e.key === 'Escape') { devPwBuf = ''; screen = 'settings'; render(); return; }
+      if (e.key === 'Backspace') { devPwBuf = devPwBuf.slice(0, -1); render(); return; }
+      if (e.key === 'Enter') {
+        if (devPwBuf.toLowerCase() === DEV_PASSWORD) {
+          devPwBuf = ''; screen = 'dev'; render();
+        } else {
+          devPwError = true; render();
+          setTimeout(() => { devPwError = false; devPwBuf = ''; screen = 'settings'; render(); }, 2000);
+        }
+        return;
+      }
+      if (e.key.length === 1 && devPwBuf.length < 10) { devPwBuf += e.key; render(); }
     } else {
       const num = parseInt(e.key);
       if (num >= 1 && num <= 5) {
@@ -7810,7 +7849,7 @@ setInterval(() => {
     }
 
     // Credit rating: consecutive profitable days
-    if (state.player.credits > 0 && !state.bank.loan && state.debt === 0) {
+    if (state.player.credits > 0 && state.debt === 0) {
       state.bank.consecutivePositiveDays++;
       if (state.bank.consecutivePositiveDays >= 5 && state.bank.consecutivePositiveDays % 5 === 0) {
         changeRating(+0.5, `${state.bank.consecutivePositiveDays} profitable days`);
@@ -7839,22 +7878,6 @@ setInterval(() => {
       }
     }
 
-    // Loan overdue check
-    if (state.bank.loan && state.day > state.bank.loan.deadline) {
-      state.bank.loan.overdueDays = (state.bank.loan.overdueDays || 0) + 1;
-      addLog('LOAN OVERDUE. Repay or refinance immediately.', '#ff5555');
-      if (!state.bank.loan.ratingFiredAt1 && state.bank.loan.overdueDays >= 1) {
-        state.bank.loan.ratingFiredAt1 = true;
-        changeRating(-1.5, 'Loan overdue 1+ days');
-      }
-      if (!state.bank.loan.ratingFiredAt3 && state.bank.loan.overdueDays >= 3) {
-        state.bank.loan.ratingFiredAt3 = true;
-        changeRating(-2.0, 'Loan overdue 3+ days');
-      }
-      if (state.bank.loan.overdueDays >= 3 && state.player.credits <= 0 && state.bank.deposit <= 0) {
-        setTimeout(showBankruptcyScreen, 1000);
-      }
-    }
   }
   drawTimeIndicator();
 
@@ -7963,22 +7986,15 @@ setInterval(() => {
       }
       drawStatusBar();
     }
-    // Deposit interest: 0.5% per day
+    // Deposit interest: 10% per day
     if (state.bank.deposit > 0) {
-      const interest = Math.round(state.bank.deposit * 0.005 * 10) / 10;
+      const interest = Math.round(state.bank.deposit * 0.10 * 10) / 10;
       if (interest > 0) {
         state.bank.deposit = Math.round((state.bank.deposit + interest) * 10) / 10;
         addLog(`Bank interest: +${interest}cr.`, '#66cc66');
       }
+      drawStatusBar();
     }
-    // Loan interest
-    if (state.bank.loan) {
-      const lInterest = Math.round(state.bank.loan.remaining * state.bank.loan.rate * 10) / 10;
-      state.bank.loan.remaining = Math.round((state.bank.loan.remaining + lInterest) * 10) / 10;
-      state.stats.costsToday = Math.round((state.stats.costsToday + lInterest) * 10) / 10;
-      addLog(`Loan interest: ${lInterest}cr. Total owed: ${state.bank.loan.remaining.toFixed(1)}cr.`, '#ff5555');
-    }
-    if (state.bank.deposit > 0 || state.bank.loan) drawStatusBar();
 
     // Futures mark-to-market
     if (state.derivatives.futures.length > 0) {
@@ -8017,6 +8033,8 @@ setInterval(() => {
 
   // Live-refresh inventory
   if (state.gameState === 'inventory' && inventoryRedrawFn) inventoryRedrawFn();
+  // Bank card $ animation — redraw every 6 ticks
+  if (state.gameState === 'menu' && bankMenuRedrawFn && state.bank.card?.owned && state.dayTick % 6 === 0) bankMenuRedrawFn();
 
   // Live-refresh station menus
   if (rmMenuRedrawFn) rmMenuRedrawFn();

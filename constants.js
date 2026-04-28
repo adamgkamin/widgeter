@@ -20,6 +20,9 @@ export const COLOR_HINT_LINE = '#2a2a3a';
 // Stamps currency color (§13)
 export const COLOR_STAMPS = '#aa9966';
 
+// Dev mode access code
+export const DEV_PASSWORD = 'wetstyle';
+
 // §3.1 — Screen layout
 export const DISPLAY_WIDTH  = 80;
 export const DISPLAY_HEIGHT = 50;
