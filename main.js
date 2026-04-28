@@ -270,15 +270,22 @@ function drawStatusBar() {
   const inv = state.player.inventory;
   const cap = state.player.inventoryCaps;
   const widgetFg = inv.widgets >= cap.widgets ? '#ff5555' : BRIGHT_WHITE;
-  const gap = state.phase >= 2 ? 2 : 4;
   let sx = 0;
-  sx = seg(sx, `Credits: ${state.player.credits}`,       '#ffd633') + gap;
-  sx = seg(sx, `Raw: ${inv.rm}`,                          '#ff9933') + gap;
-  sx = seg(sx, `Widgets: ${inv.widgets}/${cap.widgets}`,  widgetFg)  + gap;
   if (state.phase >= 2) {
-    seg(sx, `RM today: ${state.rmPurchasedToday}/100`, '#ff9933');
+    const activeW = state.workers.apprentices.filter(w => w.workerState !== 'idle' && !w.paused).length;
+    const activeC = state.workers.couriers.filter(c => c.courierState === 'delivering' || c.courierState === 'loading').length;
+    sx = seg(sx, `CR:${state.player.credits}`,            '#ffd633') + 1;
+    sx = seg(sx, `RM:${inv.rm}`,                           '#ff9933') + 1;
+    sx = seg(sx, `WG:${inv.widgets}/${cap.widgets}`,       widgetFg)  + 1;
+    sx = seg(sx, `D:${state.rmPurchasedToday}/100`,        '#ff9933') + 1;
+    sx = seg(sx, `W:${activeW}`,                           '#66ccff') + 1;
+    sx = seg(sx, `C:${activeC}`,                           '#cc66cc') + 1;
+         seg(sx, `ST:${state.storage.widgets}/50`,         '#66ccff');
   } else {
-    sx = seg(sx, `Day ${state.day}`, BRIGHT_WHITE) + gap;
+    sx = seg(sx, `Credits: ${state.player.credits}`,       '#ffd633') + 4;
+    sx = seg(sx, `Raw: ${inv.rm}`,                         '#ff9933') + 4;
+    sx = seg(sx, `Widgets: ${inv.widgets}/${cap.widgets}`, widgetFg)  + 4;
+         seg(sx, `Day ${state.day}`,                       BRIGHT_WHITE);
   }
   drawTimeIndicator();
 }
@@ -1974,6 +1981,14 @@ setInterval(() => {
       'The shadows shift slightly.',
       'You notice how quiet it is.',
     ];
+    if (state.phase >= 2) {
+      AMBIENT.push(
+        'A worker laughs at something across the yard.',
+        'You hear the sound of tools from the workbench.',
+        'One of your workers waves. You nod back.',
+        'The courier returns empty-handed, then sets off again.',
+      );
+    }
     addLog(AMBIENT[Math.floor(Math.random() * AMBIENT.length)], '#555555');
     state.lastAmbientTick  = state.tick;
     state.nextAmbientDelay = 30 + Math.floor(Math.random() * 91); // 30–120
