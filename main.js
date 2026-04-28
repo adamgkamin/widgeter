@@ -114,7 +114,7 @@ const state = {
   demandCrashOccurred:  false,
   demandHistory:        [],
   derivativesUnlocked:  false,
-  derivatives:          { forwards: [], futures: [], options: [], pnlToday: 0, totalPnL: 0, marginCallActive: false, marginCallDay: 0 },
+  derivatives:          { forwards: [], futures: [], options: [], pnlToday: 0, totalPnL: 0, marginCallActive: false, marginCallDay: 0, nextSpreadId: 0 },
   volatility:           0.2,
   endingTriggered:      false,
   widgetsMade:          0,
@@ -259,6 +259,7 @@ function loadGame() {
     state.derivatives.totalPnL          = state.derivatives.totalPnL          ?? 0;
     state.derivatives.marginCallActive  = state.derivatives.marginCallActive  ?? false;
     state.derivatives.marginCallDay     = state.derivatives.marginCallDay     ?? 0;
+    state.derivatives.nextSpreadId     = state.derivatives.nextSpreadId     ?? 0;
     state.volatility                     = data.volatility                     ?? 0.2;
     state.endingTriggered                = data.endingTriggered                ?? false;
     state.widgetsMade          = data.widgetsMade          ?? 0;
@@ -3076,6 +3077,7 @@ function calculateVolatility() {
 
 // Module-level handle so tick loop can refresh the positions dashboard
 let dashboardRedrawFn  = null;
+let dvMenuRedrawFn     = null;
 let inventoryRedrawFn  = null;
 let lfMenuRedrawFn     = null;
 let rmMenuRedrawFn     = null;
@@ -3421,125 +3423,752 @@ function showPositionsDashboard() {
 }
 
 function openDerivativesMenu() {
-  if (!state.stations.derivatives || !state.stations.derivatives.unlocked) return;
-  state.gameState = 'menu';
+  if (!state.stations.derivatives?.unlocked) return;
+  state.gameState = 'dv_menu';
 
-  const BOX_W  = 58;
-  const BOX_H  = 20;
-  const BOX_X  = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
-  const BOX_Y  = Math.max(2, Math.floor((WORLD_ROWS - BOX_H) / 2));
-  const CONT_X = BOX_X + 2;
-  const CONT_W = BOX_W - 4;
-  const WC     = '#555555';
-  const MC     = '#cc66cc';
+  // ── Constants ─────────────────────────────────────────────────────────────
+  const TC  = '#cc66cc', DC = '#333333', WC = '#555555';
+  const BOX_W = 70, BOX_H = 38, IW = 68, AW = 14, RPW = 53;
+  const BOX_X = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);   // = 5
+  const BOX_Y = Math.max(1, Math.floor((WORLD_ROWS - BOX_H) / 2)); // = 2
+  const CONT_X = BOX_X + 1;
+  const RPX    = BOX_X + 1 + AW + 1; // right pane absolute x
+  const EXPIRIES = [1, 3, 7, 14];
 
-  function line(row, text, fg) {
-    for (let i = 0; i < text.length; i++) display.draw(CONT_X+i, BOX_Y+row, text[i], fg, BG);
+  // ── Tab state ─────────────────────────────────────────────────────────────
+  const TABS = ['chart', 'positions', 'trade', 'spreads'];
+  let tab = 'chart';
+
+  // ── Trade form state ──────────────────────────────────────────────────────
+  let tradeInst = null; // null | 'forward'|'futures'|'call_buy'|'put_buy'|'call_write'|'put_write'
+  let tradeForm = {
+    qty: 10, dir: 'long', contracts: 1,
+    strike: Math.round(state.marketPrice * 10) / 10,
+    expiryIdx: 2, focus: 0,
+  };
+
+  // ── Spread state ──────────────────────────────────────────────────────────
+  const sp0 = Math.round(state.marketPrice * 10) / 10;
+  let spreadFocus = 'bullCall'; // which card is editable
+  let spreadConfirm = null;     // null | spread config object
+  const ss = {
+    bullCall: { buyStrike: sp0,       writeStrike: Math.round((sp0+1)*10)/10, expiryIdx: 2 },
+    bearPut:  { buyStrike: Math.round((sp0+1)*10)/10, writeStrike: sp0, expiryIdx: 2 },
+    straddle: { strike: sp0,                                                   expiryIdx: 2 },
+    strangle: { callStrike: Math.round((sp0+1)*10)/10, putStrike: Math.round((sp0-1)*10)/10, expiryIdx: 2 },
+  };
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+  function r10(n) { return Math.round(n * 10) / 10; }
+  function pnlFg(v) { return v > 0 ? '#66cc66' : v < 0 ? '#ff5555' : WC; }
+  function pStr(v)  { return (v >= 0 ? '+' : '') + formatCredits(v); }
+
+  function border(ay) {
+    display.draw(BOX_X,           ay, '║', TC, BG);
+    display.draw(BOX_X + BOX_W - 1, ay, '║', TC, BG);
   }
-  function centered(row, text, fg) {
-    const cx = CONT_X + Math.floor((CONT_W - text.length) / 2);
-    for (let i = 0; i < text.length; i++) display.draw(cx+i, BOX_Y+row, text[i], fg, BG);
+  function irow(ay, text, fg) {
+    border(ay);
+    const p = menuPad(text, IW);
+    for (let i = 0; i < IW; i++) display.draw(CONT_X + i, ay, p[i] || ' ', fg, BG);
   }
+  function crow(ay, r) {
+    border(ay);
+    drawArtRow(r, ay);
+    display.draw(BOX_X + 1 + AW, ay, '│', DC, BG);
+    for (let i = 0; i < RPW; i++) display.draw(RPX + i, ay, ' ', BRIGHT_WHITE, BG);
+  }
+  function drp(ay, text, fg) {
+    const p = menuPad(text, RPW);
+    for (let i = 0; i < RPW; i++) display.draw(RPX + i, ay, p[i] || ' ', fg, BG);
+  }
+  function arwR(ay, label, val, fg) {
+    const gap = Math.max(1, RPW - label.length - (val ? val.length : 0));
+    drp(ay, val ? label + ' '.repeat(gap) + val : label, fg);
+  }
+  function sep(ay)  { irow(ay, '─'.repeat(IW), DC); }
+  function rSep(ay) { drp(ay, '─'.repeat(RPW), DC); }
 
-  function redraw() {
-    display.draw(BOX_X, BOX_Y, '+', MC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y, '+', MC, BG);
-    for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, BOX_Y, '-', MC, BG);
-    const bY = BOX_Y + BOX_H - 1;
-    display.draw(BOX_X, bY, '+', MC, BG); display.draw(BOX_X+BOX_W-1, bY, '+', MC, BG);
-    for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, bY, '-', MC, BG);
-    for (let y = 1; y < BOX_H-1; y++) {
-      display.draw(BOX_X, BOX_Y+y, '|', MC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y+y, '|', MC, BG);
-      for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, BOX_Y+y, ' ', BRIGHT_WHITE, BG);
+  // ── Terminal art (14 chars × 10 rows) ─────────────────────────────────────
+  const DV_ART = [
+    '  ╔════════╗  ',
+    '  ║ ▲  ▼   ║  ',
+    '  ║ /\\/\\   ║  ',
+    '  ║/    \\  ║  ',
+    '  ║        ║  ',
+    '  ╚════════╝  ',
+    '    ╔══╗      ',
+    '  ══╝  ╚══    ',
+    '  [TERMINAL]  ',
+    '              ',
+  ];
+  function drawArtRow(r, ay) {
+    const s = DV_ART[r];
+    const FRAME = new Set('╔╗╚╝═║');
+    for (let i = 0; i < AW; i++) {
+      const ch = s[i] || ' ';
+      let fg = '#aaaaaa';
+      if (FRAME.has(ch))                         fg = TC;
+      if (r === 1 && i === 4)                    fg = '#66cc66';  // ▲
+      if (r === 1 && i === 8)                    fg = '#ff5555';  // ▼
+      if (r === 2 && i >= 4 && i <= 7)           fg = '#ffd633';  // /\/\
+      if (r === 8 && i >= 2 && i <= 11)          fg = TC;         // [TERMINAL]
+      display.draw(BOX_X + 1 + i, ay, ch, fg, BG);
     }
-
-    centered(1, '– DERIVATIVES TERMINAL –', MC);
-
-    const dl         = state.phase >= 3 ? demandLabel(state.demand) : { text: 'N/A', fg: WC };
-    const fwdUnr     = state.derivatives.forwards.reduce((s, f) => s + (f.lockedPrice - state.marketPrice) * f.quantity, 0);
-    const futUnr     = state.derivatives.futures.reduce((s, f) => s + (state.marketPrice - f.entryPrice) * f.quantity * (f.type === 'long' ? 1 : -1), 0);
-    const totalUnrPnL = Math.round((fwdUnr + futUnr) * 10) / 10;
-    const dispPnL    = Math.round((state.derivatives.pnlToday + totalUnrPnL) * 10) / 10;
-    line(3, `Current widget price:  ${state.marketPrice}cr`, BRIGHT_WHITE);
-    line(4, `Today's demand:        ${state.demand} (${dl.text})`, dl.fg);
-    line(5, `Volatility:            ${Math.round(state.volatility * 100)}%`, '#66ccff');
-    const pFg = dispPnL > 0 ? '#66cc66' : dispPnL < 0 ? '#ff5555' : WC;
-    line(6, `Your position PnL:     ${dispPnL >= 0 ? '+' : ''}${dispPnL}cr`, pFg);
-
-    for (let i = 0; i < CONT_W; i++) display.draw(CONT_X+i, BOX_Y+8, '.', WC, BG);
-
-    const allPositions = state.derivatives.forwards.length + state.derivatives.futures.length + state.derivatives.options.length;
-    line(9,  `1. Forward Contracts       [AVAILABLE]`, MC);
-    line(10, `2. Futures Trading         ${state.skills.futures ? '[AVAILABLE]' : '[LOCKED — purchase in Office]'}`, state.skills.futures ? MC : WC);
-    line(11, `3. Options — Buy Side      ${state.skills.optionsBuy ? '[AVAILABLE]' : '[LOCKED — purchase in Office]'}`, state.skills.optionsBuy ? MC : WC);
-    line(12, `4. Options — Write Side    ${state.skills.optionsWrite ? '[AVAILABLE]' : '[LOCKED — purchase in Office]'}`, state.skills.optionsWrite ? MC : WC);
-    line(13, `5. View Open Positions     ${allPositions > 0 ? `[${allPositions} open]` : '[none]'}`, allPositions > 0 ? BRIGHT_WHITE : WC);
-    line(14, `6. Close All Positions     ${allPositions > 0 ? '[settle now]' : '[no positions]'}`, allPositions > 0 ? '#ff9933' : WC);
-    if (state.skills.volatilitySurface) line(15, `7. View Volatility Surface [AVAILABLE]`, '#66ccff');
-
-    centered(BOX_H-2, 'ESC to close', WC);
   }
 
-  redraw();
+  // ── Tab bar (68 chars) ────────────────────────────────────────────────────
+  const TAB_BAR = '   [ CHART ]   │   [ POSITIONS ]   │   [ TRADE ]   │   [ SPREADS ]  ';
+  const TAB_RANGES = { chart:[3,11], positions:[19,31], trade:[39,47], spreads:[55,65] };
 
-  function closeDV() {
-    window.removeEventListener('keydown', dvKeyHandler);
-    for (let y = BOX_Y; y < BOX_Y + BOX_H; y++)
-      for (let x = BOX_X; x < BOX_X + BOX_W; x++)
-        if (y < WORLD_ROWS) markDirty(x, y);
-    renderDirty();
-    display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
-    state.gameState = 'playing';
+  // ── Frame drawing ─────────────────────────────────────────────────────────
+  function drawFrame() {
+    for (let r = 1; r < BOX_H - 1; r++)
+      for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, BOX_Y + r, ' ', BRIGHT_WHITE, BG);
+    display.draw(BOX_X, BOX_Y, '╔', TC, BG);
+    display.draw(BOX_X + BOX_W - 1, BOX_Y, '╗', TC, BG);
+    for (let i = 1; i < BOX_W - 1; i++) display.draw(BOX_X + i, BOX_Y, '═', TC, BG);
+    { const ay = BOX_Y + 1; border(ay);
+      const title = 'DERIVATIVES TERMINAL', hint = 'press esc to exit';
+      for (let i = 0; i < IW; i++) {
+        const ch = i < title.length ? title[i] : (i >= IW - hint.length ? hint[i-(IW-hint.length)] : ' ');
+        const fg = i < title.length ? BRIGHT_WHITE : (i >= IW - hint.length ? DC : BRIGHT_WHITE);
+        display.draw(CONT_X + i, BOX_Y + 1, ch, fg, BG);
+      }
+    }
+    { const ay = BOX_Y + 2; border(ay);
+      for (let i = 0; i < IW; i++) display.draw(CONT_X + i, ay, '═', DC, BG); }
+    { const ay = BOX_Y + 3; border(ay);
+      const [s, e] = TAB_RANGES[tab];
+      for (let i = 0; i < IW; i++)
+        display.draw(CONT_X + i, ay, TAB_BAR[i] || ' ', (i >= s && i <= e) ? TC : DC, BG);
+    }
+    { const ay = BOX_Y + 4; border(ay);
+      for (let i = 0; i < IW; i++) display.draw(CONT_X + i, ay, '═', DC, BG); }
+    { const ay = BOX_Y + BOX_H - 2; border(ay);
+      for (let i = 0; i < IW; i++) display.draw(CONT_X + i, ay, '═', DC, BG); }
+    display.draw(BOX_X, BOX_Y + BOX_H - 1, '╚', TC, BG);
+    display.draw(BOX_X + BOX_W - 1, BOX_Y + BOX_H - 1, '╝', TC, BG);
+    for (let i = 1; i < BOX_W - 1; i++) display.draw(BOX_X + i, BOX_Y + BOX_H - 1, '═', TC, BG);
   }
 
-  function dvKeyHandler(e) {
-    if (e.key === 'Escape') { closeDV(); return; }
+  // ── CHART tab ─────────────────────────────────────────────────────────────
+  function redrawChart() {
+    const CY = BOX_Y + 5; // content start row
+    const hist = state.demandHistory.slice(-13);
+    const allDays = [...hist, { day: state.day, demand: state.demand, price: state.marketPrice }];
 
-    if (e.key === '1') {
-      const maxQty = state.storage.widgets + state.player.inventory.widgets;
-      if (maxQty <= 0) { addLog('No widgets available for forward contract.', WC); return; }
-      window.removeEventListener('keydown', dvKeyHandler);
-      const expD = Math.max(5, Math.round(50 + 30 * Math.sin((state.day + 1) / 7 * 2 * Math.PI)));
-      const expP = Math.round(8 * Math.pow(expD / 50, 0.5) * 10) / 10;
-      showNumericPrompt(`Forward (today:${state.marketPrice}cr, est.tmrw:${expP}cr)`, maxQty,
-        (qty) => {
-          state.derivatives.forwards.push({ quantity: qty, lockedPrice: state.marketPrice, settlementDay: state.day + 1 });
-          addLog(`Forward: ${qty} widgets at ${state.marketPrice}cr, settling day ${state.day + 1}.`, MC);
-          openDerivativesMenu();
-        },
-        () => openDerivativesMenu()
-      );
+    if (allDays.length < 2) {
+      for (let r = 0; r < 26; r++) { if (CY+r >= BOX_Y+BOX_H-2) break; irow(CY+r, '', BRIGHT_WHITE); }
+      const msg = 'Insufficient price history. Check back tomorrow.';
+      irow(CY + 5, menuPad(' '.repeat(Math.floor((IW-msg.length)/2)) + msg, IW), WC);
       return;
     }
 
-    if (e.key === '2' && state.skills.futures)    { closeDV(); openFuturesMenu(); return; }
-    if (e.key === '3' && state.skills.optionsBuy)  { closeDV(); openOptionsMenu('buy');   return; }
-    if (e.key === '4' && state.skills.optionsWrite){ closeDV(); openOptionsMenu('write');  return; }
+    const prices = allDays.map(d => d.price);
+    const rawMin = Math.min(...prices), rawMax = Math.max(...prices);
+    const minP = rawMin * 0.95, maxP = rawMax * 1.05;
+    const range = maxP - minP || 1;
+    const prToRow = (p) => Math.min(7, Math.max(0, Math.round((maxP - p) / range * 7)));
 
-    if (e.key === '5') {
-      closeDV(); showPositionsDashboard(); return;
+    const volPct = Math.round(state.volatility * 100);
+    const ttlL = 'WIDGET PRICE — LAST 14 DAYS';
+    const ttlR = `vol: ${volPct}%`;
+    irow(CY, menuPad(ttlL, IW - ttlR.length) + ttlR, TC);
+    irow(CY+1, '', BRIGHT_WHITE);
+
+    // Y-axis width + chart area
+    const YAX = 8; // "  8.4cr " → 7 chars + │ = 8
+    const CNDW = 3, CNDG = 1; // candle width, gap
+    const N = allDays.length;
+
+    for (let chartRow = 0; chartRow < 8; chartRow++) {
+      const ay = CY + 2 + chartRow;
+      border(ay);
+      // Y-axis label
+      const yP = maxP - (chartRow / 7) * range;
+      const yLbl = (chartRow === 0 || chartRow === 3 || chartRow === 7)
+        ? (formatCredits(yP) + 'cr').padStart(YAX - 1) + '│'
+        : ' '.repeat(YAX - 1) + '│';
+      for (let i = 0; i < YAX; i++) display.draw(CONT_X + i, ay, yLbl[i] || ' ', '#555555', BG);
+      // Candles
+      for (let ci = 0; ci < N; ci++) {
+        const d = allDays[ci];
+        const openP  = ci > 0 ? allDays[ci-1].price : d.price;
+        const closeP = d.price;
+        const highP  = closeP * 1.05, lowP = closeP * 0.95;
+        const closeRow = prToRow(closeP), openRow  = prToRow(openP);
+        const highRow  = prToRow(highP),  lowRow   = prToRow(lowP);
+        const bodyTop  = Math.min(openRow, closeRow);
+        const bodyBot  = Math.max(openRow, closeRow);
+        const inBody   = chartRow >= bodyTop && chartRow <= bodyBot;
+        const inWick   = !inBody && chartRow >= highRow && chartRow <= lowRow;
+        const candleColor = closeP > openP ? '#66cc66' : (closeP < openP ? '#ff5555' : '#ffd633');
+        const cx = CONT_X + YAX + ci * (CNDW + CNDG);
+        if (cx + CNDW > CONT_X + IW) break;
+        if (inBody) {
+          const bc = bodyTop === bodyBot ? '─' : '█';
+          for (let bi = 0; bi < CNDW; bi++) display.draw(cx+bi, ay, bc, candleColor, BG);
+        } else if (inWick) {
+          display.draw(cx,   ay, ' ', '#aaaaaa', BG);
+          display.draw(cx+1, ay, '│', '#aaaaaa', BG);
+          display.draw(cx+2, ay, ' ', '#aaaaaa', BG);
+        } else {
+          for (let bi = 0; bi < CNDW; bi++) display.draw(cx+bi, ay, ' ', BRIGHT_WHITE, BG);
+        }
+      }
+      // Fill trailing space
+      const usedX = CONT_X + YAX + N * (CNDW + CNDG) - CNDG;
+      for (let x = usedX; x < CONT_X + IW; x++) display.draw(x, ay, ' ', BRIGHT_WHITE, BG);
     }
 
-    if (e.key === '6') {
-      const allPos = state.derivatives.forwards.length + state.derivatives.futures.length + state.derivatives.options.length;
-      if (allPos === 0) return;
-      let totalPnL = 0;
-      for (const f of state.derivatives.forwards) totalPnL += (f.lockedPrice - state.marketPrice) * f.quantity;
-      for (const f of state.derivatives.futures)  { totalPnL += (state.marketPrice - f.entryPrice) * f.quantity * (f.type === 'long' ? 1 : -1); state.player.credits = Math.round((state.player.credits + f.marginHeld) * 10) / 10; }
-      for (const o of state.derivatives.options)  { if (o.side === 'buy') { const ev = o.type === 'call' ? Math.max(state.marketPrice - o.strike, 0) : Math.max(o.strike - state.marketPrice, 0); totalPnL += ev - o.premium; } else { const ev = o.type === 'call' ? Math.max(state.marketPrice - o.strike, 0) : Math.max(o.strike - state.marketPrice, 0); totalPnL += o.premium - ev; state.player.credits = Math.round((state.player.credits + o.marginHeld) * 10) / 10; } }
-      totalPnL = Math.round(totalPnL * 10) / 10;
-      state.player.credits = Math.round((state.player.credits + totalPnL) * 10) / 10;
-      state.derivatives.pnlToday = Math.round((state.derivatives.pnlToday + totalPnL) * 10) / 10;
-      state.derivatives.totalPnL = Math.round((state.derivatives.totalPnL + totalPnL) * 10) / 10;
-      state.derivatives.forwards = []; state.derivatives.futures = []; state.derivatives.options = [];
-      state.derivatives.marginCallActive = false;
-      addLog(`All positions closed. PnL: ${totalPnL >= 0 ? '+' : ''}${totalPnL}cr.`, totalPnL >= 0 ? '#66cc66' : '#ff5555');
-      drawStatusBar(); redraw(); return;
+    // X-axis day numbers
+    { const ay = CY+10; border(ay);
+      for (let i = 0; i < YAX; i++) display.draw(CONT_X+i, ay, ' ', BRIGHT_WHITE, BG);
+      for (let ci = 0; ci < N; ci++) {
+        const dn = String(allDays[ci].day).slice(-2).padStart(2);
+        const cx = CONT_X + YAX + ci * (CNDW + CNDG);
+        if (cx+2 > CONT_X+IW) break;
+        display.draw(cx,   ay, dn[0], DC, BG);
+        display.draw(cx+1, ay, dn[1], DC, BG);
+        if (cx+2 < CONT_X+IW) display.draw(cx+2, ay, ' ', BRIGHT_WHITE, BG);
+      }
+      const ex = CONT_X + YAX + N*(CNDW+CNDG)-CNDG;
+      for (let x = ex; x < CONT_X+IW; x++) display.draw(x, ay, ' ', BRIGHT_WHITE, BG);
     }
+    irow(CY+11, '', BRIGHT_WHITE);
 
-    if (e.key === '7' && state.skills.volatilitySurface) { closeDV(); showVolatilityChart(); return; }
+    // Summary
+    const avgP = r10(prices.reduce((s,p)=>s+p,0)/prices.length);
+    const sumLine = `Today: ${formatCredits(state.marketPrice)}cr   High: ${formatCredits(rawMax)}cr   Low: ${formatCredits(rawMin)}cr   Avg: ${formatCredits(avgP)}cr`;
+    irow(CY+12, sumLine, BRIGHT_WHITE);
+    irow(CY+13, '', BRIGHT_WHITE);
+
+    // Price display
+    const prLabel = `Price: ${formatCredits(state.marketPrice)}cr`;
+    const volLabel = `Vol: ${volPct}%`;
+    const dlPh3 = state.phase >= 3 ? demandLabel(state.demand) : { text: 'N/A', fg: WC };
+    irow(CY+14, menuPad(prLabel, IW-volLabel.length)+volLabel, '#ffd633');
+    irow(CY+15, `Demand: ${state.demand} (${dlPh3.text})`, dlPh3.fg);
+    const allPos = state.derivatives.forwards.length + state.derivatives.futures.length + state.derivatives.options.length;
+    irow(CY+16, `Open positions: ${allPos}`, allPos > 0 ? TC : WC);
+    for (let r = 17; CY+r < BOX_Y+BOX_H-2; r++) irow(CY+r, '', BRIGHT_WHITE);
   }
+
+  // ── POSITIONS tab ─────────────────────────────────────────────────────────
+  function redrawPositions() {
+    const CY = BOX_Y + 5;
+    const spot = state.marketPrice;
+    for (let r = 0; r < 10; r++) crow(CY+r, r);
+
+    // Right pane rows
+    let row = CY;
+    function rw(text, fg) {
+      if (row >= BOX_Y+BOX_H-2) return;
+      drp(row++, text, fg);
+    }
+    function rDiv() { rw('─'.repeat(RPW), DC); }
+
+    const fwds = state.derivatives.forwards;
+    const futs  = state.derivatives.futures;
+    const opts  = state.derivatives.options;
+
+    rw('FORWARDS (' + fwds.length + ' open)', '#ffd633');
+    rDiv();
+    if (fwds.length === 0) { rw('  -- none --', DC); }
+    else for (const f of fwds) {
+      const unr = r10((f.lockedPrice - spot) * f.quantity);
+      rw(`Day${f.settlementDay-1}→${f.settlementDay}  ${f.quantity}wg @ ${formatCredits(f.lockedPrice)}cr  PnL: ${pStr(unr)}cr`, pnlFg(unr));
+    }
+    rw('', BRIGHT_WHITE);
+
+    rw('FUTURES (' + futs.length + ' contracts)', '#ffd633');
+    rDiv();
+    if (futs.length === 0) { rw('  -- none --', DC); }
+    else {
+      for (const type of ['long', 'short']) {
+        const grp = futs.filter(f => f.type === type);
+        if (!grp.length) continue;
+        const avgE = r10(grp.reduce((s,f)=>s+f.entryPrice,0)/grp.length);
+        const unr  = r10(grp.reduce((s,f)=>s+(spot-f.entryPrice)*f.quantity*(type==='long'?1:-1),0));
+        rw(`  ${grp.length}× ${type.toUpperCase()}  entry ${formatCredits(avgE)}  now ${formatCredits(spot)}  PnL: ${pStr(unr)}cr`, pnlFg(unr));
+      }
+    }
+    rw('', BRIGHT_WHITE);
+
+    // Group options: spreads together, singles separate
+    const spreadIds = [...new Set(opts.filter(o => o.spreadId != null).map(o => o.spreadId))];
+    const singleOpts = opts.filter(o => o.spreadId == null);
+    rw('OPTIONS (' + opts.length + ' open)', '#ffd633');
+    rDiv();
+    if (opts.length === 0) { rw('  -- none --', DC); }
+    else {
+      for (const sid of spreadIds) {
+        const legs = opts.filter(o => o.spreadId === sid);
+        const netPnL = r10(legs.reduce((s, o) => {
+          const val = o.type === 'call' ? Math.max(spot - o.strike, 0) : Math.max(o.strike - spot, 0);
+          return s + (o.side === 'buy' ? val - o.premium : o.premium - val);
+        }, 0));
+        const sType = legs[0].spreadType || 'SPREAD';
+        rw(`  ${sType}  legs:${legs.length}  net PnL: ${pStr(netPnL)}cr`, pnlFg(netPnL));
+      }
+      for (const o of singleOpts) {
+        const val = r10(o.type === 'call' ? Math.max(spot - o.strike, 0) : Math.max(o.strike - spot, 0));
+        const pnl = r10(o.side === 'buy' ? val - o.premium : o.premium - val);
+        rw(`  ${o.type.toUpperCase()}  K:${formatCredits(o.strike)}  exp:${o.expiry}  prem:${formatCredits(o.premium)}  [${o.side}]`, pnlFg(pnl));
+      }
+    }
+    rw('', BRIGHT_WHITE);
+
+    // Totals
+    const totalUnr = r10(
+      fwds.reduce((s,f) => s+(f.lockedPrice-spot)*f.quantity, 0) +
+      futs.reduce((s,f) => s+(spot-f.entryPrice)*f.quantity*(f.type==='long'?1:-1), 0) +
+      opts.reduce((s,o) => { const val = o.type==='call'?Math.max(spot-o.strike,0):Math.max(o.strike-spot,0); return s+(o.side==='buy'?val-o.premium:o.premium-val); }, 0)
+    );
+    rw(`Unrealized PnL:  ${pStr(totalUnr)}cr`, pnlFg(totalUnr));
+    rw(`Realized today:  ${pStr(state.derivatives.pnlToday)}cr`, pnlFg(state.derivatives.pnlToday));
+    rw(`Total all-time:  ${pStr(state.derivatives.totalPnL)}cr`, pnlFg(state.derivatives.totalPnL));
+
+    // Remaining art rows if right pane is shorter
+    for (let r = 10; r < 21; r++) {
+      const ay = CY + r;
+      if (ay >= BOX_Y+BOX_H-2) break;
+      if (row <= ay) { border(ay); for (let x=1;x<BOX_W-1;x++) display.draw(BOX_X+x,ay,' ',BRIGHT_WHITE,BG); }
+    }
+  }
+
+  // ── TRADE tab ─────────────────────────────────────────────────────────────
+  function redrawTrade() {
+    const CY = BOX_Y + 5;
+    for (let r = 0; r < 10; r++) crow(CY+r, r);
+
+    const spot = state.marketPrice;
+    const dl = state.phase >= 3 ? demandLabel(state.demand) : { text: 'N/A', fg: WC };
+    drp(CY,   `Spot: ${formatCredits(spot)}cr    Demand: ${state.demand} (${dl.text})`, BRIGHT_WHITE);
+    drp(CY+1, `Vol:  ${Math.round(state.volatility*100)}%    Day: ${state.day}    Phase: ${state.phase}`, WC);
+    rSep(CY+2);
+
+    if (!tradeInst) {
+      // Instrument list
+      const hasFut  = !!state.skills.futures;
+      const hasBuy  = !!state.skills.optionsBuy;
+      const hasWrt  = !!state.skills.optionsWrite;
+      drp(CY+3, '1. Forward Contract', TC);
+      drp(CY+4, `2. Futures`, hasFut ? TC : DC);
+      drp(CY+5, `3. Call Option — Buy`, hasBuy ? TC : DC);
+      drp(CY+6, `4. Put Option — Buy`,  hasBuy ? TC : DC);
+      drp(CY+7, `5. Write Call`, hasWrt ? TC : DC);
+      drp(CY+8, `6. Write Put`,  hasWrt ? TC : DC);
+    } else {
+      // Form view
+      const EXDAYS = EXPIRIES[tradeForm.expiryIdx];
+      if (tradeInst === 'forward') {
+        const maxQty = state.storage.widgets + state.player.inventory.widgets;
+        drp(CY+3, 'FORWARD CONTRACT', BRIGHT_WHITE);
+        rSep(CY+4);
+        drp(CY+5, `Lock price:  ${formatCredits(spot)}cr  (today's spot)`, WC);
+        drp(CY+6, `Settle:      Day ${state.day + 1}  (tomorrow)`, WC);
+        rSep(CY+7);
+        drp(CY+8, tradeForm.focus===0 ? `> Quantity: [ ${tradeForm.qty} ]   +/- to adjust` : `  Quantity: [ ${tradeForm.qty} ]`, tradeForm.focus===0 ? BRIGHT_WHITE : WC);
+        rSep(CY+9);
+        const rise = r10((spot * 1.1 - spot) * tradeForm.qty);
+        const fall = r10((spot * 0.9 - spot) * tradeForm.qty);
+        drp(CY+10, `Est PnL +10%: ${pStr(rise)}cr`, pnlFg(rise));
+        drp(CY+11, `Est PnL -10%: ${pStr(fall)}cr`, pnlFg(fall));
+        rSep(CY+12);
+        drp(CY+13, 'Enter: confirm   ESC: cancel', WC);
+      } else if (tradeInst === 'futures') {
+        const margin = r10(spot * 10 * 0.20);
+        const canOpen = state.player.credits >= margin;
+        drp(CY+3, 'FUTURES CONTRACT', BRIGHT_WHITE);
+        rSep(CY+4);
+        drp(CY+5, `Entry: ${formatCredits(spot)}cr    Margin: ${formatCredits(margin)}cr  (20%)`, WC);
+        rSep(CY+6);
+        drp(CY+7, tradeForm.focus===0 ? `> Direction: [ ${tradeForm.dir.toUpperCase()} ]   1=Long 2=Short` : `  Direction: [ ${tradeForm.dir.toUpperCase()} ]`, tradeForm.focus===0 ? BRIGHT_WHITE : WC);
+        drp(CY+8, tradeForm.focus===1 ? `> Contracts: [ ${tradeForm.contracts} ]   +/- to adjust` : `  Contracts: [ ${tradeForm.contracts} ]`, tradeForm.focus===1 ? BRIGHT_WHITE : WC);
+        rSep(CY+9);
+        const notional = r10(spot * 10 * tradeForm.contracts);
+        const reqMargin = r10(margin * tradeForm.contracts);
+        drp(CY+10, `Notional: ${formatCredits(notional)}cr   Required: ${formatCredits(reqMargin)}cr`, WC);
+        drp(CY+11, canOpen ? 'Enter: confirm   ESC: cancel' : `Need ${formatCredits(reqMargin)}cr margin`, canOpen ? WC : '#ff5555');
+      } else {
+        const parts = tradeInst.split('_');
+        const oType = parts[0]; // 'call' or 'put'
+        const oSide = parts[1]; // 'buy' or 'write'
+        const prem  = calcOptionPremium(oType, tradeForm.strike, EXDAYS);
+        const intrinsic = oType==='call' ? Math.max(spot-tradeForm.strike,0) : Math.max(tradeForm.strike-spot,0);
+        const timeVal = r10(prem - intrinsic);
+        const netCost = oSide==='buy' ? prem : r10(prem*3 - prem);
+        const canAfford = state.player.credits >= netCost;
+        drp(CY+3, `${oSide.toUpperCase()} ${oType.toUpperCase()} OPTION`, BRIGHT_WHITE);
+        rSep(CY+4);
+        drp(CY+5, `Spot: ${formatCredits(spot)}cr    Vol: ${Math.round(state.volatility*100)}%`, WC);
+        rSep(CY+6);
+        drp(CY+7, tradeForm.focus===0 ? `> Strike:  [ ${formatCredits(tradeForm.strike)}cr ]   +/- 0.1cr` : `  Strike:  [ ${formatCredits(tradeForm.strike)}cr ]`, tradeForm.focus===0 ? BRIGHT_WHITE : WC);
+        drp(CY+8, tradeForm.focus===1 ? `> Expiry:  [ ${EXDAYS} days ]   Tab to cycle` : `  Expiry:  [ ${EXDAYS} days ]`, tradeForm.focus===1 ? BRIGHT_WHITE : WC);
+        rSep(CY+9);
+        drp(CY+10, `Premium: ${formatCredits(prem)}cr  (intrinsic: ${formatCredits(r10(intrinsic))}  time: ${formatCredits(timeVal)})`, BRIGHT_WHITE);
+        drp(CY+11, oSide==='buy' ? `Cost: ${formatCredits(prem)}cr` : `Rcv: ${formatCredits(prem)}cr  Margin: ${formatCredits(r10(prem*3))}cr`, WC);
+        rSep(CY+12);
+        drp(CY+13, canAfford ? 'Enter: confirm   ESC: cancel' : `Need ${formatCredits(netCost)}cr`, canAfford ? WC : '#ff5555');
+      }
+    }
+
+    // Fill remaining pane rows
+    for (let r = 10; r < 26; r++) {
+      const ay = CY + r; if (ay >= BOX_Y+BOX_H-2) break;
+      if (!tradeInst || r >= 14) { border(ay); for (let x=1;x<BOX_W-1;x++) display.draw(BOX_X+x,ay,' ',BRIGHT_WHITE,BG); }
+    }
+  }
+
+  // ── SPREADS tab ───────────────────────────────────────────────────────────
+  function spreadPremNet(type, s) {
+    if (type === 'bullCall') return r10(calcOptionPremium('call',s.buyStrike,EXPIRIES[s.expiryIdx]) - calcOptionPremium('call',s.writeStrike,EXPIRIES[s.expiryIdx]));
+    if (type === 'bearPut')  return r10(calcOptionPremium('put',s.buyStrike,EXPIRIES[s.expiryIdx]) - calcOptionPremium('put',s.writeStrike,EXPIRIES[s.expiryIdx]));
+    if (type === 'straddle') return r10(calcOptionPremium('call',s.strike,EXPIRIES[s.expiryIdx]) + calcOptionPremium('put',s.strike,EXPIRIES[s.expiryIdx]));
+    if (type === 'strangle') return r10(calcOptionPremium('call',s.callStrike,EXPIRIES[s.expiryIdx]) + calcOptionPremium('put',s.putStrike,EXPIRIES[s.expiryIdx]));
+    return 0;
+  }
+
+  function redrawSpreads() {
+    const CY = BOX_Y + 5;
+    const spot = state.marketPrice;
+    const hasBuy = !!state.skills.optionsBuy;
+    const hasWrt = !!state.skills.optionsWrite;
+
+    if (spreadConfirm) {
+      // Confirmation sub-view
+      const sc = spreadConfirm;
+      irow(CY,   'CONFIRM SPREAD', TC);
+      sep(CY+1);
+      irow(CY+2, `Spread type: ${sc.label}`, BRIGHT_WHITE);
+      irow(CY+3, sc.leg1, '#66cc66');
+      irow(CY+4, sc.leg2, '#ff5555');
+      sep(CY+5);
+      irow(CY+6, `Net cost: ${formatCredits(sc.netCost)}cr`, sc.netCost >= 0 ? '#ff9933' : '#66cc66');
+      irow(CY+7, `Max profit: ${formatCredits(sc.maxProfit)}cr   Max loss: ${formatCredits(sc.maxLoss)}cr`, BRIGHT_WHITE);
+      sep(CY+8);
+      irow(CY+9,  '1. Confirm — open both legs simultaneously', '#66cc66');
+      irow(CY+10, '2. Cancel', WC);
+      for (let r = 11; CY+r < BOX_Y+BOX_H-2; r++) irow(CY+r, '', BRIGHT_WHITE);
+      return;
+    }
+
+    const spot2 = state.marketPrice;
+    const dl = state.phase >= 3 ? demandLabel(state.demand) : { text: 'N/A', fg: WC };
+    const ctxLine = `Spot: ${formatCredits(spot2)}cr   Vol: ${Math.round(state.volatility*100)}%   Demand: ${dl.text}   Day ${state.day}`;
+    irow(CY, ctxLine, BRIGHT_WHITE);
+    irow(CY+1, '', BRIGHT_WHITE);
+
+    // Cards
+    const CARDS = [
+      { key: 'bullCall', num: '1', label: 'BULL CALL SPREAD', req: hasBuy, reqLabel: '[requires Options Buy]',
+        getLines(s) {
+          const net = spreadPremNet('bullCall', s); const mp = r10(Math.abs(s.writeStrike-s.buyStrike)-net);
+          return [`Buy call: ${formatCredits(s.buyStrike)}cr   Write call: ${formatCredits(s.writeStrike)}cr   Exp: ${EXPIRIES[s.expiryIdx]}d`,
+                  `Net prem: ${formatCredits(net)}cr   Max profit: ${formatCredits(mp)}cr   Max loss: ${formatCredits(net)}cr`,
+                  `Profit if price > ${formatCredits(r10(s.buyStrike+net))}cr at expiry.`];
+        },
+      },
+      { key: 'bearPut', num: '2', label: 'BEAR PUT SPREAD',  req: hasBuy, reqLabel: '[requires Options Buy]',
+        getLines(s) {
+          const net = spreadPremNet('bearPut', s); const mp = r10(Math.abs(s.buyStrike-s.writeStrike)-net);
+          return [`Buy put: ${formatCredits(s.buyStrike)}cr   Write put: ${formatCredits(s.writeStrike)}cr   Exp: ${EXPIRIES[s.expiryIdx]}d`,
+                  `Net prem: ${formatCredits(net)}cr   Max profit: ${formatCredits(mp)}cr   Max loss: ${formatCredits(net)}cr`,
+                  `Profit if price < ${formatCredits(r10(s.buyStrike-net))}cr at expiry.`];
+        },
+      },
+      { key: 'straddle', num: '3', label: 'LONG STRADDLE', req: hasBuy, reqLabel: '[requires Options Buy]',
+        getLines(s) {
+          const net = spreadPremNet('straddle', s);
+          return [`Strike: ${formatCredits(s.strike)}cr   Expiry: ${EXPIRIES[s.expiryIdx]} days`,
+                  `Net prem: ${formatCredits(net)}cr   Up BE: ${formatCredits(r10(s.strike+net))}cr   Dn BE: ${formatCredits(r10(s.strike-net))}cr`,
+                  `Profit if price moves more than ${formatCredits(net)}cr in either direction.`];
+        },
+      },
+      { key: 'strangle', num: '4', label: 'SHORT STRANGLE', req: hasWrt, reqLabel: '[requires Options Write]',
+        getLines(s) {
+          const net = spreadPremNet('strangle', s);
+          return [`Write call: ${formatCredits(s.callStrike)}cr   Write put: ${formatCredits(s.putStrike)}cr   Exp: ${EXPIRIES[s.expiryIdx]}d`,
+                  `Premium rcvd: ${formatCredits(net)}cr   Max loss: unlimited outside range`,
+                  `Profit if price stays between ${formatCredits(s.putStrike)}cr and ${formatCredits(s.callStrike)}cr.`];
+        },
+      },
+    ];
+
+    let r = 2;
+    for (const card of CARDS) {
+      if (CY+r >= BOX_Y+BOX_H-2) break;
+      sep(CY+r); r++;
+      const isFocused = spreadFocus === card.key;
+      const reqFg = card.req ? (isFocused ? TC : '#aaaaaa') : DC;
+      const hdr = menuPad(card.label, IW - card.reqLabel.length) + card.reqLabel;
+      irow(CY+r, hdr, reqFg); r++;
+      const cfg = ss[card.key];
+      if (!card.req) {
+        irow(CY+r, '', BRIGHT_WHITE); r++;
+        irow(CY+r, '  ' + card.reqLabel, DC); r++;
+        irow(CY+r, '', BRIGHT_WHITE); r++;
+      } else {
+        const lines = card.getLines(cfg);
+        for (const l of lines) { irow(CY+r, l, isFocused ? BRIGHT_WHITE : '#555555'); r++; }
+      }
+      irow(CY+r, `${card.num}. Enter spread`, card.req ? (isFocused ? '#66cc66' : WC) : DC); r++;
+    }
+    for (; CY+r < BOX_Y+BOX_H-2; r++) irow(CY+r, '', BRIGHT_WHITE);
+  }
+
+  // ── Main redraw ───────────────────────────────────────────────────────────
+  function redraw() {
+    drawFrame();
+    if (tab === 'chart') redrawChart();
+    else if (tab === 'positions') redrawPositions();
+    else if (tab === 'trade') redrawTrade();
+    else redrawSpreads();
+  }
+
+  // ── Close ─────────────────────────────────────────────────────────────────
+  function closeDV() {
+    dvMenuRedrawFn = null;
+    window.removeEventListener('keydown', dvKeyHandler);
+    for (let y = BOX_Y; y < BOX_Y + BOX_H; y++)
+      for (let x = BOX_X; x < BOX_X + BOX_W; x++)
+        if (x >= 0 && x < DISPLAY_WIDTH && y >= 0 && y < WORLD_ROWS) markDirty(x, y);
+    renderDirty();
+    display.draw(state.player.x, state.player.y, '@', BRIGHT_WHITE, BG);
+    for (const w of state.workers.apprentices) display.draw(w.x, w.y, 'a', '#66ccff', BG);
+    for (const c of state.workers.couriers)    display.draw(c.x, c.y, 'c', '#cc66cc', BG);
+    state.gameState = 'playing';
+  }
+
+  // ── Close all positions helper ────────────────────────────────────────────
+  function closeAllPositions() {
+    let pnl = 0;
+    const sp = state.marketPrice;
+    for (const f of state.derivatives.forwards) pnl += (f.lockedPrice - sp) * f.quantity;
+    for (const f of state.derivatives.futures)  { pnl += (sp - f.entryPrice)*f.quantity*(f.type==='long'?1:-1); state.player.credits = r10(state.player.credits + f.marginHeld); }
+    for (const o of state.derivatives.options)  { const ev = o.type==='call'?Math.max(sp-o.strike,0):Math.max(o.strike-sp,0); if (o.side==='buy') { pnl += ev - o.premium; } else { pnl += o.premium - ev; state.player.credits = r10(state.player.credits + o.marginHeld); } }
+    pnl = r10(pnl);
+    state.player.credits = r10(state.player.credits + pnl);
+    state.derivatives.pnlToday = r10(state.derivatives.pnlToday + pnl);
+    state.derivatives.totalPnL = r10(state.derivatives.totalPnL + pnl);
+    state.derivatives.forwards = []; state.derivatives.futures = []; state.derivatives.options = [];
+    state.derivatives.marginCallActive = false;
+    addLog(`All positions closed. PnL: ${pStr(pnl)}cr.`, pnl >= 0 ? '#66cc66' : '#ff5555');
+    drawStatusBar();
+  }
+
+  // ── Key handler ───────────────────────────────────────────────────────────
+  function dvKeyHandler(e) {
+    if (e.key === 'Escape') {
+      if (spreadConfirm) { spreadConfirm = null; redraw(); return; }
+      if (tradeInst)     { tradeInst = null; redraw(); return; }
+      closeDV(); return;
+    }
+
+    // Tab cycling (only when not in a form)
+    if (!tradeInst && !spreadConfirm) {
+      if (e.key === 'ArrowLeft')  { tab = TABS[(TABS.indexOf(tab)-1+TABS.length)%TABS.length]; redraw(); return; }
+      if (e.key === 'ArrowRight') { tab = TABS[(TABS.indexOf(tab)+1)%TABS.length]; redraw(); return; }
+    }
+
+    // CHART: close-all shortcut
+    if (tab === 'chart') {
+      if (e.key === 'c') { closeAllPositions(); redraw(); }
+      return;
+    }
+
+    // POSITIONS: close-all shortcut
+    if (tab === 'positions') {
+      if (e.key === 'c') { closeAllPositions(); redraw(); }
+      return;
+    }
+
+    // TRADE tab
+    if (tab === 'trade') {
+      if (!tradeInst) {
+        // Instrument selection
+        const hasFut = !!state.skills.futures;
+        const hasBuy = !!state.skills.optionsBuy;
+        const hasWrt = !!state.skills.optionsWrite;
+        if (e.key === '1') { tradeInst = 'forward'; tradeForm = { qty:10, focus:0, dir:'long', contracts:1, strike:r10(state.marketPrice), expiryIdx:2 }; redraw(); return; }
+        if (e.key === '2' && hasFut) { tradeInst = 'futures'; tradeForm = { qty:10, focus:0, dir:'long', contracts:1, strike:r10(state.marketPrice), expiryIdx:2 }; redraw(); return; }
+        if (e.key === '3' && hasBuy) { tradeInst = 'call_buy'; tradeForm = { qty:1, focus:0, dir:'long', contracts:1, strike:r10(state.marketPrice), expiryIdx:2 }; redraw(); return; }
+        if (e.key === '4' && hasBuy) { tradeInst = 'put_buy';  tradeForm = { qty:1, focus:0, dir:'long', contracts:1, strike:r10(state.marketPrice), expiryIdx:2 }; redraw(); return; }
+        if (e.key === '5' && hasWrt) { tradeInst = 'call_write'; tradeForm = { qty:1, focus:0, dir:'long', contracts:1, strike:r10(state.marketPrice), expiryIdx:2 }; redraw(); return; }
+        if (e.key === '6' && hasWrt) { tradeInst = 'put_write';  tradeForm = { qty:1, focus:0, dir:'long', contracts:1, strike:r10(state.marketPrice), expiryIdx:2 }; redraw(); return; }
+        return;
+      }
+
+      // In form
+      const step = (tradeInst.includes('call')||tradeInst.includes('put')) && tradeForm.focus===0 ? 0.1 : 1;
+
+      if (e.key === 'Tab') { e.preventDefault(); tradeForm.focus = 1 - tradeForm.focus; redraw(); return; }
+      if (e.key === 'ArrowUp'   || e.key === '+') {
+        if (tradeInst === 'forward')                      { tradeForm.qty = Math.max(1, tradeForm.qty+1); }
+        else if (tradeInst === 'futures' && tradeForm.focus===1) { tradeForm.contracts = Math.max(1, tradeForm.contracts+1); }
+        else if (tradeInst === 'futures' && tradeForm.focus===0) {}
+        else if (tradeForm.focus===0)  { tradeForm.strike = r10(tradeForm.strike + 0.1); }
+        else { tradeForm.expiryIdx = (tradeForm.expiryIdx+1)%EXPIRIES.length; }
+        redraw(); return;
+      }
+      if (e.key === 'ArrowDown' || e.key === '-') {
+        if (tradeInst === 'forward')                      { tradeForm.qty = Math.max(1, tradeForm.qty-1); }
+        else if (tradeInst === 'futures' && tradeForm.focus===1) { tradeForm.contracts = Math.max(1, tradeForm.contracts-1); }
+        else if (tradeInst === 'futures' && tradeForm.focus===0) {}
+        else if (tradeForm.focus===0)  { tradeForm.strike = r10(Math.max(0.1, tradeForm.strike - 0.1)); }
+        else { tradeForm.expiryIdx = (tradeForm.expiryIdx-1+EXPIRIES.length)%EXPIRIES.length; }
+        redraw(); return;
+      }
+      if (tradeInst === 'futures') {
+        if (e.key === '1') { tradeForm.dir = 'long';  redraw(); return; }
+        if (e.key === '2') { tradeForm.dir = 'short'; redraw(); return; }
+      }
+      if (e.key === 'Enter') {
+        const sp = state.marketPrice;
+        if (tradeInst === 'forward') {
+          state.derivatives.forwards.push({ quantity: tradeForm.qty, lockedPrice: sp, settlementDay: state.day+1 });
+          addLog(`Forward: ${tradeForm.qty} widgets @ ${formatCredits(sp)}cr, day ${state.day+1}.`, TC);
+        } else if (tradeInst === 'futures') {
+          const margin = r10(sp * 10 * 0.20 * tradeForm.contracts);
+          if (state.player.credits < margin) { addLog('Insufficient credits for margin.', '#ff5555'); return; }
+          state.player.credits = r10(state.player.credits - margin);
+          for (let i = 0; i < tradeForm.contracts; i++)
+            state.derivatives.futures.push({ type: tradeForm.dir, quantity:10, entryPrice:sp, lastSettlementPrice:sp, openDay:state.day, marginHeld:r10(sp*10*0.20) });
+          addLog(`Opened ${tradeForm.contracts}× ${tradeForm.dir} future @ ${formatCredits(sp)}cr.`, TC);
+        } else {
+          const parts = tradeInst.split('_');
+          const oType = parts[0], oSide = parts[1];
+          const prem = calcOptionPremium(oType, tradeForm.strike, EXPIRIES[tradeForm.expiryIdx]);
+          if (oSide === 'buy') {
+            if (state.player.credits < prem) { addLog(`Need ${formatCredits(prem)}cr for premium.`, '#ff5555'); return; }
+            state.player.credits = r10(state.player.credits - prem);
+            state.derivatives.options.push({ type:oType, strike:tradeForm.strike, expiry:state.day+EXPIRIES[tradeForm.expiryIdx], premium:prem, quantity:1, side:'buy', marginHeld:0 });
+            addLog(`Bought ${oType} K:${formatCredits(tradeForm.strike)} exp:${state.day+EXPIRIES[tradeForm.expiryIdx]}. Prem: ${formatCredits(prem)}cr.`, TC);
+          } else {
+            const margin = r10(prem*3), netCost = r10(margin-prem);
+            if (state.player.credits < netCost) { addLog(`Need ${formatCredits(netCost)}cr net margin.`, '#ff5555'); return; }
+            state.player.credits = r10(state.player.credits + prem - margin);
+            state.derivatives.options.push({ type:oType, strike:tradeForm.strike, expiry:state.day+EXPIRIES[tradeForm.expiryIdx], premium:prem, quantity:1, side:'write', marginHeld:margin });
+            addLog(`Written ${oType} K:${formatCredits(tradeForm.strike)} exp:${state.day+EXPIRIES[tradeForm.expiryIdx]}. Prem rcvd: ${formatCredits(prem)}cr.`, TC);
+          }
+        }
+        drawStatusBar();
+        tradeInst = null;
+        redraw();
+      }
+      return;
+    }
+
+    // SPREADS tab
+    if (tab === 'spreads') {
+      if (spreadConfirm) {
+        if (e.key === '1') {
+          // Execute spread
+          const sc = spreadConfirm;
+          const sid = state.derivatives.nextSpreadId++;
+          state.player.credits = r10(state.player.credits - sc.netCost);
+          for (const leg of sc.legs)
+            state.derivatives.options.push({ ...leg, expiry: state.day + EXPIRIES[ss[sc.key].expiryIdx], spreadId: sid, spreadType: sc.label });
+          addLog(`Spread entered: ${sc.label}. Net cost: ${formatCredits(sc.netCost)}cr.`, TC);
+          drawStatusBar();
+          spreadConfirm = null;
+          redraw();
+          return;
+        }
+        if (e.key === '2') { spreadConfirm = null; redraw(); return; }
+        return;
+      }
+
+      // Cycle focused card
+      const SKEYS = ['bullCall', 'bearPut', 'straddle', 'strangle'];
+      if (e.key === 'Tab') { e.preventDefault(); spreadFocus = SKEYS[(SKEYS.indexOf(spreadFocus)+1)%SKEYS.length]; redraw(); return; }
+
+      // Adjust fields
+      if (e.key === 'ArrowUp' || e.key === '+') {
+        const s = ss[spreadFocus];
+        if (spreadFocus === 'bullCall') s.buyStrike = r10(s.buyStrike + 0.1);
+        else if (spreadFocus === 'bearPut') s.writeStrike = r10(s.writeStrike + 0.1);
+        else if (spreadFocus === 'straddle') s.strike = r10(s.strike + 0.1);
+        else s.callStrike = r10(s.callStrike + 0.1);
+        redraw(); return;
+      }
+      if (e.key === 'ArrowDown' || e.key === '-') {
+        const s = ss[spreadFocus];
+        if (spreadFocus === 'bullCall') s.buyStrike = r10(Math.max(0.1, s.buyStrike - 0.1));
+        else if (spreadFocus === 'bearPut') s.writeStrike = r10(Math.max(0.1, s.writeStrike - 0.1));
+        else if (spreadFocus === 'straddle') s.strike = r10(Math.max(0.1, s.strike - 0.1));
+        else s.callStrike = r10(Math.max(0.1, s.callStrike - 0.1));
+        redraw(); return;
+      }
+
+      // Select spread → confirmation
+      const CARD_MAP = { '1':'bullCall','2':'bearPut','3':'straddle','4':'strangle' };
+      const CARD_NEED = { bullCall: !!state.skills.optionsBuy, bearPut: !!state.skills.optionsBuy, straddle: !!state.skills.optionsBuy, strangle: !!state.skills.optionsWrite };
+      const cKey = CARD_MAP[e.key];
+      if (cKey && CARD_NEED[cKey]) {
+        const s = ss[cKey];
+        const sp = state.marketPrice;
+        const exD = EXPIRIES[s.expiryIdx];
+        let label, leg1Obj, leg2Obj, leg1Str, leg2Str, maxProfit, maxLoss;
+        if (cKey === 'bullCall') {
+          const p1 = calcOptionPremium('call',s.buyStrike,exD);
+          const p2 = calcOptionPremium('call',s.writeStrike,exD);
+          const net = r10(p1 - p2);
+          label = 'BULL CALL SPREAD';
+          leg1Obj = { type:'call', strike:s.buyStrike,  premium:p1, quantity:1, side:'buy',   marginHeld:0 };
+          leg2Obj = { type:'call', strike:s.writeStrike, premium:p2, quantity:1, side:'write', marginHeld:r10(p2*3) };
+          leg1Str = `Leg 1: BUY  CALL  K:${formatCredits(s.buyStrike)}  exp:${exD}d  prem:-${formatCredits(p1)}cr`;
+          leg2Str = `Leg 2: WRITE CALL K:${formatCredits(s.writeStrike)} exp:${exD}d  prem:+${formatCredits(p2)}cr`;
+          maxProfit = r10(Math.abs(s.writeStrike-s.buyStrike) - net);
+          maxLoss = net;
+          spreadConfirm = { key:cKey, label, legs:[leg1Obj,leg2Obj], leg1:leg1Str, leg2:leg2Str, netCost:net, maxProfit, maxLoss };
+        } else if (cKey === 'bearPut') {
+          const p1 = calcOptionPremium('put',s.buyStrike,exD);
+          const p2 = calcOptionPremium('put',s.writeStrike,exD);
+          const net = r10(p1 - p2);
+          label = 'BEAR PUT SPREAD';
+          leg1Str = `Leg 1: BUY  PUT  K:${formatCredits(s.buyStrike)}  exp:${exD}d  prem:-${formatCredits(p1)}cr`;
+          leg2Str = `Leg 2: WRITE PUT K:${formatCredits(s.writeStrike)} exp:${exD}d  prem:+${formatCredits(p2)}cr`;
+          maxProfit = r10(Math.abs(s.buyStrike-s.writeStrike) - net);
+          maxLoss = net;
+          const l1o = { type:'put', strike:s.buyStrike,   premium:p1, quantity:1, side:'buy',   marginHeld:0 };
+          const l2o = { type:'put', strike:s.writeStrike, premium:p2, quantity:1, side:'write', marginHeld:r10(p2*3) };
+          spreadConfirm = { key:cKey, label, legs:[l1o,l2o], leg1:leg1Str, leg2:leg2Str, netCost:net, maxProfit, maxLoss };
+        } else if (cKey === 'straddle') {
+          const pc = calcOptionPremium('call',s.strike,exD);
+          const pp = calcOptionPremium('put',s.strike,exD);
+          const net = r10(pc + pp);
+          label = 'LONG STRADDLE';
+          leg1Str = `Leg 1: BUY CALL K:${formatCredits(s.strike)} exp:${exD}d  prem:-${formatCredits(pc)}cr`;
+          leg2Str = `Leg 2: BUY PUT  K:${formatCredits(s.strike)} exp:${exD}d  prem:-${formatCredits(pp)}cr`;
+          const l1o = { type:'call', strike:s.strike, premium:pc, quantity:1, side:'buy', marginHeld:0 };
+          const l2o = { type:'put',  strike:s.strike, premium:pp, quantity:1, side:'buy', marginHeld:0 };
+          spreadConfirm = { key:cKey, label, legs:[l1o,l2o], leg1:leg1Str, leg2:leg2Str, netCost:net, maxProfit:999, maxLoss:net };
+        } else { // strangle
+          const pc = calcOptionPremium('call',s.callStrike,exD);
+          const pp = calcOptionPremium('put',s.putStrike,exD);
+          const net = r10(pc + pp); // receive both premiums
+          label = 'SHORT STRANGLE';
+          leg1Str = `Leg 1: WRITE CALL K:${formatCredits(s.callStrike)} exp:${exD}d  prem:+${formatCredits(pc)}cr`;
+          leg2Str = `Leg 2: WRITE PUT  K:${formatCredits(s.putStrike)} exp:${exD}d  prem:+${formatCredits(pp)}cr`;
+          const l1o = { type:'call', strike:s.callStrike, premium:pc, quantity:1, side:'write', marginHeld:r10(pc*3) };
+          const l2o = { type:'put',  strike:s.putStrike,  premium:pp, quantity:1, side:'write', marginHeld:r10(pp*3) };
+          // Writing = receive net premium, netCost is negative (you receive)
+          spreadConfirm = { key:cKey, label, legs:[l1o,l2o], leg1:leg1Str, leg2:leg2Str, netCost:r10(-net), maxProfit:net, maxLoss:999 };
+        }
+        redraw();
+      }
+      return;
+    }
+  }
+
+  dvMenuRedrawFn = redraw;
+  redraw();
   window.addEventListener('keydown', dvKeyHandler);
 }
+
 
 function showForwardPositions() {
   state.gameState = 'menu';
@@ -4758,7 +5387,7 @@ function _advanceDayNightWave() {
 // ── Tick loop — 1 tick/second (§7.1) ─────────────────────────────────────────
 
 setInterval(() => {
-  if (state.gameState !== 'playing' && state.gameState !== 'crafting' && state.gameState !== 'dashboard' && state.gameState !== 'inventory' && state.gameState !== 'lf_menu' && state.gameState !== 'rm_menu' && state.gameState !== 'wb_menu' && state.gameState !== 'mt_menu') return;
+  if (state.gameState !== 'playing' && state.gameState !== 'crafting' && state.gameState !== 'dashboard' && state.gameState !== 'inventory' && state.gameState !== 'lf_menu' && state.gameState !== 'rm_menu' && state.gameState !== 'wb_menu' && state.gameState !== 'mt_menu' && state.gameState !== 'dv_menu') return;
 
   // Stats: snapshot before tick for delta computation
   const _sCr = state.player.credits;
@@ -4997,6 +5626,7 @@ setInterval(() => {
   if (rmMenuRedrawFn) rmMenuRedrawFn();
   if (wbMenuRedrawFn) wbMenuRedrawFn();
   if (mtMenuRedrawFn) { mtMenuBlinkOn = !mtMenuBlinkOn; mtMenuRedrawFn(); }
+  if (dvMenuRedrawFn) dvMenuRedrawFn();
 
   // Live-refresh LF menu + rocket animation frame
   if (state.gameState === 'lf_menu') {
@@ -5135,7 +5765,7 @@ setInterval(() => {
                     state.gameState === 'dashboard' || state.gameState === 'menu' ||
                     state.gameState === 'inventory' || state.gameState === 'lf_menu' ||
                     state.gameState === 'rm_menu' || state.gameState === 'wb_menu' ||
-                    state.gameState === 'mt_menu';
+                    state.gameState === 'mt_menu' || state.gameState === 'dv_menu';
   if (pendingLine && logActive) {
     pendingLine.charsRevealed = Math.min(pendingLine.charsRevealed + LOG_SCROLL_SPEED, pendingLine.text.length);
     renderLog();
