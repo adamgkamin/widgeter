@@ -263,6 +263,7 @@ const state = {
     ratingHistory:           [],
     consecutivePositiveDays: 0,
     creditNegativeLogged:    false,
+    casinoStartCredits:      null, // transient — not saved
     card: {
       tier: null, limit: 0, balance: 0, interestRate: 0,
       statementCycle: 10, lastStatementDay: 0,
@@ -469,6 +470,7 @@ function loadGame() {
     state.bank.ratingHistory          = state.bank.ratingHistory          ?? [];
     state.bank.consecutivePositiveDays = state.bank.consecutivePositiveDays ?? 0;
     state.bank.creditNegativeLogged   = false; // transient
+    state.bank.casinoStartCredits     = null;  // transient
     state.bank.tab               = state.bank.tab               ?? 'account';
     state.bank.cardPage          = state.bank.cardPage          ?? 'bronze';
     state.bank.upgradeLogQueue   = []; // transient
@@ -1401,6 +1403,7 @@ function resetState() {
     creditRating: 'CC', creditRatingScore: 3.0,
     ratingHistory: [], consecutivePositiveDays: 0,
     creditNegativeLogged: false,
+    casinoStartCredits: null,
     card: {
       tier: null, limit: 0, balance: 0, interestRate: 0,
       statementCycle: 10, lastStatementDay: 0,
@@ -5316,6 +5319,7 @@ let bankMenuRedrawFn    = null;
 let gsMenuRedrawFn      = null;
 let officeMenuRedrawFn  = null;
 let npMenuRedrawFn      = null;
+let casinoMenuCloseFn   = null;
 
 function checkAbstractionCollapse() {
   if (state.endingTriggered || state.derivatives.totalPnL < 50000) return;
@@ -7566,8 +7570,336 @@ function handleCasinoUnlock() {
 function handleCasinoInteract() {
   const cs = state.stations.casino;
   if (!cs.unlocked) { handleCasinoUnlock(); return; }
-  // Placeholder until casino interior is implemented
-  addLog('> The casino is open after dark.', '#2244aa');
+  if (state.marketOpen && state.bank.card?.tier !== 'black') {
+    addLog("> A handwritten sign on the door: 'OPEN AFTER DARK ONLY.'", '#555555');
+    return;
+  }
+  openCasinoMenu();
+}
+
+function openCasinoMenu() {
+  const cs = state.stations.casino;
+  if (state.bank.casinoStartCredits == null) state.bank.casinoStartCredits = state.player.credits;
+
+  state.gameState = 'casino';
+
+  const BOX_W  = 60, INNER_W = 58, LP_W = 16, RP_W = 41;
+  const BOX_H  = 24;
+  const BOX_X  = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
+  const BOX_Y  = Math.max(1, Math.floor((WORLD_ROWS - BOX_H) / 2));
+  const DIVX   = BOX_X + 1 + LP_W;
+  const RPX    = DIVX + 1;
+  const BC = '#2244aa', DC = '#333333', WC = '#555555';
+
+  const SUITS      = ['♠', '♥', '♦', '♣'];
+  const SUIT_COLORS = { '♠': '#f0f0f0', '♥': '#ff5555', '♦': '#ff9933', '♣': '#66cc66' };
+  const BLACK_SUITS = new Set(['♠', '♣']);
+
+  let betSize    = cs.lastBetSize || 50;
+  let spinState  = 'idle';   // 'idle' | 'spinning' | 'result'
+  let spinFrame  = 0;
+  let reels      = [null, null, null];
+  let finalReels = [null, null, null];
+  let resultType = null;
+  let payout     = 0;
+
+  // Machine art: 14 rows × 16 chars.  Row 6 reels drawn programmatically.
+  const MA = [
+    '  .----------.  ',
+    '  |          |  ',
+    '  |    $     |  ',
+    '  |          |  ',
+    '  |----------|  ',
+    '  |          |  ',
+    '  |  ? ? ?   |  ', // reel row — overdrawn below
+    '  |          |  ',
+    '  |----------|  ',
+    '  |          |  ',
+    '  |  ████    |  ', // lever (████)
+    '  |          |  ',
+    '  |          |  ',
+    "  '----------'  ",
+  ];
+
+  function artCharFg(ch) {
+    if (ch === '$')  return '#ffd633';
+    if (ch === '█') return '#aa3333';
+    if (ch === '.' || ch === "'" || ch === '|' || ch === '-') return BC;
+    return '#f0f0f0';
+  }
+
+  function reelColor(sym, override) {
+    if (override) return override;
+    return sym ? SUIT_COLORS[sym] : WC;
+  }
+
+  function resultOverrideColor() {
+    if (!resultType) return null;
+    if (resultType === 'jackpot') return '#ffd633';
+    if (resultType === 'pair')    return '#66cc66';
+    if (resultType === 'color')   return '#ff9933';
+    return '#ff5555';
+  }
+
+  function statusLine() {
+    if (spinState === 'spinning') return ['...', '#ffd633'];
+    if (resultType === 'jackpot') return ['the house... loses tonight.', '#ffd633'];
+    if (resultType === 'pair')    return ['well well well.', '#66cc66'];
+    if (resultType === 'color')   return ['well well well.', '#66cc66'];
+    if (resultType === 'loss')    return ['better luck next time.', WC];
+    if (state.player.credits < betSize) return ["come back when you've got somethin'.", '#ff5555'];
+    if (cs.dailyBetTotal + betSize > 2000) return ["you've had enough tonight, friend.", '#ff9933'];
+    return ['feeling lucky?', '#aa3333'];
+  }
+
+  function drawBox() {
+    display.draw(BOX_X, BOX_Y, '╔', BC, BG); display.draw(BOX_X + BOX_W - 1, BOX_Y, '╗', BC, BG);
+    for (let i = 1; i < BOX_W - 1; i++) display.draw(BOX_X + i, BOX_Y, '═', BC, BG);
+    const botY = BOX_Y + BOX_H - 1;
+    display.draw(BOX_X, botY, '╚', BC, BG); display.draw(BOX_X + BOX_W - 1, botY, '╝', BC, BG);
+    for (let i = 1; i < BOX_W - 1; i++) display.draw(BOX_X + i, botY, '═', BC, BG);
+    for (let r = 1; r < BOX_H - 1; r++) {
+      display.draw(BOX_X, BOX_Y + r, '║', BC, BG);
+      display.draw(BOX_X + BOX_W - 1, BOX_Y + r, '║', BC, BG);
+    }
+  }
+
+  function drawInnerBlank() {
+    for (let r = 1; r < BOX_H - 1; r++)
+      for (let x = 1; x < BOX_W - 1; x++)
+        display.draw(BOX_X + x, BOX_Y + r, ' ', '#f0f0f0', BG);
+  }
+
+  function drawHeader() {
+    const ay = BOX_Y + 1;
+    const title = 'THE CASINO', hint = 'press esc to leave';
+    for (let i = 0; i < title.length; i++) display.draw(BOX_X + 1 + i, ay, title[i], '#5577cc', BG);
+    const hx = BOX_X + 1 + INNER_W - hint.length;
+    for (let i = 0; i < hint.length; i++) display.draw(hx + i, ay, hint[i], DC, BG);
+    const ay2 = BOX_Y + 2;
+    for (let i = 0; i < INNER_W; i++) display.draw(BOX_X + 1 + i, ay2, '═', DC, BG);
+  }
+
+  function drawMachine() {
+    const oc = resultOverrideColor();
+    for (let ri = 0; ri < MA.length; ri++) {
+      const ay = BOX_Y + 3 + ri;
+      const row = (MA[ri] || '').padEnd(LP_W);
+      for (let i = 0; i < LP_W; i++) {
+        const ch = row[i] || ' ';
+        const fg = ri === 6 ? BC : artCharFg(ch); // reel row drawn separately
+        display.draw(BOX_X + 1 + i, ay, ch, fg, BG);
+      }
+      display.draw(DIVX, ay, '│', DC, BG);
+    }
+    // Reel row (row 6 of art = BOX_Y+9)
+    const rAy = BOX_Y + 3 + 6;
+    // base row
+    const baseRow = '  |          |  '.padEnd(LP_W);
+    for (let i = 0; i < LP_W; i++) display.draw(BOX_X + 1 + i, rAy, baseRow[i], BC, BG);
+    // draw 3 symbols at fixed positions within art width
+    const rPos = [4, 7, 10]; // positions within 0-15
+    const spinSym = () => SUITS[Math.floor(Math.random() * 4)];
+    for (let ri = 0; ri < 3; ri++) {
+      const x = BOX_X + 1 + rPos[ri];
+      if (reels[ri]) {
+        display.draw(x, rAy, reels[ri], reelColor(reels[ri], oc), BG);
+      } else if (spinState === 'spinning') {
+        display.draw(x, rAy, spinSym(), '#888888', BG);
+      } else {
+        display.draw(x, rAy, '?', WC, BG);
+      }
+    }
+    display.draw(DIVX, rAy, '│', DC, BG);
+  }
+
+  function rrow(offset, text, fg) {
+    const ay = BOX_Y + 3 + offset;
+    const p = menuPad(text, RP_W);
+    for (let i = 0; i < RP_W; i++) display.draw(RPX + i, ay, p[i] || ' ', fg, BG);
+  }
+
+  function rsep(offset) {
+    const ay = BOX_Y + 3 + offset;
+    for (let i = 0; i < RP_W; i++) display.draw(RPX + i, ay, '═', DC, BG);
+  }
+
+  function drawRightPane() {
+    const oc = resultOverrideColor();
+    rrow(0, '', '#f0f0f0');
+    rrow(1, 'THE BACK ROOM', BC);
+    rrow(2, '', '#f0f0f0');
+    rrow(3, 'Credits: ' + formatCredits(state.player.credits) + 'cr', '#ffd633');
+    rrow(4, "Tonight's spend: " + formatCredits(cs.dailyBetTotal) + 'cr', WC);
+    rrow(5, 'Daily limit: 2000cr', WC);
+    rrow(6, '', '#f0f0f0');
+    rsep(7);
+    rrow(8, '', '#f0f0f0');
+    rrow(9, 'BET SIZE:', '#f0f0f0');
+    // Bet rows — inline coloring
+    const bets = [[1,10,'[1] 10cr  '],[2,50,'[2] 50cr  '],[3,100,'[3] 100cr '],[4,500,'[4] 500cr']];
+    { const ay1 = BOX_Y + 3 + 10;
+      for (let i = 0; i < RP_W; i++) display.draw(RPX + i, ay1, ' ', '#f0f0f0', BG);
+      let cx = RPX + 2;
+      for (const [,val,lbl] of bets.slice(0,2)) { const sel = betSize === val; for (const ch of lbl) { display.draw(cx++, ay1, ch, sel ? BC : WC, BG); } }
+    }
+    { const ay2 = BOX_Y + 3 + 11;
+      for (let i = 0; i < RP_W; i++) display.draw(RPX + i, ay2, ' ', '#f0f0f0', BG);
+      let cx = RPX + 2;
+      for (const [,val,lbl] of bets.slice(2,4)) { const sel = betSize === val; for (const ch of lbl) { display.draw(cx++, ay2, ch, sel ? BC : WC, BG); } }
+    }
+    rrow(12, '', '#f0f0f0');
+    rsep(13);
+    rrow(14, '', '#f0f0f0');
+    // Reels display row
+    { const ay = BOX_Y + 3 + 15;
+      for (let i = 0; i < RP_W; i++) display.draw(RPX + i, ay, ' ', '#f0f0f0', BG);
+      let cx = RPX + 2;
+      for (let ri = 0; ri < 3; ri++) {
+        const sym = reels[ri] || '?';
+        const fg  = reels[ri] ? reelColor(reels[ri], oc) : WC;
+        const block = `[  ${sym}  ]`;
+        for (let j = 0; j < block.length; j++) {
+          const ch = block[j];
+          const charFg = (ch === '[' || ch === ']') ? WC : (ch !== ' ' && ch !== '?' ? fg : WC);
+          display.draw(cx + j, ay, ch, charFg, BG);
+        }
+        cx += block.length;
+        if (ri < 2) { display.draw(cx, ay, ' ', '#f0f0f0', BG); cx++; }
+      }
+    }
+    rrow(16, '', '#f0f0f0');
+    const [sTxt, sFg] = statusLine();
+    rrow(17, sTxt, sFg);
+    rrow(18, '', '#f0f0f0');
+    rsep(19);
+    // Action hints row
+    { const ay = BOX_Y + 3 + 20;
+      for (let i = 0; i < RP_W; i++) display.draw(RPX + i, ay, ' ', '#f0f0f0', BG);
+      const limited = cs.dailyBetTotal + betSize > 2000;
+      const cantAfford = state.player.credits < betSize;
+      const hint = spinState === 'spinning' ? '[ SPINNING... ]'
+                 : limited ? '[ DAILY LIMIT REACHED ]'
+                 : '[ SPACE — SPIN ]';
+      const hfg  = spinState === 'spinning' ? '#ffd633'
+                 : limited ? WC
+                 : (cantAfford ? WC : '#66cc66');
+      const hx = RPX + Math.max(0, Math.floor((RP_W - hint.length) / 2));
+      for (let i = 0; i < hint.length && hx + i < RPX + RP_W; i++) display.draw(hx + i, ay, hint[i], hfg, BG);
+    }
+  }
+
+  function redraw() {
+    drawInnerBlank();
+    drawHeader();
+    drawMachine();
+    drawRightPane();
+    // Vertical divider rows 3 onward
+    for (let r = 3; r < BOX_H - 1; r++) display.draw(DIVX, BOX_Y + r, '│', DC, BG);
+  }
+
+  function startSpin() {
+    if (spinState !== 'idle') return;
+    if (state.player.credits < betSize) return;
+    if (cs.dailyBetTotal + betSize > 2000) return;
+    state.player.credits    = Math.round((state.player.credits - betSize) * 10) / 10;
+    cs.dailyBetTotal        = Math.round((cs.dailyBetTotal + betSize) * 10) / 10;
+    cs.spunToday++;
+    drawStatusBar();
+    finalReels = [SUITS[Math.floor(Math.random()*4)], SUITS[Math.floor(Math.random()*4)], SUITS[Math.floor(Math.random()*4)]];
+    reels = [null, null, null]; resultType = null; payout = 0;
+    spinState = 'spinning'; spinFrame = 0;
+    redraw();
+  }
+
+  function calcPayout() {
+    const [a,b,c] = finalReels;
+    const allSame = a===b && b===c;
+    const anyPair = a===b || b===c || a===c;
+    const aB = BLACK_SUITS.has(a), bB = BLACK_SUITS.has(b), cB = BLACK_SUITS.has(c);
+    const sameColor = (aB&&bB&&cB) || (!aB&&!bB&&!cB);
+    if (allSame)      { resultType = 'jackpot'; payout = Math.round(betSize * 2 * 10) / 10; }
+    else if (anyPair) { resultType = 'pair';    payout = Math.round(betSize * 1.25 * 10) / 10; }
+    else if (sameColor){ resultType = 'color';  payout = Math.round(betSize * 1.5 * 10) / 10; }
+    else               { resultType = 'loss';   payout = 0; }
+    if (payout > 0) { state.player.credits = Math.round((state.player.credits + payout) * 10) / 10; drawStatusBar(); }
+    if (resultType === 'jackpot') { awardStamp(1, false); addLog(`> [CASINO] Jackpot! +${formatCredits(payout)}cr and 1 stamp.`, '#ffd633'); }
+    else if (resultType === 'pair')  addLog(`> [CASINO] Two of a kind. +${formatCredits(payout)}cr.`, '#66cc66');
+    else if (resultType === 'color') addLog(`> [CASINO] Same color. +${formatCredits(payout)}cr.`, '#ff9933');
+  }
+
+  function closeCasino() {
+    casinoMenuCloseFn = null;
+    window.removeEventListener('keydown', casinoKeyHandler);
+    clearMenuRegion(BOX_X, BOX_Y, BOX_W, BOX_H);
+    renderDirty();
+    display.draw(state.player.x, state.player.y, '@', state.player.color || BRIGHT_WHITE, BG);
+    for (const w of state.workers.apprentices) display.draw(w.x, w.y, 'a', '#66ccff', BG);
+    for (const c of state.workers.couriers)    display.draw(c.x, c.y, 'c', '#cc66cc', BG);
+    state.gameState = 'playing';
+  }
+  casinoMenuCloseFn = closeCasino;
+
+  function casinoKeyHandler(e) {
+    if (state.gameState !== 'casino') return;
+    if (e.key === 'Escape') { e.preventDefault(); closeCasino(); return; }
+    if (spinState === 'spinning') return;
+    const betMap = { '1': 10, '2': 50, '3': 100, '4': 500 };
+    if (betMap[e.key] !== undefined) { betSize = betMap[e.key]; cs.lastBetSize = betSize; redraw(); return; }
+    if (e.key === ' ') { e.preventDefault(); startSpin(); return; }
+  }
+  window.addEventListener('keydown', casinoKeyHandler);
+
+  drawBox();
+  redraw();
+
+  // rAF spin animation loop
+  ;(function casinoLoop() {
+    if (state.gameState !== 'casino') return;
+    requestAnimationFrame(casinoLoop);
+    if (spinState !== 'spinning') return;
+    spinFrame++;
+    // Update reel cycling display every 2 frames
+    if (spinFrame % 2 === 0) {
+      reels = [
+        reels[0] || null,   // keep stopped reels
+        reels[1] || null,
+        reels[2] || null,
+      ];
+      drawMachine();
+      // Update right pane reels row
+      const ay = BOX_Y + 3 + 15;
+      for (let i = 0; i < RP_W; i++) display.draw(RPX + i, ay, ' ', '#f0f0f0', BG);
+      let cx = RPX + 2;
+      for (let ri = 0; ri < 3; ri++) {
+        const sym = reels[ri] || SUITS[Math.floor(Math.random()*4)];
+        const fg  = reels[ri] ? SUIT_COLORS[reels[ri]] : '#888888';
+        const block = `[  ${sym}  ]`;
+        for (let j = 0; j < block.length; j++) {
+          const ch = block[j];
+          display.draw(cx+j, ay, ch, (ch==='['||ch===']') ? WC : (ch!==' '?fg:WC), BG);
+        }
+        cx += block.length;
+        if (ri < 2) { display.draw(cx, ay, ' ', '#f0f0f0', BG); cx++; }
+      }
+      // Update credits and spend lines
+      rrow(3, 'Credits: ' + formatCredits(state.player.credits) + 'cr', '#ffd633');
+    }
+    // Reel stop schedule
+    if (spinFrame === 60  && !reels[0]) { reels[0] = finalReels[0]; drawMachine(); }
+    if (spinFrame === 90  && !reels[1]) { reels[1] = finalReels[1]; drawMachine(); }
+    if (spinFrame === 120 && !reels[2]) {
+      reels[2] = finalReels[2];
+      spinState = 'result';
+      calcPayout();
+      redraw();
+    }
+    // After result shown (frame 150), player can spin again
+    if (spinFrame >= 150 && spinState === 'result') {
+      spinState = 'idle';
+      redraw();
+    }
+  })();
 }
 
 // ── Inventory screen (§3.9) ──────────────────────────────────────────────────
@@ -9079,7 +9411,7 @@ setInterval(() => {
     if (officeMenuRedrawFn && state.officeTab === 'upgrades' && state.officeUpgradesPage === 1) officeMenuRedrawFn();
   }
 
-  if (state.gameState !== 'playing' && state.gameState !== 'crafting' && state.gameState !== 'dashboard' && state.gameState !== 'inventory' && state.gameState !== 'lf_menu' && state.gameState !== 'rm_menu' && state.gameState !== 'wb_menu' && state.gameState !== 'mt_menu' && state.gameState !== 'dv_menu' && state.gameState !== 'cottage' && state.gameState !== 'fishing') return;
+  if (state.gameState !== 'playing' && state.gameState !== 'crafting' && state.gameState !== 'dashboard' && state.gameState !== 'inventory' && state.gameState !== 'lf_menu' && state.gameState !== 'rm_menu' && state.gameState !== 'wb_menu' && state.gameState !== 'mt_menu' && state.gameState !== 'dv_menu' && state.gameState !== 'cottage' && state.gameState !== 'fishing' && state.gameState !== 'casino') return;
 
   // Stats: snapshot before tick for delta computation
   const _sCr = state.player.credits;
@@ -9095,6 +9427,19 @@ setInterval(() => {
     // Assign new random blink ticks for uncollected rocks
     for (const rock of Object.values(state.shinyRocks)) {
       if (!rock.collected) rock.blinkTick = Math.floor(Math.random() * 239) + 1;
+    }
+    // Auto-close casino at dawn for non-Black card holders
+    if (state.gameState === 'casino' && state.bank.card?.tier !== 'black') {
+      if (casinoMenuCloseFn) casinoMenuCloseFn();
+      addLog('> The dealer pulls down the shutters. The first light is showing.', '#aa3333');
+    }
+    // Bank notice for big overnight casino losses
+    if (state.bank.casinoStartCredits != null) {
+      const casinoLoss = state.bank.casinoStartCredits - state.player.credits;
+      if (casinoLoss > 500 && state.bank.deposit > 0) {
+        setTimeout(() => addLog('> [BANK] Notice: significant overnight withdrawal pattern detected.', '#555555'), 1500);
+      }
+      state.bank.casinoStartCredits = null;
     }
   }
   const prevMarketOpen = state.marketOpen;
