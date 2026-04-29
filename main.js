@@ -659,17 +659,28 @@ const TITLE_ART = [
 ];
 const PROMPT = "[ press any key to start ]";
 
-const ART_MAX_W = Math.max(...TITLE_ART.map(l => l.length));
-const ART_X     = Math.floor((DISPLAY_WIDTH - ART_MAX_W) / 2);
-const ART_Y     = Math.floor((DISPLAY_HEIGHT - (TITLE_ART.length + 2 + 1)) / 2);
-const PROMPT_X  = Math.floor((DISPLAY_WIDTH - PROMPT.length) / 2);
-const PROMPT_Y  = ART_Y + TITLE_ART.length + 2;
+const ART_MAX_W     = Math.max(...TITLE_ART.map(l => l.length));
+const ART_X         = Math.floor((DISPLAY_WIDTH - ART_MAX_W) / 2);
+const CUBE_W        = 16;
+const CUBE_H        = 10;
+const CUBE_CX       = Math.floor(DISPLAY_WIDTH / 2);
+const TOTAL_TITLE_H = CUBE_H + 1 + TITLE_ART.length + 2 + 1;
+const ART_Y         = Math.floor((DISPLAY_HEIGHT - TOTAL_TITLE_H) / 2) + CUBE_H + 1;
+const CUBE_CY       = ART_Y - CUBE_H + Math.floor(CUBE_H / 2) - 1;
+const PROMPT_X      = Math.floor((DISPLAY_WIDTH - PROMPT.length) / 2);
+const PROMPT_Y      = ART_Y + TITLE_ART.length + 2;
 
-function drawArt() {
+function drawArt(frame = 0) {
   for (let row = 0; row < TITLE_ART.length; row++) {
     const line = TITLE_ART[row];
     for (let col = 0; col < line.length; col++) {
-      display.draw(ART_X + col, ART_Y + row, line[col], BRIGHT_YELLOW, BG);
+      if (line[col] === ' ') continue;
+      const wave = Math.sin((col * 0.12) - (frame * 0.03)) * 0.5 + 0.5;
+      const r = Math.round(200 + wave * 55);
+      const g = Math.round(170 + wave * 44);
+      const b = Math.round(wave * 51);
+      const hex = '#' + [r, g, b].map(c => c.toString(16).padStart(2, '0')).join('');
+      display.draw(ART_X + col, ART_Y + row, line[col], hex, BG);
     }
   }
 }
@@ -681,14 +692,124 @@ function drawPrompt(visible) {
   }
 }
 
+// ── 3D wireframe cube (§3.3) ──────────────────────────────────────────────────
+const CUBE_VERTS = [
+  [-1,-1,-1],[1,-1,-1],[1,1,-1],[-1,1,-1],
+  [-1,-1, 1],[1,-1, 1],[1,1, 1],[-1,1, 1],
+];
+const CUBE_EDGES = [
+  [0,1],[1,2],[2,3],[3,0],
+  [4,5],[5,6],[6,7],[7,4],
+  [0,4],[1,5],[2,6],[3,7],
+];
+let cubeAngleA = 0, cubeAngleB = 0;
+
+function rotateCube(verts, angleA, angleB) {
+  const cosA = Math.cos(angleA), sinA = Math.sin(angleA);
+  const cosB = Math.cos(angleB), sinB = Math.sin(angleB);
+  return verts.map(([x, y, z]) => {
+    const x1 = x * cosA - z * sinA, z1 = x * sinA + z * cosA;
+    const y1 = y * cosB - z1 * sinB, z2 = y * sinB + z1 * cosB;
+    return [x1, y1, z2];
+  });
+}
+
+function projectPoint(x, y, z, cx, cy, scale) {
+  const d = z + 3.5;
+  return [Math.round(cx + (x / d) * scale * 2), Math.round(cy + (y / d) * scale), d];
+}
+
+function edgeChar(dx, dy) {
+  const ax = Math.abs(dx), ay = Math.abs(dy);
+  if (ax > ay * 2) return '─';
+  if (ay > ax * 2) return '│';
+  return (dx > 0 && dy > 0) || (dx < 0 && dy < 0) ? '╲' : '╱';
+}
+
+function drawCubeLine(buf, x0, y0, z0, x1, y1, z1) {
+  const dx = Math.abs(x1-x0), dy = Math.abs(y1-y0);
+  const sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
+  let err = dx - dy, x = x0, y = y0;
+  const steps = Math.max(dx, dy);
+  for (let i = 0; i <= steps; i++) {
+    const t = steps > 0 ? i / steps : 0;
+    const z = z0 + (z1 - z0) * t;
+    const key = `${x},${y}`;
+    if (!buf[key] || z < buf[key].z) buf[key] = { ch: edgeChar(x1-x0, y1-y0), z, x, y };
+    const e2 = 2 * err;
+    if (e2 > -dy) { err -= dy; x += sx; }
+    if (e2 < dx)  { err += dx; y += sy; }
+  }
+}
+
+function renderTitleCube() {
+  cubeAngleA += 0.015; cubeAngleB += 0.008;
+  for (let cy = CUBE_CY - 5; cy <= CUBE_CY + 5; cy++)
+    for (let cx = CUBE_CX - 9; cx <= CUBE_CX + 9; cx++)
+      if (cx >= 0 && cx < DISPLAY_WIDTH && cy >= 0 && cy < DISPLAY_HEIGHT)
+        display.draw(cx, cy, ' ', BRIGHT_WHITE, BG);
+  const rotated   = rotateCube(CUBE_VERTS, cubeAngleA, cubeAngleB);
+  const projected = rotated.map(([x, y, z]) => projectPoint(x, y, z, CUBE_CX, CUBE_CY, 3.5));
+  const buf = {};
+  for (const [i, j] of CUBE_EDGES)
+    drawCubeLine(buf, projected[i][0], projected[i][1], projected[i][2],
+                      projected[j][0], projected[j][1], projected[j][2]);
+  for (const p of Object.values(buf)) {
+    if (p.x < 0 || p.x >= DISPLAY_WIDTH || p.y < 0 || p.y >= DISPLAY_HEIGHT) continue;
+    const fg = p.z < 3.0 ? '#ffd633' : p.z < 3.8 ? '#aa8822' : '#555555';
+    display.draw(p.x, p.y, p.ch, fg, BG);
+  }
+  for (const [px, py, pz] of projected)
+    if (px >= 0 && px < DISPLAY_WIDTH && py >= 0 && py < DISPLAY_HEIGHT)
+      display.draw(px, py, '+', pz < 3.5 ? '#ffd633' : '#777755', BG);
+}
+
+// ── Title particles (§3.3) ────────────────────────────────────────────────────
+const titleParticles  = [];
+const PARTICLE_CHARS  = ['·', '✦', '*'];
+const PARTICLE_COLORS = ['#5a4a20', '#6a5a28', '#4a3a18', '#8a7a30'];
+
+function spawnTitleParticle() {
+  titleParticles.push({
+    x: CUBE_CX - 6 + Math.random() * 12,
+    y: CUBE_CY + 5 + Math.random() * 2,
+    vy: -0.04 - Math.random() * 0.03,
+    vx: (Math.random() - 0.5) * 0.02,
+    char: PARTICLE_CHARS[Math.floor(Math.random() * PARTICLE_CHARS.length)],
+    color: PARTICLE_COLORS[Math.floor(Math.random() * PARTICLE_COLORS.length)],
+    life: 120 + Math.floor(Math.random() * 80),
+  });
+}
+
+let titleFrame = 0;
+
+function titleAnimLoop() {
+  if (state.gameState !== 'title' && state.gameState !== 'title_menu') return;
+  titleFrame++;
+  renderTitleCube();
+  // Update and draw particles
+  for (let i = titleParticles.length - 1; i >= 0; i--) {
+    const p = titleParticles[i];
+    p.x += p.vx; p.y += p.vy; p.life--;
+    if (p.life <= 0) { titleParticles.splice(i, 1); continue; }
+    const px = Math.floor(p.x), py = Math.floor(p.y);
+    if (px >= 0 && px < DISPLAY_WIDTH && py >= 0 && py < DISPLAY_HEIGHT)
+      display.draw(px, py, p.char, p.color, BG);
+  }
+  if (titleParticles.length < 3 && Math.random() < 0.02) spawnTitleParticle();
+  drawArt(titleFrame);
+  requestAnimationFrame(titleAnimLoop);
+}
+
 clearScreen();
-drawArt();
+drawArt(0);
 drawPrompt(true);
 
 const CREDIT  = "Created by Adam A.";
-const VERSION = "Ver: Preview";
-for (let i = 0; i < CREDIT.length;  i++) display.draw(79 - CREDIT.length  + i, 48, CREDIT[i],  '#555555', BG);
-for (let i = 0; i < VERSION.length; i++) display.draw(79 - VERSION.length + i, 49, VERSION[i], '#555555', BG);
+const VERSION = "alpha 1.00.01";
+for (let i = 0; i < CREDIT.length;  i++) display.draw(79 - CREDIT.length  + i, 46, CREDIT[i],  '#555555', BG);
+for (let i = 0; i < VERSION.length; i++) display.draw(79 - VERSION.length + i, 47, VERSION[i], '#555555', BG);
+requestAnimationFrame(titleAnimLoop);
 
 let promptVisible = true;
 let blinkInterval = setInterval(() => {
@@ -1015,13 +1136,17 @@ function buildTileMap() {
   if (state.cottage.owned) placeCottageTiles();
 
   // Border — §4.1 (overwrites edge floor)
-  for (let x = 0; x < DISPLAY_WIDTH; x++) {
-    tileMap[x][0]            = mk('#', DIM_GRAY, false);
-    tileMap[x][WORLD_ROWS-1] = mk('#', DIM_GRAY, false);
+  tileMap[0][0]                          = mk('╔', '#ffd633', false);
+  tileMap[DISPLAY_WIDTH-1][0]            = mk('╗', '#ffd633', false);
+  tileMap[0][WORLD_ROWS-1]               = mk('╚', '#ffd633', false);
+  tileMap[DISPLAY_WIDTH-1][WORLD_ROWS-1] = mk('╝', '#ffd633', false);
+  for (let x = 1; x < DISPLAY_WIDTH - 1; x++) {
+    tileMap[x][0]            = mk('═', '#ffd633', false);
+    tileMap[x][WORLD_ROWS-1] = mk('═', '#ffd633', false);
   }
   for (let y = 1; y < WORLD_ROWS - 1; y++) {
-    tileMap[0][y]               = mk('#', DIM_GRAY, false);
-    tileMap[DISPLAY_WIDTH-1][y] = mk('#', DIM_GRAY, false);
+    tileMap[0][y]               = mk('║', '#ffd633', false);
+    tileMap[DISPLAY_WIDTH-1][y] = mk('║', '#ffd633', false);
   }
 
   // Apply phase unlock colors before stamping stations
@@ -1539,7 +1664,7 @@ function showNewGameConfirm() {
   const BOX_W = INNER_W + 4;
   const BOX_H = 8;
   const BOX_X = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
-  const BOX_Y = Math.max(28, Math.floor((DISPLAY_HEIGHT - BOX_H) / 2));
+  const BOX_Y = Math.max(36, Math.floor((DISPLAY_HEIGHT - BOX_H) / 2));
   const CX = BOX_X + 2;
   display.draw(BOX_X, BOX_Y, '+', WC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y, '+', WC, BG);
   for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, BOX_Y, '-', WC, BG);
@@ -1579,7 +1704,7 @@ function showContinueMenu() {
   const BOX_W = INNER_W + 4;
   const BOX_H = 7;
   const BOX_X = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
-  const BOX_Y = Math.max(28, Math.floor((DISPLAY_HEIGHT - BOX_H) / 2));
+  const BOX_Y = Math.max(36, Math.floor((DISPLAY_HEIGHT - BOX_H) / 2));
   const CX = BOX_X + 2;
   display.draw(BOX_X, BOX_Y, '+', WC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y, '+', WC, BG);
   for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, BOX_Y, '-', WC, BG);
