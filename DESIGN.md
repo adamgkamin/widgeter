@@ -1,6 +1,6 @@
 # WIDGETER — Design Document
 
-**Version:** 0.3
+**Version:** 0.4
 **Status:** Living document — update before changing code, never the other way around.
 
 ---
@@ -92,17 +92,15 @@ Background is `#0a0a0a` (near-black, not pure black — softer on eyes).
 On launch, the screen shows:
 
 ```
-W       W IIII DDDD   GGGG  EEEE  TTTT EEEE  RRRR
-W       W  II  D  D  G     E      TT  E     R  R
-W   W   W  II  D  D  G GG  EEE    TT  EEE   RRRR
-W  W W  W  II  D  D  G  G  E      TT  E     R R
- WW   WW  IIII DDDD   GGGG  EEEE   TT  EEEE  R  R
+                        W       W IIII DDDD   GGGG  EEEE  TTTT EEEE  RRRR
+                        W       W  II  D  D  G     E      TT  E     R  R
+                        W   W   W  II  D  D  G GG  EEE    TT  EEE   RRRR
+                        W  W W  W  II  D  D  G  G  E      TT  E     R R
+                         WW   WW  IIII DDDD   GGGG  EEEE   TT  EEEE  R  R
 
 
-[ press any key to start ]
+                              [ press any key to start ]
 ```
-
-Centering is computed at runtime: `x = floor((80 - maxLineWidth) / 2)`.
 
 Letters in BRIGHT_YELLOW. Subtitle in BRIGHT_CYAN, blinking at 1 Hz.
 
@@ -417,7 +415,9 @@ These numbers are tuned so that Phase 2 unlock at 200 cumulative credits earned 
 - Once all 5 slots filled, a small visual flourish on the building (subtle pulse, brighter color).
 
 **Production cap in Phase 2:**
-- RM purchase cap removed — daily demand `D` is the sole production throttle. See §5.4 for demand model.
+- RM shed introduces a **daily purchase cap of 100 RM/day** at Phase 2 trigger. Resets at dawn.
+- This caps total daily widget production at 100 widgets, regardless of factory size.
+- Removing this cap is a Phase 3 skill-tree unlock ("Bulk RM Contract — 200/day, 500¢").
 
 **Goal of Phase 2:** scale to ~50–100 widgets sold per day. This makes credits accumulate fast enough to feel powerful. Then Phase 3 punishes that scale.
 
@@ -462,6 +462,7 @@ These numbers are tuned so that Phase 2 unlock at 200 cumulative credits earned 
 **Phase 3 skill-tree unlocks (in the Office):**
 - **Demand History Chart** (50¢): adds a chart panel to the Market interaction showing the last 14 days of demand and price.
 - **Market Discount Dump** (250¢): see above.
+- **Bulk RM Contract** (500¢): RM daily cap increases from 100 to 200/day.
 - **Storage Expansion I** (200¢): Storage Warehouse cap +50 widgets, +50 RM.
 - **Storage Expansion II** (500¢): another +100 each.
 - **Reduced Cost of Carry** (300¢): cost of carry drops from 0.2¢ to 0.1¢ per widget per day.
@@ -712,7 +713,6 @@ These are decisions deliberately not made yet. Each should be answered before th
 2. **Pricing formula (Option A vs. Option B in §5.4).** Implement as a swappable function; pick during playtest.
 3. **Sound design specifics.** Hooks defined (§12); actual audio assets and triggers to be tuned later by the player (you).
 4. **Number tuning across all phases.** Every constant in this doc is a starting value subject to playtest revision. Track in changelog.
-   - **Rocket widget target (Phase 5):** 50,000 widgets. Target is 50,000 widgets — tunable after playtesting. At max production (~6.25 widgets/second) this takes roughly 2 hours of active rocket-loading, which is the intended endgame session length.
 
 ---
 
@@ -823,5 +823,138 @@ Cheap atmospheric texture to break up long walks and idle periods.
 - Phase 4+: "Through the Terminal's window, a number ticks up. Then down. Then up again."
 
 **Easter egg — step counter:** once the player has walked **1,000 tiles cumulatively**, a one-time ambient line fires: "Your boots have worn a groove in the path." At 5,000: "You wonder when you last looked at the sky." At 10,000: TBD.
+
+---
+
+## 14. Phase Summary (Quick Reference)
+
+This section is a high-level orientation guide. For exact formulas and mechanics, see §5.
+
+---
+
+### Phase 1 — Manual Production
+
+**Target duration:** ~5 minutes of active play.
+
+**Available from start:**
+- RM Shed — buy raw materials (3cr each)
+- Workbench — craft widgets by hand (3s each, movement locked)
+- Market — sell widgets during market hours (8cr each, flat price)
+- Office — visible but mostly locked
+- All other stations visible but gray/dusty
+
+**Advance trigger:** earn **100 credits lifetime** (cumulative gross sales, not current balance)
+
+---
+
+### Phase 2 — Automation
+
+**Target duration:** ~30–45 minutes.
+
+**Unlocks:**
+- Office skill tree opens fully
+- Factory — up to 5 auto-workbench slots
+- Storage Warehouse — bulk widget and RM storage
+- General Store — clothing and home goods purchasable with stamps
+- Hire Apprentices (up to 5) — fetch RM, craft widgets autonomously
+- Build Courier Robots (up to 4, cost widgets from storage) — deliver to market
+- Worker carry/speed upgrades, courier carry/speed upgrades
+- RM daily purchase cap removed — demand D is the only production throttle
+
+**Advance trigger:** own at least **1 courier robot for 1 full in-game day** AND earn **500 lifetime credits**
+
+---
+
+### Phase 3 — Market Awareness
+
+**Target duration:** ~45–60 minutes.
+
+**Unlocks:**
+- Bank — deposits (10%/day interest), credit cards, credit rating system (CC→S)
+- Newspaper — daily demand headlines, market manipulation via Office MARKETING
+- Daily demand model — market price no longer flat 8cr, fluctuates with demand D
+- Daily demand cap D — market refuses sales beyond D widgets per day
+- Cost of carry — storing widgets costs 0.2cr/widget/day at tick 239
+- Demand History and 7-Day Forecast available via Office MARKETING skills
+- Plant a Story (1,500cr) and Run a Smear (4,000cr) via Office MARKETING
+
+**Advance trigger:** experience at least **one demand crash** (D < 20 on any day) **OR** earn **2,000 lifetime credits** — whichever comes first
+
+---
+
+### Phase 4 — Derivatives
+
+**Target duration:** ~60–90 minutes.
+
+**Unlocks:**
+- Terminal — full trading interface with four tabs (CHART, POSITIONS, TRADE, SPREADS)
+- Forward contracts — lock in tomorrow's price, no premium
+- Futures trading — standardized lots of 10, daily mark-to-market (purchase in Office)
+- Options buy side — calls and puts with simplified premium model (purchase in Office)
+- Options write side — receive premium, take on obligation (purchase in Office)
+- Option spreads — Bull Call, Bear Put, Long Straddle, Short Strangle
+- Open Positions dashboard — live unrealized and realized PnL
+- Volatility tracking — 14-day rolling volatility, Volatility Surface skill
+- Market Intelligence skills — demand history chart, 7-day forecast, positioning report
+
+**Advance trigger:** earn **10,000 lifetime credits**
+
+---
+
+### Phase 5 — The Rocket
+
+**Target duration:** ~60–120 minutes (the endgame grind).
+
+**Unlocks:**
+- Launch Facility colors in — the structure in the corner is finally revealed
+- Courier routing toggle — send couriers to rocket instead of market
+- Rocket widget counter and progress bar in LF menu
+- Ponder hints shift entirely to rocket-loading guidance
+- Status bar shows "LF: Xk/50K" permanently
+
+**Win condition:** load **50,000 widgets** into the rocket — triggers the ending sequence (to be implemented)
+
+---
+
+### Cross-Phase Systems (available throughout)
+
+These systems are not gated by phase — they unlock via their own conditions:
+
+| System | Unlock condition |
+|--------|-----------------|
+| Stamps currency | Available from day 1 — earn by walking, observing, random events |
+| General Store (clothing) | Phase 2 |
+| General Store (home goods) | Phase 2, requires stamps |
+| Cottage | 150 stamps |
+| Cottage furnishings | Various stamp costs, requires cottage |
+| Fishing minigame | Aquatics skill purchased (500cr in inventory Skills tab) |
+| Lake easter egg | Aquatics skill + standing at pond center (22, 25) |
+| Credit cards | Phase 3, requires CC credit rating minimum |
+| Newspaper manipulation | Phase 3, Plant a Story skill in Office MARKETING |
+| Player skills (Endurance, Aquatics, Interfacing) | Credits: 500/5000/50000 per pip |
+| The Casino | Phase 2, requires 1000cr lifetime + 3 shiny rocks |
+
+---
+
+### The Casino
+
+A boarded-up building appears in the north-east corner (x=71, y=11) once the player reaches Phase 2 and has earned 1,000cr lifetime. To unlock it, the player must find three shiny rocks scattered across the map — one red in the forest (5, 12), one yellow in the meadow (42, 8), one blue near the Launch Facility (74, 36). Each rock blinks briefly once per day at a random tick; the player must walk to its exact tile and press Space to collect it. Once all three are in hand, pressing Space at the casino door triggers a short unlock sequence. Inside: a three-reel slot machine. Open after dark only (unless the player holds a Black card). Bets range 10–500cr; payouts are 2× for jackpot (all-same suit, awards 1 stamp), 1.5× for same color, 1.25× for a pair. Daily spend is capped at 2,000cr. Big overnight losses trigger a bank notice at dawn.
+
+### Advancement Notes
+
+- **Triggers use lifetime credits earned**, not current balance. The player cannot shortcut phases by borrowing or using dev credits — `lifetimeCreditsEarned` only increments when widgets are sold.
+- **Phase 3 trigger is OR** — whichever condition hits first (demand crash or 2,000cr). A player who hits 2,000cr without ever seeing a crash still advances.
+- **All phases are forward-only.** There is no going back. Dev Mode can jump to any phase for testing.
+- **The Bank's credit card perks span all phases.** Bronze is achievable in Phase 3, Black requires sustained financial discipline across Phase 3 and 4.
+
+---
+
+### Current To-Do (as of latest update)
+
+- [ ] Launch sequence / ending — currently placeholder at 50,000 widgets
+- [ ] Sound implementation — hooks exist, assets not yet added
+- [ ] Balance pass — all numbers are starting values, need playtesting
+- [ ] Repair Shop station — designed but not built
+- [ ] Full Phase 1→5 natural playthrough — never completed without dev mode
 
 ---

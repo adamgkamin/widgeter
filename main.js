@@ -203,7 +203,7 @@ const state = {
     storage:         { unlocked: false },
     general_store:   { unlocked: false },
     newspaper:       { unlocked: false, lastManipulationDay: -99, manipulationCooldownDays: 3, pendingManipulation: null },
-    casino:          { id: 'CS', x: 71, y: 11, unlocked: false, visible: false, spunToday: 0, dailyBetTotal: 0 },
+    casino:          { id: 'CS', x: 71, y: 11, unlocked: false, visible: false, spunToday: 0, dailyBetTotal: 0, lossesTonight: 0, jackpotLogged: false },
   },
   shinyRocks: {
     red:    { collected: false, blinkTick: -1, x: 5,  y: 12 },
@@ -604,6 +604,8 @@ function loadGame() {
       _cs.visible         = _cs.visible         ?? false;
       _cs.spunToday       = _cs.spunToday       ?? 0;
       _cs.dailyBetTotal   = _cs.dailyBetTotal   ?? 0;
+      _cs.lossesTonight   = _cs.lossesTonight   ?? 0;
+      _cs.jackpotLogged   = _cs.jackpotLogged   ?? false;
     }
     // Shiny rocks (§4.2)
     { const _sr = state.shinyRocks = data.shinyRocks ?? {};
@@ -1358,7 +1360,7 @@ function resetState() {
   state.stations = {
     launch_facility: { unlocked: false }, storage: { unlocked: false }, general_store: { unlocked: false },
     newspaper: { unlocked: false, lastManipulationDay: -99, manipulationCooldownDays: 3, pendingManipulation: null },
-    casino:    { id: 'CS', x: 71, y: 11, unlocked: false, visible: false, spunToday: 0, dailyBetTotal: 0 },
+    casino:    { id: 'CS', x: 71, y: 11, unlocked: false, visible: false, spunToday: 0, dailyBetTotal: 0, lossesTonight: 0, jackpotLogged: false },
   };
   state.shinyRocks = {
     red:    { collected: false, blinkTick: -1, x: 5,  y: 12 },
@@ -3800,7 +3802,8 @@ function showOfficeMenu() {
 
 // ── Stamps currency helpers (§13) ─────────────────────────────────────────────
 
-let stampMsgRecent = [];
+let stampMsgRecent  = [];
+let recentAmbient   = []; // 6-deep no-repeat buffer for ambient flavor lines
 
 function pickStampMsg() {
   const pool = [
@@ -7537,10 +7540,12 @@ function handleInteract() {
 const ROCK_COLORS = { red: '#ff5555', yellow: '#ffd633', blue: '#66ccff' };
 
 function collectRock(color, rock) {
+  const prevCount = Object.values(state.shinyRocks).filter(r => r.collected).length;
   rock.collected = true;
   addLog(`> You pick up a shiny ${color} stone. It's smaller than expected.`, ROCK_COLORS[color]);
   markDirty(rock.x, rock.y);
   renderDirty();
+  if (prevCount === 0) logHistory('Found the first stone.');
   const allCollected = Object.values(state.shinyRocks).every(r => r.collected);
   if (allCollected) setTimeout(() => addLog('> You hold three stones. They are warm in your hand.', '#f0f0f0'), 1000);
 }
@@ -7561,6 +7566,7 @@ function handleCasinoUnlock() {
   setTimeout(() => {
     wrapLog("> A voice from inside: 'we've been waiting.'", '#aa3333');
     cs.unlocked = true;
+    logHistory('Cracked open the boarded door.');
     stampCasino(false);
     renderDirty();
     display.draw(state.player.x, state.player.y, '@', state.player.color || BRIGHT_WHITE, BG);
@@ -7823,8 +7829,12 @@ function openCasinoMenu() {
     else if (sameColor){ resultType = 'color';  payout = Math.round(betSize * 1.5 * 10) / 10; }
     else               { resultType = 'loss';   payout = 0; }
     if (payout > 0) { state.player.credits = Math.round((state.player.credits + payout) * 10) / 10; drawStatusBar(); }
-    if (resultType === 'jackpot') { awardStamp(1, false); addLog(`> [CASINO] Jackpot! +${formatCredits(payout)}cr and 1 stamp.`, '#ffd633'); }
-    else if (resultType === 'pair')  addLog(`> [CASINO] Two of a kind. +${formatCredits(payout)}cr.`, '#66cc66');
+    if (resultType === 'loss') { cs.lossesTonight = Math.round(((cs.lossesTonight || 0) + betSize) * 10) / 10; }
+    if (resultType === 'jackpot') {
+      awardStamp(1, false);
+      addLog(`> [CASINO] Jackpot! +${formatCredits(payout)}cr and 1 stamp.`, '#ffd633');
+      if (!cs.jackpotLogged) { cs.jackpotLogged = true; logHistory('The house lost. Once.'); }
+    } else if (resultType === 'pair')  addLog(`> [CASINO] Two of a kind. +${formatCredits(payout)}cr.`, '#66cc66');
     else if (resultType === 'color') addLog(`> [CASINO] Same color. +${formatCredits(payout)}cr.`, '#ff9933');
   }
 
@@ -9423,7 +9433,7 @@ setInterval(() => {
   if (state.dayTick >= 240) {
     state.dayTick = 0; state.day++; state.bellFiredToday = false; state.widgetsSoldToday = 0; state.demandMetLogged = false; state._demandImmunityActiveToday = false; state.stats.widgetsMadeToday = 0; state.stats.revenueToday = 0; state.stats.costsToday = 0; state.fishing.catchesToday = 0;
     // Casino daily reset
-    if (state.stations.casino) { state.stations.casino.spunToday = 0; state.stations.casino.dailyBetTotal = 0; }
+    if (state.stations.casino) { state.stations.casino.spunToday = 0; state.stations.casino.dailyBetTotal = 0; state.stations.casino.lossesTonight = 0; }
     // Assign new random blink ticks for uncollected rocks
     for (const rock of Object.values(state.shinyRocks)) {
       if (!rock.collected) rock.blinkTick = Math.floor(Math.random() * 239) + 1;
@@ -9970,7 +9980,29 @@ setInterval(() => {
         'You wonder what a widget looks like from orbit.',
       );
     }
-    addLog(AMBIENT[Math.floor(Math.random() * AMBIENT.length)], '#555555');
+    // Build pool as {text,color} objects; start with core strings at #555555
+    const AMB_POOL = AMBIENT.map(t => ({ text: t, color: '#555555' }));
+    // Casino night-time ambients
+    if (state.stations.casino?.unlocked && !state.marketOpen) {
+      AMB_POOL.push(
+        { text: '> A faint piano sound carries on the wind.', color: '#555555' },
+        { text: '> The casino windows are lit. Yellow light through cracked glass.', color: '#aa3333' },
+        { text: '> Someone laughs in the distance. You can\'t tell if it\'s joy.', color: '#555555' },
+        { text: '> The night smells like cigar smoke. From which direction?', color: '#555555' },
+      );
+      // Big-loser line — double frequency when > 500cr lost tonight
+      if ((state.stations.casino.lossesTonight || 0) > 500) {
+        const loser = { text: '> The casino does not need you tonight.', color: '#aa3333' };
+        AMB_POOL.push(loser, loser);
+      }
+    }
+    // No-repeat filter (6-deep)
+    const avail = AMB_POOL.filter(a => !recentAmbient.includes(a.text));
+    const src   = avail.length > 0 ? avail : AMB_POOL;
+    const pick  = src[Math.floor(Math.random() * src.length)];
+    recentAmbient.push(pick.text);
+    if (recentAmbient.length > 6) recentAmbient.shift();
+    addLog(pick.text, pick.color);
     state.lastAmbientTick  = state.tick;
     state.nextAmbientDelay = 20 + Math.floor(Math.random() * 61); // 20–80
   }
