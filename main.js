@@ -304,6 +304,17 @@ const state = {
     interfacing:  { pips: 0 },
   },
   craftingTimeRemote: 10,
+  fishing: {
+    totalCatches:  0,
+    catchesToday:  0,
+    dailyLimit:    5,
+    // transient fields — reset on menu open
+    currentPhase:  'menu',
+    fishTimer:     0,
+    biteTimer:     0,
+    fishX:         0,
+    animTick:      0,
+  },
 };
 
 // Transient animation state — not saved to localStorage
@@ -373,6 +384,9 @@ function saveGame() {
     stampHintFired:       state.player.stampHintFired,
     stampHintTick:        state.player.stampHintTick,
     newspaper:            state.newspaper,
+    fishingTotalCatches:  state.fishing.totalCatches,
+    fishingCatchesToday:  state.fishing.catchesToday,
+    fishingDailyLimit:    state.fishing.dailyLimit,
   };
   localStorage.setItem(SAVE_KEY, JSON.stringify(data));
 }
@@ -558,6 +572,16 @@ function loadGame() {
     state.stations.newspaper.lastManipulationDay    = state.stations.newspaper.lastManipulationDay    ?? -99;
     state.stations.newspaper.manipulationCooldownDays = state.stations.newspaper.manipulationCooldownDays ?? 3;
     state.stations.newspaper.pendingManipulation    = state.stations.newspaper.pendingManipulation    ?? null;
+    // Fishing (§4.2) — only totalCatches, catchesToday, dailyLimit are persistent
+    state.fishing = state.fishing ?? {};
+    state.fishing.totalCatches  = data.fishingTotalCatches  ?? 0;
+    state.fishing.catchesToday  = data.fishingCatchesToday  ?? 0;
+    state.fishing.dailyLimit    = data.fishingDailyLimit    ?? 5;
+    state.fishing.currentPhase  = 'menu';
+    state.fishing.fishTimer     = 0;
+    state.fishing.biteTimer     = 0;
+    state.fishing.fishX         = 0;
+    state.fishing.animTick      = 0;
   } catch (_) {
     // corrupt save — start fresh
   }
@@ -984,6 +1008,12 @@ function buildTileMap() {
   if (state.skills.aquatics?.purchased) {
     for (const t of shimmerTiles) tileMap[t.x][t.y].playerWalkable = true;
   }
+  // Pond center Look Mode description (§4.2)
+  if (tileMap[22] && tileMap[22][25]) {
+    tileMap[22][25].description = state.skills.aquatics?.purchased
+      ? 'The center of the lake. The water is calm. Press space to fish.'
+      : 'The deepest part of the pond. You cannot reach it.';
+  }
 }
 
 // Inject cottage tiles into the live tileMap and mark them dirty.
@@ -1298,6 +1328,7 @@ function resetState() {
   state.skills = { apprenticeCount: 0, courierCount: 0, workerCarryLevel: 0, workerSpeedLevel: 0, courierCarryLevel: 0, courierSpeedLevel: 0, storageExp1: 0, storageExp2: 0, reducedCarry: 0, discountDump: 0, demandHistory: 0, forecast: 0, futures: 0, optionsBuy: 0, optionsWrite: 0, volatilitySurface: 0, plantStory: 0, smearCampaign: 0, endurance: { pips: 0 }, aquatics: { purchased: false }, interfacing: { pips: 0 } };
   state.craftingTimeRemote = 10;
   state.stats.pondStepsWalked = 0;
+  state.fishing = { totalCatches: 0, catchesToday: 0, dailyLimit: 5, currentPhase: 'menu', fishTimer: 0, biteTimer: 0, fishX: 0, animTick: 0 };
   state.cottage = { owned: false, mapX: 40, mapY: 21, playerX: 10, playerY: 5, furniture: {}, visited: false, catX: 9, catY: 7, matLoggedThisVisit: false };
   state.bookshelfLog = [];
   state.officeAnim = { apprenticeFlash: 0, courierFlash: 0 };
@@ -6862,7 +6893,417 @@ function exitCottage() {
   for (const c of state.workers.couriers)    display.draw(c.x, c.y, 'c', '#cc66cc', BG);
 }
 
+// ── Fishing minigame (§4.2) ──────────────────────────────────────────────────
+
+function openFishingMenu() {
+  state.gameState = 'fishing';
+
+  const FC    = '#1a6a8a';   // frame color (deep lake blue)
+  const WC    = '#1a6a8a';   // water color (same)
+  const DC    = '#333333';
+  const TC    = '#aaddff';
+  const BOX_W = 54;
+  const BOX_H = 18;
+  const IW    = 52;
+  const LP_W  = 14;
+  const RP_W  = 37;
+  const BOX_X = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
+  const BOX_Y = Math.max(1, Math.floor((WORLD_ROWS - BOX_H) / 2));
+  const DIVX  = BOX_X + 1 + LP_W;
+  const RPX   = DIVX + 1;
+  const SCENE_ROWS = 14; // rows 3–16 inside box
+
+  // Reset transient state
+  const f = state.fishing;
+  f.currentPhase = 'menu';
+  f.fishTimer    = 0;
+  f.biteTimer    = 0;
+  f.fishX        = 0;
+  f.animTick     = 0;
+
+  // ── Bubble art (14 cols × 10 rows) ─────────────────────────────────────
+  const BUBBLE_ROWS = [
+    '     o        ',
+    '  O     o     ',
+    '    o      O  ',
+    '  o    O      ',
+    '       o   o  ',
+    '  O       O   ',
+    '    o  o      ',
+    ' O        o   ',
+    '    O   O     ',
+    '  o      o    ',
+  ];
+  // Shift bubbles up by 1 row every 8 ticks (wrap bottom → top)
+  function getBubbleRow(r) {
+    const shift = Math.floor(f.animTick / 8) % BUBBLE_ROWS.length;
+    return BUBBLE_ROWS[(r + shift) % BUBBLE_ROWS.length];
+  }
+
+  // ── Drawing helpers ───────────────────────────────────────────────────────
+  function border() {
+    display.draw(BOX_X, BOX_Y, '╔', FC, BG);
+    display.draw(BOX_X + BOX_W - 1, BOX_Y, '╗', FC, BG);
+    display.draw(BOX_X, BOX_Y + BOX_H - 1, '╚', FC, BG);
+    display.draw(BOX_X + BOX_W - 1, BOX_Y + BOX_H - 1, '╝', FC, BG);
+    for (let i = 1; i < BOX_W - 1; i++) {
+      display.draw(BOX_X + i, BOX_Y, '═', FC, BG);
+      display.draw(BOX_X + i, BOX_Y + BOX_H - 1, '═', FC, BG);
+    }
+    for (let y = 1; y < BOX_H - 1; y++) {
+      display.draw(BOX_X, BOX_Y + y, '║', FC, BG);
+      display.draw(BOX_X + BOX_W - 1, BOX_Y + y, '║', FC, BG);
+    }
+  }
+
+  function irow(r, text, fg) {
+    const p = menuPad(text, IW);
+    for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, BOX_Y + r, p[i] || ' ', fg, BG);
+  }
+
+  function rrow(r, text, fg) {
+    const p = menuPad(text, RP_W);
+    for (let i = 0; i < RP_W; i++) display.draw(RPX + i, BOX_Y + r, p[i] || ' ', fg, BG);
+  }
+
+  // Water row helper — animated ripple
+  function drawWaterRow(displayY) {
+    const offset = Math.floor(f.animTick / 4) % 2;
+    for (let i = 0; i < IW; i++) {
+      const ch = (i + offset) % 2 === 0 ? '~' : '-';
+      display.draw(BOX_X + 1 + i, displayY, ch, WC, BG);
+    }
+  }
+
+  // Draw scene row (col 0 = BOX_X+1, width = IW)
+  function sceneRow(r, chars) {
+    const dy = BOX_Y + 3 + r;
+    for (let i = 0; i < IW; i++) {
+      const ch = (chars[i] !== undefined ? chars[i] : ' ');
+      let fg = BRIGHT_WHITE;
+      // Coloring rules
+      if (ch === '~' || ch === '-') { fg = WC; }
+      else if (ch === '\\' || ch === '|' || ch === '_') { fg = '#aa7744'; }
+      else if (ch === '●') { fg = f.currentPhase === 'biting' ? '#ff5555' : '#f0f0f0'; }
+      else if (ch === '!') { fg = '#ff5555'; }
+      else if (ch === '.') { fg = DC; }
+      else if (ch !== ' ') { fg = BRIGHT_WHITE; }
+      display.draw(BOX_X + 1 + i, dy, ch, fg, BG);
+    }
+  }
+
+  // ── Menu phase renderer ──────────────────────────────────────────────────
+  function renderMenu() {
+    // Row 1: header
+    { const ay = BOX_Y + 1;
+      display.draw(BOX_X, ay, '║', FC, BG); display.draw(BOX_X + BOX_W - 1, ay, '║', FC, BG);
+      const title = 'GO FISHIN\'', hint = 'press esc to exit';
+      for (let i = 0; i < IW; i++) {
+        const ch = i < title.length ? title[i] : (i >= IW - hint.length ? hint[i - (IW - hint.length)] : ' ');
+        const fg = i < title.length ? TC : (i >= IW - hint.length ? DC : BRIGHT_WHITE);
+        display.draw(BOX_X + 1 + i, ay, ch, fg, BG);
+      }
+    }
+    // Row 2: ═ separator
+    { const ay = BOX_Y + 2;
+      display.draw(BOX_X, ay, '║', FC, BG); display.draw(BOX_X + BOX_W - 1, ay, '║', FC, BG);
+      for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '═', DC, BG); }
+
+    // Left pane: bubbles (rows 3–12)
+    for (let r = 0; r < 10; r++) {
+      const dy = BOX_Y + 3 + r;
+      display.draw(BOX_X, dy, '║', FC, BG); display.draw(BOX_X + BOX_W - 1, dy, '║', FC, BG);
+      const row = getBubbleRow(r);
+      for (let i = 0; i < LP_W; i++) {
+        const ch = row[i] || ' ';
+        const fg = ch === 'O' ? '#4a8aaa' : ch === 'o' ? '#2a5a7a' : BRIGHT_WHITE;
+        display.draw(BOX_X + 1 + i, dy, ch, fg, BG);
+      }
+      display.draw(DIVX, dy, '│', DC, BG);
+    }
+    // rows 13–16: blank left pane
+    for (let r = 10; r < 14; r++) {
+      const dy = BOX_Y + 3 + r;
+      display.draw(BOX_X, dy, '║', FC, BG); display.draw(BOX_X + BOX_W - 1, dy, '║', FC, BG);
+      for (let i = 0; i < LP_W; i++) display.draw(BOX_X + 1 + i, dy, ' ', BRIGHT_WHITE, BG);
+      display.draw(DIVX, dy, '│', DC, BG);
+    }
+
+    // Right pane rows (0–13)
+    const outOfFish = f.catchesToday >= f.dailyLimit;
+    rrow(0, '', BRIGHT_WHITE);
+    rrow(1, `Catches today:  ${f.catchesToday} / ${f.dailyLimit}`, TC);
+    rrow(2, `Total catches:  ${f.totalCatches}`, '#555555');
+    rrow(3, `Scrap earned:   ${f.totalCatches}`, '#aa9966');
+    rrow(4, '', BRIGHT_WHITE);
+    // row 5: separator
+    { const dy = BOX_Y + 3 + 5;
+      display.draw(BOX_X, dy, '║', FC, BG); display.draw(BOX_X + BOX_W - 1, dy, '║', FC, BG);
+      display.draw(DIVX, dy, '│', DC, BG);
+      for (let i = 0; i < 35; i++) display.draw(RPX + i, dy, '─', DC, BG);
+      for (let i = 35; i < RP_W; i++) display.draw(RPX + i, dy, ' ', BRIGHT_WHITE, BG); }
+    rrow(6, '', BRIGHT_WHITE);
+    rrow(7, outOfFish ? "You've fished enough for today." : 'The pond is calm today.', '#555555');
+    rrow(8, '', BRIGHT_WHITE);
+    if (!outOfFish) {
+      const castText = '[ SPACE — CAST YOUR LINE ]';
+      const cx = Math.floor((RP_W - castText.length) / 2);
+      rrow(9, '', BRIGHT_WHITE);
+      const dy = BOX_Y + 3 + 9;
+      display.draw(BOX_X, dy, '║', FC, BG); display.draw(BOX_X + BOX_W - 1, dy, '║', FC, BG);
+      display.draw(DIVX, dy, '│', DC, BG);
+      for (let i = 0; i < RP_W; i++) display.draw(RPX + i, dy, ' ', BRIGHT_WHITE, BG);
+      for (let i = 0; i < castText.length; i++) display.draw(RPX + cx + i, dy, castText[i], '#66cc66', BG);
+    } else {
+      const outText = '[ FISHED OUT — COME BACK TOMORROW ]';
+      const cx = Math.floor((RP_W - outText.length) / 2);
+      const dy = BOX_Y + 3 + 9;
+      display.draw(BOX_X, dy, '║', FC, BG); display.draw(BOX_X + BOX_W - 1, dy, '║', FC, BG);
+      display.draw(DIVX, dy, '│', DC, BG);
+      for (let i = 0; i < RP_W; i++) display.draw(RPX + i, dy, ' ', BRIGHT_WHITE, BG);
+      for (let i = 0; i < outText.length; i++) display.draw(RPX + cx + i, dy, outText[i], DC, BG);
+    }
+    for (let r = 10; r < 14; r++) {
+      const dy = BOX_Y + 3 + r;
+      display.draw(BOX_X, dy, '║', FC, BG); display.draw(BOX_X + BOX_W - 1, dy, '║', FC, BG);
+      display.draw(DIVX, dy, '│', DC, BG);
+      for (let i = 0; i < RP_W; i++) display.draw(RPX + i, dy, ' ', BRIGHT_WHITE, BG);
+    }
+  }
+
+  // ── Scene phase renderer ─────────────────────────────────────────────────
+  // Builds 14-row scene strings and draws them
+  function renderScene() {
+    // Side borders for all scene rows
+    for (let r = 0; r < SCENE_ROWS; r++) {
+      display.draw(BOX_X, BOX_Y + 3 + r, '║', FC, BG);
+      display.draw(BOX_X + BOX_W - 1, BOX_Y + 3 + r, '║', FC, BG);
+    }
+    const phase = f.currentPhase;
+    const baitCol = 37; // column of bait ● in scene (0-indexed, IW=52)
+
+    // Build base 14 rows for scene phases
+    const S = Array(SCENE_ROWS).fill(null).map(() => Array(IW).fill(' '));
+
+    // Helper to paint a string into scene row r starting at col c
+    function paint(r, c, str, overrideFg) {
+      for (let i = 0; i < str.length && c + i < IW; i++) S[r][c + i] = str[i];
+    }
+
+    // Rod and line (phases casted/approaching/biting/success)
+    if (phase !== 'uncasted') {
+      paint(1, 19, '\\');
+      paint(2, 20, '\\_______________');
+      paint(3, 36, '\\');
+      paint(4, 37, '|');
+      paint(5, 37, '|');
+      paint(6, 37, '|');
+      paint(7, 37, '|');
+    } else {
+      // Uncasted rod
+      paint(1, 23, '\\');
+      paint(2, 24, '\\');
+      paint(3, 25, '|');
+      paint(4, 25, '|');
+      paint(5, 25, '|  ready...');
+    }
+
+    // Water rows 8-9
+    const waterOffset = Math.floor(f.animTick / 4) % 2;
+    for (let r = 8; r <= 9; r++) {
+      for (let i = 0; i < IW; i++) {
+        S[r][i] = i === 0 ? ' ' : ((i + waterOffset) % 2 === 0 ? '~' : '-');
+      }
+    }
+
+    // Phase-specific content
+    if (phase === 'casted' || phase === 'approaching') {
+      // Line through water and bait
+      S[8][baitCol] = '|'; S[9][baitCol] = '|';
+      S[10][baitCol] = '●';
+      paint(10, baitCol + 1, ' ');
+      S[11][baitCol] = '|';
+      paint(13, 14, '... waiting ...');
+    }
+
+    if (phase === 'approaching') {
+      // Fish ><> moving left
+      const fx = Math.min(f.fishX, IW - 3);
+      if (fx >= 0 && fx + 2 < IW) {
+        S[10][fx] = '>'; S[10][fx + 1] = '<'; S[10][fx + 2] = '>';
+      }
+    }
+
+    if (phase === 'biting') {
+      S[8][baitCol] = '!'; S[9][baitCol] = '|';
+      // Fish adjacent to bait on left
+      S[10][baitCol - 3] = '>'; S[10][baitCol - 2] = '<'; S[10][baitCol - 1] = '>';
+      S[10][baitCol] = '●';
+      S[11][baitCol] = '|';
+      // Blinking row 13
+      const blink = Math.floor(f.animTick / 15) % 2 === 0;
+      if (blink) paint(13, 14, '!! PRESS SPACE !!');
+    }
+
+    if (phase === 'success') {
+      S[10][baitCol] = ' '; S[11][baitCol] = '|';
+      // Fish on the rod
+      S[5][baitCol - 3] = '>'; S[5][baitCol - 2] = '<'; S[5][baitCol - 1] = '>';
+      paint(5, baitCol + 1, '  CATCH!');
+      paint(11, 15, '+1 SCRAP');
+      paint(13, 10, '[ SPACE to continue ]');
+    }
+
+    if (phase === 'miss') {
+      // Fish swims right
+      const fx = Math.min(f.fishX, IW - 1);
+      if (fx < IW - 3) {
+        S[10][fx] = '>'; S[10][fx + 1] = '<'; S[10][fx + 2] = '>';
+      }
+      S[10][baitCol] = '●';
+      S[11][baitCol] = '|';
+      const missTextVisible = f.animTick > 30;
+      if (missTextVisible) {
+        const missMsg = f.animTick > 60 ? '[ SPACE to try again ]' : 'the fish got away...';
+        paint(13, 10, missMsg);
+      }
+    }
+
+    // Draw each scene row with correct colors
+    for (let r = 0; r < SCENE_ROWS; r++) {
+      const dy = BOX_Y + 3 + r;
+      for (let i = 0; i < IW; i++) {
+        const ch = S[r][i];
+        let fg = BRIGHT_WHITE;
+        if (ch === '~' || ch === '-')            fg = WC;
+        else if (ch === '\\' || ch === '_')      fg = '#aa7744';
+        else if (ch === '|') {
+          // Line below water (rows 10-11) is dim
+          fg = (r >= 10) ? '#555555' : '#aa7744';
+        }
+        else if (ch === '●') {
+          fg = phase === 'biting' ? '#ff5555' : '#f0f0f0';
+        }
+        else if (ch === '!' )                    fg = '#ff5555';
+        else if (ch === '>') {
+          fg = phase === 'biting' ? '#ff9933' : phase === 'approaching' ? '#4a8a4a' : phase === 'success' ? '#66cc66' : '#555555';
+          // For ><> check: fish chars are > < >
+        }
+        else if (ch === '<') {
+          fg = phase === 'biting' ? '#ff9933' : phase === 'approaching' ? '#4a8a4a' : phase === 'success' ? '#66cc66' : '#555555';
+        }
+        else if (ch === '.')                     fg = DC;
+        else if (ch === '+')                     fg = '#aa9966';
+        else if (ch === 'C' || ch === 'A' || ch === 'T' || ch === 'H') {
+          fg = '#66cc66'; // CATCH!
+        }
+        else if (ch === 'S' && r === 11)        fg = '#aa9966'; // SCRAP
+        else if (ch === 'r' || ch === 'e' || ch === 'a' || ch === 'd' || ch === 'y') {
+          fg = '#555555'; // "ready..."
+        }
+        else if (ch !== ' ')                     fg = BRIGHT_WHITE;
+        display.draw(BOX_X + 1 + i, dy, ch, fg, BG);
+      }
+    }
+  }
+
+  // ── Header rows 1-2 for scene phases ────────────────────────────────────
+  function renderSceneHeader() {
+    const ay1 = BOX_Y + 1;
+    display.draw(BOX_X, ay1, '║', FC, BG); display.draw(BOX_X + BOX_W - 1, ay1, '║', FC, BG);
+    const title = 'GO FISHIN\'', hint = 'press esc to exit';
+    for (let i = 0; i < IW; i++) {
+      const ch = i < title.length ? title[i] : (i >= IW - hint.length ? hint[i - (IW - hint.length)] : ' ');
+      const fg = i < title.length ? TC : (i >= IW - hint.length ? DC : BRIGHT_WHITE);
+      display.draw(BOX_X + 1 + i, ay1, ch, fg, BG);
+    }
+    const ay2 = BOX_Y + 2;
+    display.draw(BOX_X, ay2, '║', FC, BG); display.draw(BOX_X + BOX_W - 1, ay2, '║', FC, BG);
+    for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay2, '═', DC, BG);
+  }
+
+  // ── Phase logic (called from fishingLoop) ────────────────────────────────
+  function updateFishingPhase() {
+    const phase = f.currentPhase;
+    if (phase === 'uncasted') {
+      if (f.fishTimer <= 0) { f.currentPhase = 'casted'; f.fishTimer = 180 + Math.floor(Math.random() * 240); }
+      else f.fishTimer--;
+    } else if (phase === 'casted') {
+      if (f.fishTimer <= 0) { f.currentPhase = 'approaching'; f.fishX = IW - 4; }
+      else f.fishTimer--;
+    } else if (phase === 'approaching') {
+      if (f.animTick % 3 === 0) f.fishX--;
+      if (f.fishX <= 37 - 3) { f.currentPhase = 'biting'; f.biteTimer = 60; }
+    } else if (phase === 'biting') {
+      f.biteTimer--;
+      if (f.biteTimer <= 0) { f.currentPhase = 'miss'; f.animTick = 0; }
+    } else if (phase === 'miss') {
+      if (f.animTick % 2 === 0 && f.fishX < IW - 1) f.fishX++;
+    }
+  }
+
+  // ── Main fishing render/update ────────────────────────────────────────────
+  function renderFishingFrame() {
+    border();
+    renderSceneHeader();
+    const phase = f.currentPhase;
+    if (phase === 'menu') {
+      renderMenu();
+    } else {
+      renderScene();
+    }
+  }
+
+  // ── fishingLoop ───────────────────────────────────────────────────────────
+  function fishingLoop() {
+    if (state.gameState !== 'fishing') return;
+    f.animTick++;
+    updateFishingPhase();
+    renderFishingFrame();
+    requestAnimationFrame(fishingLoop);
+  }
+
+  // ── Keyboard handler ──────────────────────────────────────────────────────
+  function fishKeyHandler(e) {
+    if (state.gameState !== 'fishing') { window.removeEventListener('keydown', fishKeyHandler); return; }
+    if (e.key === 'Escape') {
+      window.removeEventListener('keydown', fishKeyHandler);
+      state.gameState = 'playing';
+      clearMenuRegion(BOX_X, BOX_Y, BOX_W, BOX_H);
+      renderDirty();
+      display.draw(state.player.x, state.player.y, '@', state.player.color || BRIGHT_WHITE, BG);
+      return;
+    }
+    if (e.key !== ' ') return;
+    e.preventDefault();
+    const phase = f.currentPhase;
+    if (phase === 'menu') {
+      if (f.catchesToday < f.dailyLimit) { f.currentPhase = 'uncasted'; f.fishTimer = 8; }
+    } else if (phase === 'biting') {
+      // Caught!
+      f.currentPhase = 'success'; f.animTick = 0;
+      f.catchesToday++;
+      f.totalCatches++;
+      awardStamp(1, false);
+      addLog('> You caught a fish! +1 scrap.', '#aa9966');
+    } else if (phase === 'success') {
+      f.currentPhase = 'menu'; f.fishTimer = 0; f.fishX = 0;
+    } else if (phase === 'miss') {
+      if (f.animTick > 60) { f.currentPhase = 'menu'; f.fishTimer = 0; f.fishX = 0; }
+    }
+  }
+
+  // ── Init ──────────────────────────────────────────────────────────────────
+  window.addEventListener('keydown', fishKeyHandler);
+  renderFishingFrame();
+  requestAnimationFrame(fishingLoop);
+}
+
 function handleInteract() {
+  // Fishing: pond center (22, 25) with Aquatics
+  if (state.player.x === 22 && state.player.y === 25 && state.skills.aquatics?.purchased) {
+    openFishingMenu(); return;
+  }
   const rm = STATION_DEFS.find(s => s.label === 'RM');
   if (rm && isAdjacentToStation(rm)) { openRMShedMenu(); return; }
   const wb = STATION_DEFS.find(s => s.label === 'WB');
@@ -8363,7 +8804,7 @@ setInterval(() => {
     if (officeMenuRedrawFn && state.officeTab === 'upgrades' && state.officeUpgradesPage === 1) officeMenuRedrawFn();
   }
 
-  if (state.gameState !== 'playing' && state.gameState !== 'crafting' && state.gameState !== 'dashboard' && state.gameState !== 'inventory' && state.gameState !== 'lf_menu' && state.gameState !== 'rm_menu' && state.gameState !== 'wb_menu' && state.gameState !== 'mt_menu' && state.gameState !== 'dv_menu' && state.gameState !== 'cottage') return;
+  if (state.gameState !== 'playing' && state.gameState !== 'crafting' && state.gameState !== 'dashboard' && state.gameState !== 'inventory' && state.gameState !== 'lf_menu' && state.gameState !== 'rm_menu' && state.gameState !== 'wb_menu' && state.gameState !== 'mt_menu' && state.gameState !== 'dv_menu' && state.gameState !== 'cottage' && state.gameState !== 'fishing') return;
 
   // Stats: snapshot before tick for delta computation
   const _sCr = state.player.credits;
@@ -8372,7 +8813,7 @@ setInterval(() => {
 
   state.tick++;
   state.dayTick++;
-  if (state.dayTick >= 240) { state.dayTick = 0; state.day++; state.bellFiredToday = false; state.widgetsSoldToday = 0; state.demandMetLogged = false; state._demandImmunityActiveToday = false; state.stats.widgetsMadeToday = 0; state.stats.revenueToday = 0; state.stats.costsToday = 0; }
+  if (state.dayTick >= 240) { state.dayTick = 0; state.day++; state.bellFiredToday = false; state.widgetsSoldToday = 0; state.demandMetLogged = false; state._demandImmunityActiveToday = false; state.stats.widgetsMadeToday = 0; state.stats.revenueToday = 0; state.stats.costsToday = 0; state.fishing.catchesToday = 0; }
   const prevMarketOpen = state.marketOpen;
   state.marketOpen = state.dayTick < 180;
   if (state.marketOpen !== prevMarketOpen) startDayNightFlash(state.marketOpen ? 'open' : 'close');
