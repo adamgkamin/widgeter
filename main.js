@@ -116,8 +116,8 @@ function setFullscreen(enabled) {
 
 function fullRedraw() {
   const gs = state ? state.gameState : 'title';
-  if (gs === 'title' || gs === 'title_menu') {
-    clearScreen(); drawTitleBorder(); drawArt(); drawPrompt(true);
+  if (gs === 'title' || gs === 'title_menu' || gs === 'changelog') {
+    clearScreen(); drawTitleBorder(); drawArt(); drawPrompt(true); drawTitleBottomText();
   } else if (gs === 'cottage') {
     clearScreen(); drawCottageInterior(); drawStatusBar(); renderLog();
   } else if (gs !== 'transitioning' && gs !== 'intro') {
@@ -786,7 +786,7 @@ function spawnTitleParticle() {
 let titleFrame = 0;
 
 function titleAnimLoop() {
-  if (state.gameState !== 'title' && state.gameState !== 'title_menu') return;
+  if (state.gameState !== 'title' && state.gameState !== 'title_menu' && state.gameState !== 'changelog') return;
   titleFrame++;
 
   // Step 1: Clear the entire cube/particle zone (rows 2..ART_Y-1, inside border)
@@ -832,9 +832,14 @@ drawArt(0);
 drawPrompt(true);
 
 const CREDIT  = "Created by Adam A.";
-const VERSION = "alpha 1.02.02";
-for (let i = 0; i < CREDIT.length;  i++) display.draw(77 - CREDIT.length  + i, 46, CREDIT[i],  '#555555', BG);
-for (let i = 0; i < VERSION.length; i++) display.draw(77 - VERSION.length + i, 47, VERSION[i], '#555555', BG);
+const VERSION = "alpha 1.02.03";
+function drawTitleBottomText() {
+  const CHLABEL = 'press c for changelog';
+  for (let i = 0; i < CREDIT.length;   i++) display.draw(77 - CREDIT.length   + i, 45, CREDIT[i],   '#555555', BG);
+  for (let i = 0; i < VERSION.length;  i++) display.draw(77 - VERSION.length  + i, 46, VERSION[i],  '#555555', BG);
+  for (let i = 0; i < CHLABEL.length;  i++) display.draw(77 - CHLABEL.length  + i, 47, CHLABEL[i],  '#333333', BG);
+}
+drawTitleBottomText();
 requestAnimationFrame(titleAnimLoop);
 
 let promptVisible = true;
@@ -1683,7 +1688,7 @@ function resetState() {
 }
 
 function showNewGameConfirm() {
-  clearScreen(); drawTitleBorder(); drawArt();
+  clearScreen(); drawTitleBorder(); drawArt(); drawTitleBottomText();
   state.gameState = 'title_menu';
   const WC = '#555555';
   const INNER_W = 23; // "Your save will be lost."
@@ -1817,8 +1822,85 @@ function showTitleOptions() {
   window.addEventListener('keydown', optsKeyHandler);
 }
 
+function showChangelog() {
+  state.gameState = 'changelog';
+  const BOX_W = 60, IW_CL = 58, BOX_H = 30;
+  const BOX_X = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
+  const BOX_Y = Math.max(1, Math.floor((DISPLAY_HEIGHT - BOX_H) / 2));
+  const BC = '#ffd633', WC = '#555555';
+  let scrollOffset = 0;
+  const VISIBLE_ROWS = 18; // rows between warning block and footer
+
+  function drawChangelog() {
+    // Frame
+    display.draw(BOX_X, BOX_Y, '╔', BC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y, '╗', BC, BG);
+    const botY = BOX_Y + BOX_H - 1;
+    display.draw(BOX_X, botY, '╚', BC, BG); display.draw(BOX_X+BOX_W-1, botY, '╝', BC, BG);
+    for (let x = 1; x < BOX_W-1; x++) { display.draw(BOX_X+x, BOX_Y, '═', BC, BG); display.draw(BOX_X+x, botY, '═', BC, BG); }
+    for (let y = 1; y < BOX_H-1; y++) {
+      display.draw(BOX_X, BOX_Y+y, '║', BC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y+y, '║', BC, BG);
+      for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, BOX_Y+y, ' ', BRIGHT_WHITE, BG);
+    }
+    // Row 1: title + hint
+    const titleStr = 'CHANGELOG', hintStr = 'press esc to close';
+    for (let i = 0; i < titleStr.length; i++) display.draw(BOX_X+1+i, BOX_Y+1, titleStr[i], '#f0f0f0', BG);
+    for (let i = 0; i < hintStr.length; i++) display.draw(BOX_X+BOX_W-2-hintStr.length+i, BOX_Y+1, hintStr[i], '#333333', BG);
+    // Row 2: ═ separator
+    for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, BOX_Y+2, '═', BC, BG);
+    // Rows 3-8: warning block
+    const warn1 = 'WARNING: Changes are pushed consistently and saves';
+    const warn2 = 'do not carry over. Refresh the page at your own risk.';
+    for (let i = 0; i < warn1.length; i++) display.draw(BOX_X+2+i, BOX_Y+4, warn1[i], '#ff5555', BG);
+    for (let i = 0; i < warn2.length; i++) display.draw(BOX_X+2+i, BOX_Y+5, warn2[i], '#ff5555', BG);
+    // Row 8: ═ separator
+    for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, BOX_Y+8, '═', BC, BG);
+    // Rows 9 to 9+VISIBLE_ROWS-1: scrollable entries
+    for (let r = 0; r < VISIBLE_ROWS; r++) {
+      const lineIdx = scrollOffset + r;
+      const entryIdx = Math.floor(lineIdx / 3);
+      const lineType = lineIdx % 3;
+      const ay = BOX_Y + 9 + r;
+      if (entryIdx >= CHANGELOG.length) continue;
+      const entry = CHANGELOG[entryIdx];
+      if (lineType === 0) {
+        const vStr = 'alpha ' + entry.version;
+        for (let i = 0; i < vStr.length; i++) display.draw(BOX_X+2+i, ay, vStr[i], '#ffd633', BG);
+      } else if (lineType === 1) {
+        for (let i = 0; i < entry.summary.length && i < IW_CL-4; i++) display.draw(BOX_X+4+i, ay, entry.summary[i], '#aaaaaa', BG);
+      }
+      // lineType 2 = blank spacer
+    }
+    // Footer separator + hint
+    for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, BOX_Y+BOX_H-3, '═', BC, BG);
+    const footer = '[ ↑↓ scroll  |  ESC close ]';
+    const fx = BOX_X + 1 + Math.floor((IW_CL - footer.length) / 2);
+    for (let i = 0; i < footer.length; i++) display.draw(fx+i, BOX_Y+BOX_H-2, footer[i], '#555555', BG);
+  }
+
+  drawChangelog();
+
+  function clKeyHandler(e) {
+    if (e.key === 'Escape') {
+      window.removeEventListener('keydown', clKeyHandler);
+      showContinueMenu();
+      return;
+    }
+    const maxScroll = Math.max(0, CHANGELOG.length * 3 - VISIBLE_ROWS);
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      scrollOffset = Math.max(0, scrollOffset - 3);
+      drawChangelog();
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      scrollOffset = Math.min(maxScroll, scrollOffset + 3);
+      drawChangelog();
+    }
+  }
+  window.addEventListener('keydown', clKeyHandler);
+}
+
 function showContinueMenu() {
-  clearScreen(); drawTitleBorder(); drawArt();
+  clearScreen(); drawTitleBorder(); drawArt(); drawTitleBottomText();
   state.gameState = 'title_menu';
   const WC = '#555555';
   const INNER_W = 14; // "-- WIDGETER --"
@@ -1868,6 +1950,9 @@ function showContinueMenu() {
     } else if (e.key === '3') {
       window.removeEventListener('keydown', cmKeyHandler);
       showTitleOptions();
+    } else if (e.key === 'c') {
+      window.removeEventListener('keydown', cmKeyHandler);
+      showChangelog();
     }
   }
   window.addEventListener('keydown', cmKeyHandler);
@@ -7029,6 +7114,22 @@ function renderLargeNumber(display, x, y, numberString, color, availableWidth) {
 }
 
 // ── Launch Facility menu (§9) ─────────────────────────────────────────────────
+
+const CHANGELOG = [
+  { version: '1.02.03', summary: 'Added changelog.' },
+  { version: '1.02.02', summary: 'Fixed bank crash. Apprentices start faster, 5 speed levels.' },
+  { version: '1.02.01', summary: 'Ending cutscene: liftoff, starfield, moon, credits.' },
+  { version: '1.01.02', summary: 'Fixed overwrite menu overlap.' },
+  { version: '1.01.01', summary: 'Launch Facility chyron, launch-ready state at 50K widgets.' },
+  { version: '1.00.08', summary: 'Dev password persists. Unlock Everything button.' },
+  { version: '1.00.07', summary: 'Title menu options: sound, fullscreen, dev mode.' },
+  { version: '1.00.06', summary: 'Fixed rotating cube ghost dots.' },
+  { version: '1.00.05', summary: 'Title screen layout centered.' },
+  { version: '1.00.04', summary: 'Sparkle particles fully erased each frame.' },
+  { version: '1.00.03', summary: 'Sparkle particle cap at 4.' },
+  { version: '1.00.02', summary: 'Yellow title border. Game map keeps gray border.' },
+  { version: '1.00.01', summary: 'Initial version numbering.' },
+];
 
 const CHYRON_MSGS = [
   'tightening o-rings...',
