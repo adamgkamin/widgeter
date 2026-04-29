@@ -229,8 +229,7 @@ const state = {
   },
   bookshelfLog: [],
   officeUnlocked:      false,
-  officeTab:           'upgrades', // 'upgrades' | 'workers'
-  officeUpgradesPage:  1,          // 1-indexed page within UPGRADES tab
+  officeTab:           'workers',  // 'workers' | 'upgrades' | 'info'
   storage: { widgets: 0, rm: 0, widgetCap: 50, rmCap: 50 },
   workbenchWidgets:  0,
   workbenchHammerFrame: 0,
@@ -352,7 +351,6 @@ function saveGame() {
     stations:             state.stations,
     officeUnlocked:       state.officeUnlocked,
     officeTab:            state.officeTab,
-    officeUpgradesPage:   state.officeUpgradesPage,
     storage:              state.storage,
     workbenchWidgets:     state.workbenchWidgets,
     productionHalted:     state.productionHalted,
@@ -432,8 +430,7 @@ function loadGame() {
       delete state.stations.derivatives;
     }
     state.officeUnlocked       = data.officeUnlocked    ?? false;
-    state.officeTab            = data.officeTab            ?? 'upgrades';
-    state.officeUpgradesPage   = data.officeUpgradesPage   ?? 1;
+    state.officeTab            = data.officeTab            ?? 'workers';
     state.storage              = data.storage           ?? { widgets: 0, rm: 0, widgetCap: 50, rmCap: 50 };
     state.workbenchWidgets     = data.workbenchWidgets  ?? 0;
     state.productionHalted     = data.productionHalted  ?? false;
@@ -1460,8 +1457,7 @@ function resetState() {
   state.courierDestination = 'market';
   state.rocketAnimFrame    = 0;
   state.officeUnlocked     = false;
-  state.officeTab          = 'upgrades';
-  state.officeUpgradesPage = 1;
+  state.officeTab          = 'workers';
   state.storage = { widgets: 0, rm: 0, widgetCap: 50, rmCap: 50 };
   state.workbenchWidgets    = 0;
   state.workbenchHammerFrame = 0;
@@ -3074,8 +3070,7 @@ function showOfficeMenu() {
   const PAGE_ROWS = 21;
   const CONT_X    = BOX_X + 1;
   // Navigation state lives on `state` so it persists across redraws and is saved
-  if (!state.officeTab)          state.officeTab          = 'upgrades';
-  if (!state.officeUpgradesPage) state.officeUpgradesPage = 1;
+  if (!state.officeTab) state.officeTab = 'workers';
 
   const OF_ART = [
     '  _________   ',
@@ -3189,63 +3184,7 @@ function showOfficeMenu() {
     return { fg: '#66cc66', status: '[available]' };
   }
 
-  function buildSectionRows(sec) {
-    const rows = [];
-    const hasAvail = sec.items.some(item => {
-      if (!item.nk) return false;
-      const { fg } = nodeStatus(item.nk);
-      return fg === '#66cc66';
-    });
-    rows.push({ type: 'hdr', text: `[${sec.header}]`, fg: hasAvail ? '#ffd633' : DC });
-    for (const item of sec.items) {
-      if (item.nk) {
-        const node = OFFICE_NODES.find(n => n.key === item.nk);
-        if (!node) continue;
-        const { fg, status } = nodeStatus(item.nk);
-        let label = node.name;
-        let costStr;
-        if (node.levelKey) {
-          const level = state.skills[node.levelKey] || 0;
-          if (level > 0) label += ` (${level}/${node.max})`;
-          costStr = level < node.max ? `${node.costs[level]}cr` : '';
-        } else if (node.widgetCost != null) {
-          costStr = `${node.widgetCost} WG`;
-        } else if (node.cost != null) {
-          costStr = `${node.cost}cr`;
-        } else {
-          costStr = '';
-        }
-        rows.push({ type: 'node', k: item.k, label, cost: costStr, fg, status });
-      } else {
-        const owned = item.specialFn();
-        rows.push({ type: 'node', k: null, label: item.label, cost: item.cost, fg: owned ? '#888888' : DC, status: owned ? '[owned]' : '[locked]' });
-      }
-    }
-    rows.push({ type: 'blank' });
-    return rows;
-  }
-
-  function getPages() {
-    const pages = [];
-    let cur = [];
-    for (const sec of SECTIONS) {
-      const sRows = buildSectionRows(sec);
-      if (cur.length > 0 && cur.length + sRows.length > PAGE_ROWS) { pages.push(cur); cur = []; }
-      cur.push(...sRows);
-    }
-    if (cur.length > 0) pages.push(cur);
-    return pages;
-  }
-
-  function menuLine(k, label, cost, status) {
-    const kp  = (k ? `${k}. ` : '   ').padEnd(4);
-    const st  = (status.length > 12 ? status.slice(0, 11) + '.' : status).padEnd(12);
-    const co  = cost.padStart(7);
-    const lbl = (label.length > 27 ? label.slice(0, 24) + '...' : label).padEnd(27);
-    return (kp + lbl + ' ' + co + ' ' + st).slice(0, IW).padEnd(IW);
-  }
-
-  // ── Page 1 dual-panel render (§5.3) ──────────────────────────────────────────
+  // ── Tab 1 "WORKERS" dual-panel render (§5.3) ─────────────────────────────────
   function renderOfficePage1(rowBase) {
     const LW = 25, RW = 26, DIV = 25;
 
@@ -3471,9 +3410,9 @@ function showOfficeMenu() {
     // Row 1: header
     { const ay = BOX_Y + 1;
       border(ay);
-      const tabLabel = state.officeTab === 'upgrades'
-        ? `[UPGRADES p.${state.officeUpgradesPage}]`
-        : `[WORKERS]`;
+      const tabLabel = state.officeTab === 'workers'  ? '[WORKERS]'
+                     : state.officeTab === 'upgrades' ? '[UPGRADES]'
+                     : '[INFO]';
       const title = `The Office ${tabLabel}`, hint = 'press esc to exit';
       for (let i = 0; i < IW; i++) {
         const ch = i < title.length ? title[i] : (i >= IW - hint.length ? hint[i-(IW-hint.length)] : ' ');
@@ -3489,19 +3428,22 @@ function showOfficeMenu() {
     // Row 3: tab bar
     { const ay = BOX_Y + 3;
       border(ay);
-      const isUpg    = state.officeTab === 'upgrades';
-      const pg       = state.officeUpgradesPage;
-      const upgLabel = isUpg ? `>> [ UPGRADES p.${pg} ] <<` : `[ UPGRADES ]`;
-      const wrkLabel = !isUpg ? `>> [ WORKERS ] <<`           : `[ WORKERS ]`;
-      const HALF     = Math.floor(IW / 2);
-      const center   = (str, w) => { const pad = Math.max(0, w - str.length); const l = Math.floor(pad/2); return ' '.repeat(l) + str + ' '.repeat(pad - l); };
-      const leftStr  = center(upgLabel, HALF);
-      const rightStr = center(wrkLabel, IW - HALF);
+      // Three-tab bar: WORKERS(17) │ UPGRADES(17) │ INFORMATION(16) = 17+1+17+1+16 = 52
+      const TLBLS = ['[ WORKERS ]', '[ UPGRADES ]', '[ INFORMATION ]'];
+      const TABS  = ['workers', 'upgrades', 'info'];
+      const SEGS  = [17, 17, 16];
+      const DIV1  = 17, DIV2 = 35;
+      const center = (str, w) => { const pad = Math.max(0, w - str.length); const l = Math.floor(pad/2); return ' '.repeat(l) + str + ' '.repeat(pad-l); };
+      const seg0 = center(TLBLS[0], SEGS[0]);
+      const seg1 = center(TLBLS[1], SEGS[1]);
+      const seg2 = center(TLBLS[2], SEGS[2]);
       for (let i = 0; i < IW; i++) {
-        const inLeft = i < HALF;
-        const ch     = (inLeft ? leftStr : rightStr)[inLeft ? i : i - HALF] || ' ';
-        const active = (inLeft && isUpg) || (!inLeft && !isUpg);
-        display.draw(BOX_X + 1 + i, ay, ch, active ? LC : DC, BG);
+        if (i === DIV1 || i === DIV2) { display.draw(BOX_X + 1 + i, ay, '│', DC, BG); continue; }
+        let ch, active;
+        if (i < DIV1)      { ch = seg0[i]          || ' '; active = state.officeTab === 'workers'; }
+        else if (i < DIV2) { ch = seg1[i-DIV1-1]   || ' '; active = state.officeTab === 'upgrades'; }
+        else               { ch = seg2[i-DIV2-1]   || ' '; active = state.officeTab === 'info'; }
+        display.draw(BOX_X + 1 + i, ay, ch, active ? LC : '#555555', BG);
       }
     }
 
@@ -3522,107 +3464,108 @@ function showOfficeMenu() {
     { const ay = BOX_Y + 15; border(ay);
       for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '─', DC, BG); }
 
-    if (state.officeTab === 'upgrades') {
-      if (state.officeUpgradesPage === 1) {
-        // Custom dual-panel page 1
-        renderOfficePage1(BOX_Y + 16);
-        // Blank remaining PAGE_ROWS rows (18 used of 21)
-        for (let i = 18; i < PAGE_ROWS; i++) {
-          const ay = BOX_Y + 16 + i;
-          border(ay);
-          for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, ay, ' ', BRIGHT_WHITE, BG);
-        }
-      } else {
-        // Pages 2+ — SECTIONS-based (WAREHOUSING, MARKETING, TRADING)
-        const pages = getPages();
-        const secPageCount = pages.length;
-        if (state.officeUpgradesPage > 1 + secPageCount) state.officeUpgradesPage = 2;
-        const pg = pages[state.officeUpgradesPage - 2] || [];
+    if (state.officeTab === 'workers') {
+      // Tab 1 — WORKERS: dual-panel apprentice/courier management
+      renderOfficePage1(BOX_Y + 16);
+      for (let i = 18; i < PAGE_ROWS; i++) {
+        const ay = BOX_Y + 16 + i;
+        border(ay);
+        for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, ay, ' ', BRIGHT_WHITE, BG);
+      }
 
-        const CW  = Math.floor(IW / 2) - 1;  // 25 — left cell width
-        const RW2 = IW - CW - 1;              // 26 — right cell width
-        function halfLine(k, label, cost, status) {
-          const kp  = (k ? `${k}.` : '  ').padEnd(3);
-          const st  = status.slice(0, 6).padEnd(6);
-          const co  = cost.slice(0, 5).padStart(5);
-          const lbl = label.slice(0, 8).padEnd(8);
-          return (kp + ' ' + lbl + ' ' + co + ' ' + st).slice(0, CW).padEnd(CW);
+    } else if (state.officeTab === 'upgrades') {
+      // Tab 2 — UPGRADES: WAREHOUSING / MARKETING / TRADING two-column grid
+      const CW = 26; // each cell = IW/2
+      function getItemData(item) {
+        const node = OFFICE_NODES.find(n => n.key === item.nk);
+        if (!node) return null;
+        const ns = nodeStatus(item.nk);
+        let label = node.name;
+        let costStr;
+        if (node.levelKey) {
+          const level = state.skills[node.levelKey] || 0;
+          if (level > 0) label += ` (${level}/${node.max})`;
+          costStr = level < node.max ? `${node.costs[level]}cr` : '';
+        } else if (node.widgetCost != null) {
+          costStr = `${node.widgetCost}WG`;
+        } else if (node.cost != null) {
+          costStr = `${node.cost}cr`;
+        } else {
+          costStr = '';
         }
-        function renderHalf(ay, lStr, lFg, rStr, rFg) {
-          border(ay);
-          const lp = menuPad(lStr, CW);
-          for (let i = 0; i < CW; i++) display.draw(BOX_X + 1 + i, ay, lp[i] || ' ', lFg, BG);
-          display.draw(BOX_X + 1 + CW, ay, '│', DC, BG);
-          const rp = menuPad(rStr, RW2);
-          for (let i = 0; i < RW2; i++) display.draw(BOX_X + 1 + CW + 1 + i, ay, rp[i] || ' ', rFg, BG);
+        return { k: item.k, label, costStr, ns };
+      }
+      function drawUpgradeCell(ay, xStart, k, label, costStr, ns) {
+        const NAME_W = 14, COST_W = 6;
+        const { fg } = ns;
+        const nameFg = fg === '#888888' ? '#888888' : fg === DC ? '#444444' : '#aaaaaa';
+        const costFg = fg === '#888888' ? '#888888' : fg === '#66cc66' ? '#66cc66' : fg === '#ff5555' ? '#ff5555' : '#444444';
+        const [indCh, indFg] = fg === '#888888' ? ['✓', '#888888']
+                             : fg === '#66cc66'  ? ['●', '#66cc66']
+                             : fg === '#ff5555'  ? ['●', '#ff5555']
+                             : ['·', '#444444'];
+        const kStr     = (k ? `${k})` : '  ');
+        const nameStr  = (label.length > NAME_W ? label.slice(0, NAME_W-1) + '.' : label).padEnd(NAME_W);
+        const costDisp = (fg === '#888888' ? '' : costStr).padStart(COST_W);
+        let x = xStart;
+        display.draw(x++, ay, kStr[0] || ' ', '#555555', BG);
+        display.draw(x++, ay, kStr[1] || ' ', '#555555', BG);
+        display.draw(x++, ay, ' ', DC, BG);
+        for (let i = 0; i < NAME_W; i++) display.draw(x++, ay, nameStr[i] || ' ', nameFg, BG);
+        display.draw(x++, ay, ' ', DC, BG);
+        for (let i = 0; i < COST_W; i++) display.draw(x++, ay, costDisp[i] || ' ', costFg, BG);
+        display.draw(x++, ay, ' ', DC, BG);
+        display.draw(x++, ay, indCh, indFg, BG); // 2+1+14+1+6+1+1 = 26
+      }
+      let dr = 0;
+      for (const sec of SECTIONS) {
+        if (dr >= PAGE_ROWS) break;
+        const hasAvail = sec.items.some(item => nodeStatus(item.nk).fg === '#66cc66');
+        const secColor = hasAvail ? '#ffd633' : '#333333';
+        { const ay = BOX_Y + 16 + dr; border(ay);
+          const decorated = `[ ${sec.header} ]`;
+          const totalDashes = IW - decorated.length - 2;
+          const lDash = Math.floor(totalDashes / 2), rDash = totalDashes - lDash;
+          const full = ('═'.repeat(lDash) + ' ' + decorated + ' ' + '═'.repeat(rDash)).slice(0, IW).padEnd(IW);
+          for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, full[i] || '═', secColor, BG);
         }
-        let pi = 0, dr = 0;
-        while (pi < pg.length && dr < PAGE_ROWS) {
-          const row = pg[pi];
-          const ay  = BOX_Y + 16 + dr;
-          if (row.type === 'blank') { border(ay); pi++; dr++; }
-          else if (row.type === 'hdr') { irow(ay, row.text, row.fg); pi++; dr++; }
-          else {
-            const next = pg[pi + 1];
-            if (next && next.type === 'node') {
-              renderHalf(ay,
-                halfLine(row.k,  row.label,  row.cost,  row.status),  row.fg,
-                halfLine(next.k, next.label, next.cost, next.status), next.fg);
-              pi += 2; dr++;
-            } else {
-              irow(ay, menuLine(row.k, row.label, row.cost, row.status), row.fg);
-              pi++; dr++;
-            }
+        dr++;
+        for (let pi = 0; pi < sec.items.length && dr < PAGE_ROWS; pi += 2) {
+          const ay = BOX_Y + 16 + dr; border(ay);
+          const d1 = getItemData(sec.items[pi]);
+          if (d1) drawUpgradeCell(ay, BOX_X + 1, d1.k, d1.label, d1.costStr, d1.ns);
+          if (pi + 1 < sec.items.length) {
+            const d2 = getItemData(sec.items[pi + 1]);
+            if (d2) drawUpgradeCell(ay, BOX_X + 1 + CW, d2.k, d2.label, d2.costStr, d2.ns);
           }
+          dr++;
         }
-        for (; dr < PAGE_ROWS; dr++) {
-          const ay = BOX_Y + 16 + dr;
-          border(ay);
+        if (dr < PAGE_ROWS) {
+          const ay = BOX_Y + 16 + dr; border(ay);
           for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, ay, ' ', BRIGHT_WHITE, BG);
+          dr++;
         }
       }
-
-      // Row 37: ─ separator
-      { const ay = BOX_Y + 37; border(ay);
-        for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '─', DC, BG); }
-
-      // Row 38: footer
-      const secPageCount2 = Math.max(1, getPages().length);
-      const totalPages    = 1 + secPageCount2;
-      let footer;
-      if (state.officeUpgradesPage === 1) {
-        footer = `[ page 1/${totalPages} — TAB for next page ]`;
-      } else {
-        const allOwned = SECTIONS.every(sec => sec.items.every(item => {
-          if (!item.nk) return true;
-          return nodeStatus(item.nk).fg === '#888888';
-        }));
-        footer = allOwned
-          ? `[ page ${state.officeUpgradesPage}/${totalPages} — All complete. TAB to cycle ]`
-          : `[ page ${state.officeUpgradesPage}/${totalPages} — TAB to cycle ]`;
+      for (; dr < PAGE_ROWS; dr++) {
+        const ay = BOX_Y + 16 + dr; border(ay);
+        for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, ay, ' ', BRIGHT_WHITE, BG);
       }
-      { const ay = BOX_Y + 38; border(ay);
-        const centered = menuPad(footer.length < IW ? ' '.repeat(Math.floor((IW - footer.length) / 2)) + footer : footer, IW);
-        for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, centered[i] || ' ', DC, BG); }
 
-    } else { // WORKERS tab
+    } else { // Tab 3 — INFO: live worker list
       const allW = [
         ...state.workers.apprentices.map((w, i) => ({ type: 'appr', idx: i, w })),
         ...state.workers.couriers.map((c, i)    => ({ type: 'cour', idx: i, w: c })),
       ];
       const nW = allW.length;
-      const PER_PAGE = Math.floor(PAGE_ROWS / 4); // 5 workers visible at once
+      const PER_PAGE = Math.floor(PAGE_ROWS / 4);
       workerSel        = Math.max(0, Math.min(workerSel, nW - 1));
       if (nW > 0 && workerSel < workerPageStart) workerPageStart = workerSel;
       if (nW > 0 && workerSel >= workerPageStart + PER_PAGE) workerPageStart = workerSel - PER_PAGE + 1;
       workerPageStart  = Math.max(0, Math.min(workerPageStart, Math.max(0, nW - PER_PAGE)));
-
-      // Clear content rows
       for (let r = 0; r < PAGE_ROWS; r++) {
         border(BOX_Y + 16 + r);
         for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, BOX_Y + 16 + r, ' ', BRIGHT_WHITE, BG);
       }
-
       if (nW === 0) {
         irow(BOX_Y + 16 + Math.floor(PAGE_ROWS / 2), 'No workers hired.', DC);
       } else {
@@ -3630,23 +3573,16 @@ function showOfficeMenu() {
         const courCarryMax = COURIER_CARRY_CAPS[state.skills.courierCarryLevel || 0];
         const STATE_COLOR  = { fetching:'#ff9933', crafting:'#ff6600', returning:'#555555', idle:'#333333', loading:'#cc66cc', delivering:'#ffd633' };
         let contentRow = 0;
-
-        // Scroll-up indicator
         if (workerPageStart > 0) {
           irow(BOX_Y + 16 + contentRow, menuPad('  ▲ more above', IW), DC);
           contentRow++;
         }
-
         for (let wi = workerPageStart; wi < Math.min(workerPageStart + PER_PAGE, nW); wi++) {
           const { type, idx, w } = allW[wi];
           const isSel = wi === workerSel;
           const base  = BOX_Y + 16 + contentRow;
-
-          // Row 0: rule
           const ruleFg = isSel ? '#666666' : DC;
           { border(base); const rule = menuPad('─'.repeat(IW), IW); for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, base, rule[i], ruleFg, BG); }
-
-          // Row 1: info
           const label    = workerLabel(w, idx, type).slice(0, 12).padEnd(12);
           const selMark  = isSel ? '>' : ' ';
           const glyph    = type === 'appr' ? '[a]' : '[c]';
@@ -3669,8 +3605,6 @@ function showOfficeMenu() {
               display.draw(BOX_X + 1 + i, base + 1, padded[i] || ' ', fg, BG);
             }
           }
-
-          // Row 2: stats
           let statsLine;
           if (type === 'appr') {
             const task = w.workerState === 'fetching' ? 'RM→WB' : w.workerState === 'crafting' ? 'making widget' : w.workerState === 'returning' ? 'WB→STG' : 'waiting';
@@ -3680,35 +3614,41 @@ function showOfficeMenu() {
             statsLine = `    Carry: ${w.carryWidgets}/${courCarryMax}   Speed: ${COURIER_SPEEDS[state.skills.courierSpeedLevel||0].toFixed(1)}   ${task}`;
           }
           irow(base + 2, statsLine, '#555555');
-
-          // Row 3: hints
           const hintLine = isSel
             ? (type === 'appr' ? '    [1:pause/resume]  [2:rename]  [↑↓:navigate]' : '    [2:rename]  [↑↓:navigate]')
             : '    ↑↓ to select';
           irow(base + 3, hintLine, DC);
-
           contentRow += 4;
         }
-
-        // Scroll-down indicator
         if (workerPageStart + PER_PAGE < nW) {
           const lastRow = BOX_Y + 16 + Math.min(contentRow, PAGE_ROWS - 1);
           irow(lastRow, menuPad('  ▼ more below', IW), DC);
         }
       }
+    }
 
-      { const ay = BOX_Y + 37; border(ay);
-        for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '─', DC, BG); }
-      // Row 38: footer or rename prompt
-      { const ay = BOX_Y + 38; border(ay);
-        let line;
+    // Row 37: ─ separator (all tabs)
+    { const ay = BOX_Y + 37; border(ay);
+      for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '─', DC, BG); }
+
+    // Row 38: footer (tab-specific)
+    { const ay = BOX_Y + 38; border(ay);
+      let footerLine, footerFg = '#555555';
+      if (state.officeTab === 'workers') {
+        footerLine = menuPad('[ ← → switch tabs | keys shown above ]', IW);
+      } else if (state.officeTab === 'upgrades') {
+        footerLine = menuPad('[ ← → switch tabs | press key to purchase ]', IW);
+      } else {
+        const anyWorkers = state.workers.apprentices.length + state.workers.couriers.length > 0;
         if (renameMode) {
           const displayBuf = renameBuf.slice(0, 14).padEnd(14, '_');
-          line = menuPad(`Rename: [${displayBuf}]  Enter/Esc`, IW);
+          footerLine = menuPad(`Rename: [${displayBuf}]  Enter/Esc`, IW);
+          footerFg = '#ffd633';
         } else {
-          line = menuPad(nW > 0 ? '← →: tabs   ↑↓: select   1:pause  2:rename  ESC' : '← →: switch to UPGRADES tab', IW);
+          footerLine = menuPad(anyWorkers ? '[ ← → switch tabs | ↑↓ select | 1 pause | 2 rename ]' : '[ ← → switch tabs ]', IW);
         }
-        for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, line[i] || ' ', renameMode ? '#ffd633' : DC, BG); }
+      }
+      for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, footerLine[i] || ' ', footerFg, BG);
     }
 
     // Row 39: ╚═╝
@@ -3732,32 +3672,32 @@ function showOfficeMenu() {
 
   function officeKeyHandler(e) {
     if (e.key === 'Escape') { closeOffice(); return; }
-    if (e.key === 'ArrowRight') { e.preventDefault(); if (state.officeTab === 'upgrades') { state.officeTab = 'workers'; redraw(); } return; }
-    if (e.key === 'ArrowLeft')  { e.preventDefault(); if (state.officeTab === 'workers')  { state.officeTab = 'upgrades'; redraw(); } return; }
-    if (e.key === 'Tab') {
+
+    // ← → cycle through the three tabs (wrapping)
+    if (e.key === 'ArrowRight') {
       e.preventDefault();
-      if (state.officeTab === 'upgrades') {
-        const secPageCount = Math.max(1, getPages().length);
-        const totalPages   = 1 + secPageCount;
-        state.officeUpgradesPage = (state.officeUpgradesPage % totalPages) + 1;
-        redraw();
-      }
-      return;
+      const tabs = ['workers', 'upgrades', 'info'];
+      state.officeTab = tabs[(tabs.indexOf(state.officeTab) + 1) % 3];
+      redraw(); return;
+    }
+    if (e.key === 'ArrowLeft') {
+      e.preventDefault();
+      const tabs = ['workers', 'upgrades', 'info'];
+      state.officeTab = tabs[(tabs.indexOf(state.officeTab) + 2) % 3];
+      redraw(); return;
     }
 
-    if (state.officeTab === 'workers') {
+    // ── INFO tab: worker navigation, pause, rename ────────────────────────────
+    if (state.officeTab === 'info') {
       const allW = [
         ...state.workers.apprentices.map((w, i) => ({ type: 'appr', idx: i, w })),
         ...state.workers.couriers.map((c, i)    => ({ type: 'cour', idx: i, w: c })),
       ];
-
-      // Rename mode captures all input
       if (renameMode) {
         if (e.key === 'Enter') {
           if (renameTarget >= 0 && renameTarget < allW.length)
             allW[renameTarget].w.nickname = renameBuf.trim();
-          renameMode = false; renameBuf = ''; renameTarget = -1;
-          redraw();
+          renameMode = false; renameBuf = ''; renameTarget = -1; redraw();
         } else if (e.key === 'Escape') {
           renameMode = false; renameBuf = ''; renameTarget = -1; redraw();
         } else if (e.key === 'Backspace') {
@@ -3767,17 +3707,8 @@ function showOfficeMenu() {
         }
         return;
       }
-
-      if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        workerSel = Math.min(workerSel + 1, Math.max(0, allW.length - 1));
-        redraw(); return;
-      }
-      if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        workerSel = Math.max(0, workerSel - 1);
-        redraw(); return;
-      }
+      if (e.key === 'ArrowDown') { e.preventDefault(); workerSel = Math.min(workerSel + 1, Math.max(0, allW.length - 1)); redraw(); return; }
+      if (e.key === 'ArrowUp')   { e.preventDefault(); workerSel = Math.max(0, workerSel - 1); redraw(); return; }
       if (e.key === '1' && allW[workerSel] && allW[workerSel].type === 'appr') {
         const { idx, w } = allW[workerSel];
         w.paused = !w.paused;
@@ -3785,17 +3716,14 @@ function showOfficeMenu() {
         redraw(); return;
       }
       if (e.key === '2' && allW[workerSel]) {
-        renameMode = true;
-        renameBuf  = allW[workerSel].w.nickname || '';
-        renameTarget = workerSel;
+        renameMode = true; renameBuf = allW[workerSel].w.nickname || ''; renameTarget = workerSel;
         redraw(); return;
       }
       return;
     }
 
-    // ── UPGRADES tab ──────────────────────────────────────────────────────────
-    if (state.officeTab === 'upgrades' && state.officeUpgradesPage === 1) {
-      // Page 1: keys 1-6 for apprentice/courier actions
+    // ── WORKERS tab: keys 1-6 for apprentice/courier upgrades ────────────────
+    if (state.officeTab === 'workers') {
       if (e.key === '1') {
         const count = state.skills.apprenticeCount;
         if (count >= 5) return;
@@ -3841,11 +3769,8 @@ function showOfficeMenu() {
         if (count >= 4) return;
         const node = OFFICE_NODES.find(n => n.countKey === 'courierCount' && n.tier === count + 1);
         if (!node || !state.officeUnlocked || state.phase < node.minPhase) return;
-        if (state.storage.widgets < node.widgetCost) {
-          addLog(`Not enough widgets. Need ${node.widgetCost} WG.`, '#ff5555');
-          redraw(); return;
-        }
-        state.storage.widgets -= node.widgetCost; // cost deducted from state.storage.widgets
+        if (state.storage.widgets < node.widgetCost) { addLog(`Not enough widgets. Need ${node.widgetCost} WG.`, '#ff5555'); redraw(); return; }
+        state.storage.widgets -= node.widgetCost;
         state.skills.courierCount = count + 1;
         const ofDef = STATION_DEFS.find(s => s.label === 'OF');
         state.workers.couriers.push({ x: ofDef.x+1, y: ofDef.y+2, courierState: 'idle', carryWidgets: 0, target: {x:0,y:0}, nickname: '' });
@@ -3860,11 +3785,8 @@ function showOfficeMenu() {
         const lv = state.skills.courierCarryLevel || 0;
         if (lv >= node.max) return;
         const cost = node.costs[lv];
-        if (state.storage.widgets < cost) {
-          addLog(`Not enough widgets. Need ${cost} WG.`, '#ff5555');
-          redraw(); return;
-        }
-        state.storage.widgets -= cost; // cost deducted from state.storage.widgets
+        if (state.storage.widgets < cost) { addLog(`Not enough widgets. Need ${cost} WG.`, '#ff5555'); redraw(); return; }
+        state.storage.widgets -= cost;
         state.skills.courierCarryLevel = lv + 1;
         addLog(`> ${cost} widgets consumed. Increase Courier Inventory purchased.`, '#cc66cc');
         state.officeAnim.courierFlash = 3;
@@ -3876,36 +3798,33 @@ function showOfficeMenu() {
         const lv = state.skills.courierSpeedLevel || 0;
         if (lv >= node.max) return;
         const cost = node.costs[lv];
-        if (state.storage.widgets < cost) {
-          addLog(`Not enough widgets. Need ${cost} WG.`, '#ff5555');
-          redraw(); return;
-        }
-        state.storage.widgets -= cost; // cost deducted from state.storage.widgets
+        if (state.storage.widgets < cost) { addLog(`Not enough widgets. Need ${cost} WG.`, '#ff5555'); redraw(); return; }
+        state.storage.widgets -= cost;
         state.skills.courierSpeedLevel = lv + 1;
         addLog(`> ${cost} widgets consumed. Overclock Courier Speed purchased.`, '#cc66cc');
         state.officeAnim.courierFlash = 3;
         drawStatusBar(); redraw(); return;
       }
-      return; // page 1 consumes all keys — don't fall through
+      return;
     }
 
-    // Pages 2+: SECTIONS-based key handlers
-    for (const sec of SECTIONS) {
-      for (const item of sec.items) {
-        if (!item.k || item.k !== e.key || !item.nk) continue;
-        const node = OFFICE_NODES.find(n => n.key === item.nk);
-        if (!node || !state.officeUnlocked || state.phase < node.minPhase) return;
-
-        // Standard flat-cost nodes
-        if (node.requires && !state.skills[node.requires]) return;
-        const level = state.skills[item.nk] || 0;
-        if (level >= (node.max || 1) || state.player.credits < node.cost) return;
-        state.player.credits -= node.cost;
-        state.skills[item.nk] = level + 1;
-        if (item.nk === 'storageExp1') { state.storage.widgetCap = 100; state.storage.rmCap = 100; }
-        if (item.nk === 'storageExp2') { state.storage.widgetCap = 200; state.storage.rmCap = 200; }
-        addLog(`${node.name} purchased.`, '#cc66cc');
-        drawStatusBar(); redraw(); return;
+    // ── UPGRADES tab: SECTIONS-based purchase keys ────────────────────────────
+    if (state.officeTab === 'upgrades') {
+      for (const sec of SECTIONS) {
+        for (const item of sec.items) {
+          if (!item.k || item.k !== e.key || !item.nk) continue;
+          const node = OFFICE_NODES.find(n => n.key === item.nk);
+          if (!node || !state.officeUnlocked || state.phase < node.minPhase) return;
+          if (node.requires && !state.skills[node.requires]) return;
+          const level = state.skills[item.nk] || 0;
+          if (level >= (node.max || 1) || state.player.credits < node.cost) return;
+          state.player.credits -= node.cost;
+          state.skills[item.nk] = level + 1;
+          if (item.nk === 'storageExp1') { state.storage.widgetCap = 100; state.storage.rmCap = 100; }
+          if (item.nk === 'storageExp2') { state.storage.widgetCap = 200; state.storage.rmCap = 200; }
+          addLog(`${node.name} purchased.`, '#cc66cc');
+          drawStatusBar(); redraw(); return;
+        }
       }
     }
   }
@@ -9599,11 +9518,11 @@ setInterval(() => {
   // Flash animation counters tick regardless of menu state (§5.3)
   if (state.officeAnim.apprenticeFlash > 0) {
     state.officeAnim.apprenticeFlash--;
-    if (officeMenuRedrawFn && state.officeTab === 'upgrades' && state.officeUpgradesPage === 1) officeMenuRedrawFn();
+    if (officeMenuRedrawFn && state.officeTab === 'workers') officeMenuRedrawFn();
   }
   if (state.officeAnim.courierFlash > 0) {
     state.officeAnim.courierFlash--;
-    if (officeMenuRedrawFn && state.officeTab === 'upgrades' && state.officeUpgradesPage === 1) officeMenuRedrawFn();
+    if (officeMenuRedrawFn && state.officeTab === 'workers') officeMenuRedrawFn();
   }
 
   if (state.gameState !== 'playing' && state.gameState !== 'crafting' && state.gameState !== 'dashboard' && state.gameState !== 'inventory' && state.gameState !== 'lf_menu' && state.gameState !== 'rm_menu' && state.gameState !== 'wb_menu' && state.gameState !== 'mt_menu' && state.gameState !== 'dv_menu' && state.gameState !== 'cottage' && state.gameState !== 'fishing' && state.gameState !== 'casino') return;
