@@ -787,10 +787,10 @@ const STATION_DEFS = [
   { x: 61, y:  4, label: 'BK', wc: DIM_GRAY,  lc: DIM_GRAY  },
   { x: 56, y: 16, label: 'TR', wc: DIM_GRAY,  lc: DIM_GRAY  },
   { x:  8, y: 35, label: 'GS', wc: DIM_GRAY,  lc: DIM_GRAY  },
-  { x:  9, y:  2, label: 'RM', wc: '#ff6600', lc: '#ff6600' },
-  { x: 34, y:  8, label: 'WB', wc: '#cc3300', lc: '#cc3300' },
-  { x: 61, y: 23, label: 'MT', wc: '#ffd633', lc: '#ffd633' },
-  { x: 23, y: 17, label: 'OF', wc: '#aaaaaa', lc: '#ffffff' },
+  { x:  9, y:  2, label: 'RM', wc: '#ff9933', lc: '#ffaa55', dc: '#cc7722' },
+  { x: 34, y:  8, label: 'WB', wc: '#cc3300', lc: '#ff5533', dc: '#aa2200' },
+  { x: 61, y: 23, label: 'MT', wc: '#ffd633', lc: '#ffea66', dc: '#ccaa22' },
+  { x: 23, y: 17, label: 'OF', wc: '#f0f0f0', lc: '#ffffff', dc: '#aaaaaa' },
   { x: 45, y: 32, label: 'NP', wc: DIM_GRAY,  lc: DIM_GRAY  },
 ];
 
@@ -969,19 +969,23 @@ function buildTileMap() {
   // Apply phase unlock colors before stamping stations
   if (state.phase >= 2) {
     const st2 = STATION_DEFS.find(s => s.label === 'ST');
-    if (st2) { st2.wc = '#66ccff'; st2.lc = '#aaddff'; }
+    if (st2) { st2.wc = '#66ccff'; st2.lc = '#aaddff'; st2.dc = '#4488aa'; }
     if (state.stations.general_store?.unlocked) {
       const gs2 = STATION_DEFS.find(s => s.label === 'GS');
-      if (gs2) { gs2.wc = '#aa66ff'; gs2.lc = '#cc99ff'; }
+      if (gs2) { gs2.wc = '#aa66ff'; gs2.lc = '#cc99ff'; gs2.dc = '#884499'; }
     }
   }
   if (state.phase >= 3) {
     const bk3 = STATION_DEFS.find(s => s.label === 'BK');
-    if (bk3) { bk3.wc = '#66cc66'; bk3.lc = '#aaffaa'; }
+    if (bk3) { bk3.wc = '#66cc66'; bk3.lc = '#aaffaa'; bk3.dc = '#449944'; }
+    if (state.stations.newspaper?.unlocked) {
+      const np3 = STATION_DEFS.find(s => s.label === 'NP');
+      if (np3) { np3.wc = COLOR_NP_FRAME; np3.lc = COLOR_NP_LABEL; np3.dc = '#2a6a3a'; }
+    }
   }
   if (state.phase >= 4) {
     const dv4 = STATION_DEFS.find(s => s.label === 'TR');
-    if (dv4) { dv4.wc = '#cc66cc'; dv4.lc = '#cc66cc'; }
+    if (dv4) { dv4.wc = '#cc66cc'; dv4.lc = '#dd99dd'; dv4.dc = '#884488'; }
   }
   if (state.phase >= 5) {
     const lf5 = STATION_DEFS.find(s => s.label === 'LF');
@@ -1021,18 +1025,18 @@ function buildTileMap() {
   };
   for (const s of STATION_DEFS) {
     if (s.wide) continue; // custom stamp handled separately
-    tileMap[s.x  ][s.y]   = mk('+',        s.wc, false);
-    tileMap[s.x+1][s.y]   = mk('-',        s.wc, false);
-    tileMap[s.x+2][s.y]   = mk('-',        s.wc, false);
-    tileMap[s.x+3][s.y]   = mk('+',        s.wc, false);
-    tileMap[s.x  ][s.y+1] = mk('|',        s.wc, false);
+    tileMap[s.x  ][s.y]   = mk('╔',        s.wc, false);
+    tileMap[s.x+1][s.y]   = mk('═',        s.wc, false);
+    tileMap[s.x+2][s.y]   = mk('═',        s.wc, false);
+    tileMap[s.x+3][s.y]   = mk('╗',        s.wc, false);
+    tileMap[s.x  ][s.y+1] = mk('║',        s.wc, false);
     tileMap[s.x+1][s.y+1] = mk(s.label[0], s.lc, false);
     tileMap[s.x+2][s.y+1] = mk(s.label[1], s.lc, false);
-    tileMap[s.x+3][s.y+1] = mk('|',        s.wc, false);
-    tileMap[s.x  ][s.y+2] = mk('+',        s.wc, false);
-    tileMap[s.x+1][s.y+2] = mk('.',        s.dc || s.wc, true);  // door — walkable
-    tileMap[s.x+2][s.y+2] = mk('-',        s.wc, false);
-    tileMap[s.x+3][s.y+2] = mk('+',        s.wc, false);
+    tileMap[s.x+3][s.y+1] = mk('║',        s.wc, false);
+    tileMap[s.x  ][s.y+2] = mk('╚',        s.wc, false);
+    tileMap[s.x+1][s.y+2] = mk('-',        s.dc || s.wc, true);  // door — ASCII hyphen, walkable
+    tileMap[s.x+2][s.y+2] = mk('═',        s.wc, false);
+    tileMap[s.x+3][s.y+2] = mk('╝',        s.wc, false);
     const sd = STATION_DESCS[s.label];
     if (sd) {
       const wallD = sd.wall;
@@ -2375,22 +2379,22 @@ function applyPhaseUnlocks(phase) {
     state.officeUnlocked = true;
     if (!state.stations.storage.unlocked) {
       state.stations.storage.unlocked = true;
-      colorInStation('ST', '#66ccff', '#aaddff');
+      colorInStation('ST', '#66ccff', '#aaddff', '#4488aa');
     }
     if (!state.stations.general_store.unlocked) {
       state.stations.general_store.unlocked = true;
-      colorInStation('GS', '#aa66ff', '#cc99ff');
+      colorInStation('GS', '#aa66ff', '#cc99ff', '#884499');
     }
   }
   if (phase >= 3) {
     if (!state.stations.bank) state.stations.bank = { unlocked: false };
     if (!state.stations.bank.unlocked) {
       state.stations.bank.unlocked = true;
-      colorInStation('BK', '#66cc66', '#aaffaa');
+      colorInStation('BK', '#66cc66', '#aaffaa', '#449944');
     }
     if (!state.stations.newspaper.unlocked) {
       state.stations.newspaper.unlocked = true;
-      colorInStation('NP', COLOR_NP_FRAME, COLOR_NP_LABEL);
+      colorInStation('NP', COLOR_NP_FRAME, COLOR_NP_LABEL, '#2a6a3a');
     }
   }
   if (phase >= 4) {
@@ -2398,7 +2402,7 @@ function applyPhaseUnlocks(phase) {
     if (!state.stations.terminal) state.stations.terminal = { unlocked: false };
     if (!state.stations.terminal.unlocked) {
       state.stations.terminal.unlocked = true;
-      colorInStation('TR', '#cc66cc', '#cc66cc');
+      colorInStation('TR', '#cc66cc', '#dd99dd', '#884488');
     }
   }
   if (phase >= 5) {
@@ -2417,12 +2421,12 @@ function colorInStation(label, wc, lc, dc) {
   const doorColor = dc || wc;
   s.wc = wc; s.lc = lc; s.dc = dc;
   const tiles = [
-    [s.x,   s.y,   '+', wc,        false], [s.x+1, s.y,   '-', wc,        false],
-    [s.x+2, s.y,   '-', wc,        false], [s.x+3, s.y,   '+', wc,        false],
-    [s.x,   s.y+1, '|', wc,        false], [s.x+1, s.y+1, s.label[0], lc, false],
-    [s.x+2, s.y+1, s.label[1], lc, false], [s.x+3, s.y+1, '|', wc,        false],
-    [s.x,   s.y+2, '+', wc,        false], [s.x+1, s.y+2, '.', doorColor,  true],
-    [s.x+2, s.y+2, '-', wc,        false], [s.x+3, s.y+2, '+', wc,        false],
+    [s.x,   s.y,   '╔', wc,        false], [s.x+1, s.y,   '═', wc,        false],
+    [s.x+2, s.y,   '═', wc,        false], [s.x+3, s.y,   '╗', wc,        false],
+    [s.x,   s.y+1, '║', wc,        false], [s.x+1, s.y+1, s.label[0], lc, false],
+    [s.x+2, s.y+1, s.label[1], lc, false], [s.x+3, s.y+1, '║', wc,        false],
+    [s.x,   s.y+2, '╚', wc,        false], [s.x+1, s.y+2, '-', doorColor,  true],
+    [s.x+2, s.y+2, '═', wc,        false], [s.x+3, s.y+2, '╝', wc,        false],
   ];
   for (const [tx, ty, g, fg, w] of tiles) {
     tileMap[tx][ty] = { glyph: g, fg, bg: BG, walkable: w };
@@ -2437,32 +2441,33 @@ function colorInStation(label, wc, lc, dc) {
 // Stamp or re-stamp the Casino footprint. Called from buildTileMap and on unlock/visibility trigger.
 function stampCasino(locked) {
   const cs = state.stations.casino;
-  const wc  = locked ? '#555555' : '#2244aa';
-  const lc  = locked ? '#555555' : '#5577cc';
-  const l0  = locked ? '?' : 'C', l1 = locked ? '?' : 'S';
+  const wc  = locked ? ‘#555555’ : ‘#2244aa’;
+  const lc  = locked ? ‘#555555’ : ‘#5577cc’;
+  const dc  = locked ? ‘#555555’ : ‘#112266’;
+  const l0  = locked ? ‘?’ : ‘C’, l1 = locked ? ‘?’ : ‘S’;
   const wallDesc = locked
-    ? 'A run-down building. Cracked windows. Something inside is waiting.'
-    : 'The Casino. Velvet inside. Velvet smell outside.';
+    ? ‘A run-down building. Cracked windows. Something inside is waiting.’
+    : ‘The Casino. Velvet inside. Velvet smell outside.’;
   const doorDesc = locked
-    ? 'A boarded door. The lock has three coloured slots — red, yellow, blue.'
-    : 'The casino door. Open after dark. The Black card opens it any time.';
+    ? ‘A boarded door. The lock has three coloured slots — red, yellow, blue.’
+    : ‘The casino door. Open after dark. The Black card opens it any time.’;
   const labelDesc = locked
     ? "Whatever this was, it isn’t anymore. Or maybe it never was."
-    : 'The Casino. Open after dark.';
+    : ‘The Casino. Open after dark.’;
   const mk = (g, fg, walk, desc) => ({ glyph: g, fg, bg: BG, walkable: walk, description: desc });
   const x = cs.x, y = cs.y;
-  tileMap[x  ][y  ] = mk('+', wc, false, wallDesc);
-  tileMap[x+1][y  ] = mk('-', wc, false, wallDesc);
-  tileMap[x+2][y  ] = mk('-', wc, false, wallDesc);
-  tileMap[x+3][y  ] = mk('+', wc, false, wallDesc);
-  tileMap[x  ][y+1] = mk('|', wc, false, wallDesc);
+  tileMap[x  ][y  ] = mk(‘╔’, wc, false, wallDesc);
+  tileMap[x+1][y  ] = mk(‘═’, wc, false, wallDesc);
+  tileMap[x+2][y  ] = mk(‘═’, wc, false, wallDesc);
+  tileMap[x+3][y  ] = mk(‘╗’, wc, false, wallDesc);
+  tileMap[x  ][y+1] = mk(‘║’, wc, false, wallDesc);
   tileMap[x+1][y+1] = mk(l0,  lc, false, labelDesc);
   tileMap[x+2][y+1] = mk(l1,  lc, false, labelDesc);
-  tileMap[x+3][y+1] = mk('|', wc, false, wallDesc);
-  tileMap[x  ][y+2] = mk('+', wc, false, wallDesc);
-  tileMap[x+1][y+2] = mk('.', wc, true,  doorDesc);
-  tileMap[x+2][y+2] = mk('-', wc, false, wallDesc);
-  tileMap[x+3][y+2] = mk('+', wc, false, wallDesc);
+  tileMap[x+3][y+1] = mk(‘║’, wc, false, wallDesc);
+  tileMap[x  ][y+2] = mk(‘╚’, wc, false, wallDesc);
+  tileMap[x+1][y+2] = mk(‘-’, dc, true,  doorDesc);
+  tileMap[x+2][y+2] = mk(‘═’, wc, false, wallDesc);
+  tileMap[x+3][y+2] = mk(‘╝’, wc, false, wallDesc);
   for (let dx = 0; dx <= 3; dx++) for (let dy = 0; dy <= 2; dy++) markDirty(x + dx, y + dy);
 }
 
@@ -2477,11 +2482,11 @@ function checkPhase2Trigger() {
     setTimeout(() => addLog('You can afford to hire help.', '#cc66cc'), 2000);
     setTimeout(() => {
       addLog('The Storage Warehouse is now available.', '#cc66cc');
-      colorInStation('ST', '#66ccff', '#aaddff');
+      colorInStation('ST', '#66ccff', '#aaddff', '#4488aa');
     }, 4000);
     setTimeout(() => {
       addLog('A light is on in the shop at the south-west corner. Someone is open for business.', '#aa66ff');
-      colorInStation('GS', '#aa66ff', '#cc99ff');
+      colorInStation('GS', '#aa66ff', '#cc99ff', '#884499');
     }, 7000);
   }
 }
@@ -2517,10 +2522,10 @@ function checkPhase3Trigger() {
     calculateDailyDemand();
     addLog('The bank lights come on for the first time.', '#66cc66');
     setTimeout(() => addLog('New possibilities are available.', '#66cc66'), 2000);
-    setTimeout(() => colorInStation('BK', '#66cc66', '#aaffaa'), 4000);
+    setTimeout(() => colorInStation('BK', '#66cc66', '#aaffaa', '#449944'), 4000);
     setTimeout(() => {
       addLog('> The Newspaper office has a light on. Someone is printing something.', COLOR_NP_FRAME);
-      colorInStation('NP', COLOR_NP_FRAME, COLOR_NP_LABEL);
+      colorInStation('NP', COLOR_NP_FRAME, COLOR_NP_LABEL, '#2a6a3a');
     }, 5000);
   }
 }
@@ -2535,7 +2540,7 @@ function checkPhase4Trigger() {
     setTimeout(() => addLog("He offers you a contract. Lock in tomorrow's price, he says.", '#cc66cc'), 2000);
     setTimeout(() => {
       addLog('The Terminal is now open.', '#cc66cc');
-      colorInStation('TR', '#cc66cc', '#cc66cc');
+      colorInStation('TR', '#cc66cc', '#dd99dd', '#884488');
     }, 4000);
   }
 }
