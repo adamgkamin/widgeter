@@ -702,6 +702,14 @@ let logQueue   = []; // lines waiting to scroll in: [{text, color}]
 let pendingLine = null; // line currently scrolling in: {text, color, charsRevealed}
 
 function addLog(message, color) {
+  const MAX_LOG = 76;
+  if (message.length > MAX_LOG) {
+    const cut   = message.lastIndexOf(' ', MAX_LOG);
+    const split = cut > 0 ? cut : MAX_LOG;
+    addLog(message.slice(0, split), color);
+    addLog(message.slice(split + (cut > 0 ? 1 : 0)), color);
+    return;
+  }
   if (pendingLine !== null || logQueue.length > 0) {
     logQueue.push({ text: message, color });
   } else {
