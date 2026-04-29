@@ -837,7 +837,7 @@ drawArt(0);
 drawPrompt(true);
 
 const CREDIT  = "Created by Adam A.";
-const VERSION = "alpha 1.03.02";
+const VERSION = "alpha 1.03.03";
 
 // ── Sound system ──────────────────────────────────────────────────────────────
 const SOUNDS = {};
@@ -2886,22 +2886,79 @@ function openWorkbenchMenu(isRemote = false) {
   ];
 
   const HAMMER_FRAMES = [
-    // Frame 0 — hammer raised, held high
-    ['   _____      ', '  |     |     ', '  |_____|     ', '     |        ', '     |        '],
-    // Frame 1 — hammer descending fast
-    ['              ', '   _____      ', '  |     |     ', '  |_____|     ', '     |        '],
-    // Frame 2 — impact
-    ['  * . * . *   ', '  _________   ', ' |_________|  ', '  - - - - -   ', '     | |      '],
-    // Frame 3 — rebound
-    ['              ', '   _____      ', '  |     |     ', '  |_____|     ', '     |        '],
+    // Frame 0 — resting
+    ['              ',
+     '        ___   ',
+     '       |   |  ',
+     '       |___|  ',
+     '  _____|      '],
+    // Frame 1 — lifting
+    ['       ___    ',
+     '      |   |   ',
+     '      |___|   ',
+     '        |     ',
+     '  _____|      '],
+    // Frame 2 — raised high
+    ['    _______   ',
+     '   |       |  ',
+     '   |_______|  ',
+     '       |      ',
+     '  _____|      '],
+    // Frame 3 — top (pause)
+    ['   |       |  ',
+     '   |_______|  ',
+     '       |      ',
+     '       |      ',
+     '  _____|      '],
+    // Frame 4 — swinging down
+    ['              ',
+     '    _______   ',
+     '   |       |  ',
+     '   |_______|  ',
+     '  _____|      '],
+    // Frame 5 — approaching anvil
+    ['              ',
+     '              ',
+     '    _______   ',
+     '   |_______|  ',
+     '  _____|      '],
+    // Frame 6 — IMPACT
+    ['  * . * . *   ',
+     '   \\  |  /    ',
+     '   |_______|  ',
+     '  *|_______|* ',
+     '  ==ANVIL==   '],
+    // Frame 7 — sparks flying
+    [' *  .  *  . * ',
+     '    *   *     ',
+     '   |_______|  ',
+     '   |_______|  ',
+     '  ==ANVIL==   '],
+    // Frame 8 — rebound
+    ['              ',
+     '    _______   ',
+     '   |       |  ',
+     '   |_______|  ',
+     '  ==ANVIL==   '],
+    // Frame 9 — settling
+    ['              ',
+     '              ',
+     '      ___     ',
+     '     |___|    ',
+     '  _____|      '],
   ];
 
-  // Per-frame, per-rowIdx (0-4) base color; null = per-char (spark row)
   const HAMMER_COLORS = [
-    ['#aaaaaa', '#aaaaaa', '#aaaaaa', '#cc6600', '#cc6600'], // frame 0
-    ['#aaaaaa', '#aaaaaa', '#aaaaaa', '#aaaaaa', '#cc6600'], // frame 1
-    [null,      '#ffffff', '#ffffff', '#ff9933', '#cc6600'], // frame 2 (row 0 = per-char sparks)
-    ['#aaaaaa', '#aaaaaa', '#aaaaaa', '#aaaaaa', '#cc6600'], // frame 3
+    ['#aaaaaa', '#aaaaaa', '#aaaaaa', '#aaaaaa', '#886633'], // 0 rest
+    ['#aaaaaa', '#aaaaaa', '#aaaaaa', '#cc6600', '#886633'], // 1 lift
+    ['#aaaaaa', '#aaaaaa', '#aaaaaa', '#cc6600', '#886633'], // 2 raised
+    ['#aaaaaa', '#aaaaaa', '#cc6600', '#cc6600', '#886633'], // 3 top
+    ['#aaaaaa', '#aaaaaa', '#aaaaaa', '#aaaaaa', '#886633'], // 4 swing
+    ['#aaaaaa', '#aaaaaa', '#aaaaaa', '#aaaaaa', '#886633'], // 5 approach
+    [null,      '#ff9933', '#ffffff', null,      '#ffaa33'], // 6 IMPACT
+    [null,      null,      '#aaaaaa', '#aaaaaa', '#ffaa33'], // 7 sparks
+    ['#aaaaaa', '#aaaaaa', '#aaaaaa', '#aaaaaa', '#ffaa33'], // 8 rebound
+    ['#aaaaaa', '#aaaaaa', '#aaaaaa', '#aaaaaa', '#886633'], // 9 settle
   ];
 
   function drawHammerRow(r, ay) {
@@ -2912,8 +2969,13 @@ function openWorkbenchMenu(isRemote = false) {
     for (let i = 0; i < AW; i++) {
       const ch = s[i] || ' ';
       let fg;
-      if (base === null) { // spark row (frame 2, rowIdx 0)
-        fg = ch === '*' ? '#ffd633' : ch === '.' ? '#ff9933' : '#aaaaaa';
+      if (base === null) {
+        if      (ch === '*') fg = '#ffd633';
+        else if (ch === '.') fg = '#ff9933';
+        else if (ch === '\\' || ch === '/') fg = '#ff9933';
+        else if (ch === '=') fg = '#886633';
+        else if ('ANVIL'.includes(ch) && ch !== ' ') fg = '#aa7744';
+        else fg = '#aaaaaa';
       } else {
         fg = base;
       }
@@ -5539,6 +5601,22 @@ function showNumericPrompt(title, maxVal, onConfirm, onCancel, opts = {}) {
   const CONT_W = BOX_W - 4;
   const WC = '#555555';
 
+  // Save and disable all menu redraws so they don't overwrite the prompt
+  const savedRedraws = {
+    rm: rmMenuRedrawFn, wb: wbMenuRedrawFn, mt: mtMenuRedrawFn,
+    office: officeMenuRedrawFn, gs: gsMenuRedrawFn, storage: storageMenuRedrawFn,
+    bank: bankMenuRedrawFn, lf: lfMenuRedrawFn, dv: dvMenuRedrawFn,
+    np: typeof npMenuRedrawFn !== 'undefined' ? npMenuRedrawFn : undefined,
+    dashboard: typeof dashboardRedrawFn !== 'undefined' ? dashboardRedrawFn : undefined,
+    inventory: typeof inventoryRedrawFn !== 'undefined' ? inventoryRedrawFn : undefined,
+  };
+  rmMenuRedrawFn = null; wbMenuRedrawFn = null; mtMenuRedrawFn = null;
+  officeMenuRedrawFn = null; gsMenuRedrawFn = null; storageMenuRedrawFn = null;
+  bankMenuRedrawFn = null; lfMenuRedrawFn = null; dvMenuRedrawFn = null;
+  if (typeof npMenuRedrawFn !== 'undefined')      npMenuRedrawFn = null;
+  if (typeof dashboardRedrawFn !== 'undefined')   dashboardRedrawFn = null;
+  if (typeof inventoryRedrawFn !== 'undefined')   inventoryRedrawFn = null;
+
   let inputStr = '';
 
   function redrawPrompt() {
@@ -5564,6 +5642,19 @@ function showNumericPrompt(title, maxVal, onConfirm, onCancel, opts = {}) {
 
   function closePrompt() {
     window.removeEventListener('keydown', promptHandler);
+    // Restore all parent menu redraws
+    rmMenuRedrawFn = savedRedraws.rm;
+    wbMenuRedrawFn = savedRedraws.wb;
+    mtMenuRedrawFn = savedRedraws.mt;
+    officeMenuRedrawFn = savedRedraws.office;
+    gsMenuRedrawFn = savedRedraws.gs;
+    storageMenuRedrawFn = savedRedraws.storage;
+    bankMenuRedrawFn = savedRedraws.bank;
+    lfMenuRedrawFn = savedRedraws.lf;
+    dvMenuRedrawFn = savedRedraws.dv;
+    if (savedRedraws.np !== undefined)        npMenuRedrawFn = savedRedraws.np;
+    if (savedRedraws.dashboard !== undefined) dashboardRedrawFn = savedRedraws.dashboard;
+    if (savedRedraws.inventory !== undefined) inventoryRedrawFn = savedRedraws.inventory;
     clearMenuRegion(BOX_X, BOX_Y, BOX_W, BOX_H);
     renderDirty();
     display.draw(state.player.x, state.player.y, '@', state.player.color || BRIGHT_WHITE, BG);
@@ -7511,6 +7602,7 @@ function renderLargeNumber(display, x, y, numberString, color, availableWidth) {
 // ── Launch Facility menu (§9) ─────────────────────────────────────────────────
 
 const CHANGELOG = [
+  { version: '1.03.03', summary: 'Fixed numeric prompt disappearing. Redesigned workbench hammer animation.' },
   { version: '1.03.02', summary: 'Sound effects added: buy, sell, craft, click, start, new game.' },
   { version: '1.03.01', summary: 'Garden tab in General Store. Plant flowers and veggies. Eat veggies from your garden.' },
   { version: '1.02.08', summary: 'Desert expanded 30%. Dense jungle west of pond.' },
@@ -11278,17 +11370,7 @@ setInterval(() => {
   if (state.gameState === 'crafting') {
     const secsLeft = activeCraftTicks - craftProgress;
     drawRow(LOG_END_ROW, `> Crafting — ${secsLeft}s remaining`, '#ff9933');
-    const prevHammerFrame = state.workbenchHammerFrame;
-    state.workbenchHammerFrame = Math.min(3, Math.floor((craftProgress / activeCraftTicks) * 4));
-    const wbDef = STATION_DEFS.find(s => s.label === 'WB');
-    if (wbDef) {
-      const doorX = wbDef.x + 1, doorY = wbDef.y + 2;
-      if (state.workbenchHammerFrame === 2 && prevHammerFrame < 2) {
-        display.draw(doorX, doorY, '*', '#ffd633', BG);
-      } else if (prevHammerFrame === 2 && state.workbenchHammerFrame !== 2) {
-        markDirty(doorX, doorY); renderDirty();
-      }
-    }
+    state.workbenchHammerFrame = Math.min(9, Math.floor((craftProgress / activeCraftTicks) * 10));
     craftProgress++;
     if (!craftingRemote) pulseWB();
     if (craftProgress >= activeCraftTicks) {
