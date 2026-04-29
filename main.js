@@ -1080,26 +1080,30 @@ function buildTileMap() {
 // appears without waiting for the next full drawWorld() call.
 function placeCottageTiles() {
   const cx = state.cottage.mapX, cy = state.cottage.mapY;
-  const RC = '#cc3333', WC_COT = '#886633';
+  const RC = '#cc3333', WC_COT = '#886633', DC_COT = '#aa6633';
   const mk = (g, fg, w) => ({ glyph: g, fg, bg: BG, walkable: w });
-  const ROOF = [' ', '/', '\\', '/', '\\', ' '];
+  // Row 0: roof — walkable (╱╲ glyphs)
+  const ROOF = [' ', '╱', '╲', '╱', '╲', ' '];
   for (let i = 0; i < 6; i++) tileMap[cx+i][cy] = mk(ROOF[i], RC, true);
-  tileMap[cx  ][cy+1] = mk('+', WC_COT, false);
-  tileMap[cx+1][cy+1] = mk('-', WC_COT, false);
-  tileMap[cx+2][cy+1] = mk('-', WC_COT, false);
-  tileMap[cx+3][cy+1] = mk('-', WC_COT, false);
-  tileMap[cx+4][cy+1] = mk('-', WC_COT, false);
-  tileMap[cx+5][cy+1] = mk('+', WC_COT, false);
-  tileMap[cx  ][cy+2] = mk('|', WC_COT, false);
+  // Row 1: top wall
+  tileMap[cx  ][cy+1] = mk('╔', WC_COT, false);
+  tileMap[cx+1][cy+1] = mk('═', WC_COT, false);
+  tileMap[cx+2][cy+1] = mk('═', WC_COT, false);
+  tileMap[cx+3][cy+1] = mk('═', WC_COT, false);
+  tileMap[cx+4][cy+1] = mk('═', WC_COT, false);
+  tileMap[cx+5][cy+1] = mk('╗', WC_COT, false);
+  // Row 2: middle wall
+  tileMap[cx  ][cy+2] = mk('║', WC_COT, false);
   for (let i = 1; i <= 4; i++) tileMap[cx+i][cy+2] = mk(' ', WC_COT, false);
-  tileMap[cx+5][cy+2] = mk('|', WC_COT, false);
-  tileMap[cx  ][cy+3] = mk('+', WC_COT, false);
-  tileMap[cx+1][cy+3] = mk('-', WC_COT, false);
-  tileMap[cx+2][cy+3] = mk('-', WC_COT, false);
-  tileMap[cx+3][cy+3] = mk('.', WC_COT, true); // door
-  tileMap[cx+4][cy+3] = mk('-', WC_COT, false);
-  tileMap[cx+5][cy+3] = mk('+', WC_COT, false);
-  // Mark all cottage tile positions dirty so the next renderDirty() shows them
+  tileMap[cx+5][cy+2] = mk('║', WC_COT, false);
+  // Row 3: bottom wall with door
+  tileMap[cx  ][cy+3] = mk('╚', WC_COT, false);
+  tileMap[cx+1][cy+3] = mk('═', WC_COT, false);
+  tileMap[cx+2][cy+3] = mk('═', WC_COT, false);
+  tileMap[cx+3][cy+3] = mk('-', DC_COT, true); // door — walkable, enters interior
+  tileMap[cx+4][cy+3] = mk('═', WC_COT, false);
+  tileMap[cx+5][cy+3] = mk('╝', WC_COT, false);
+  // Mark all 24 cottage tiles dirty
   for (let dx = 0; dx < 6; dx++)
     for (let dy = 0; dy < 4; dy++)
       markDirty(cx + dx, cy + dy);
@@ -6794,44 +6798,45 @@ function logHistory(text) {
 
 function buildInteriorTileMap() {
   const W = 20, H = 12;
-  const FC = '#1a1208', WC = '#886633';
+  const FC = '#2a2a1a', WC = '#886633'; // floor is · in #2a2a1a
   for (let x = 0; x < W; x++) {
     interiorTileMap[x] = [];
     for (let y = 0; y < H; y++) {
       const isBorder = x === 0 || x === W-1 || y === 0 || y === H-1 || y === 10;
-      const isDoor   = y === 10 && x === 10;
+      const isDoor   = y === 10 && x === 8; // door indicator at x=8
       interiorTileMap[x][y] = {
         walkable:    !isBorder,
-        glyph:       isBorder ? (y===0||y===H-1 ? '═' : '║') : '.',
+        glyph:       isBorder ? (y===0||y===H-1 ? '═' : '║') : '·',
         fg:          isBorder ? WC : FC,
         description: isBorder ? (isDoor ? 'The way out. The world is still there.' : 'The cottage wall. It keeps the weather out.') : 'Wooden floorboards. They creak in the same spot every time.',
         furniture:   null,
       };
     }
   }
-  // Fix border corners
+  // Fix border corners and door indicator glyph
   interiorTileMap[0][0].glyph    = '╔'; interiorTileMap[W-1][0].glyph    = '╗';
   interiorTileMap[0][H-1].glyph  = '╚'; interiorTileMap[W-1][H-1].glyph  = '╝';
+  interiorTileMap[8][10].glyph   = '-'; // door - in row 10
 
   function stamp(x1, x2, y1, y2, key, glyph, fg, desc, walkable) {
     for (let x = x1; x <= Math.min(x2, 18); x++) {
       for (let y = y1; y <= Math.min(y2, 9); y++) {
         if (x < 1 || x > 18 || y < 1 || y > 9) continue;
-        interiorTileMap[x][y] = { walkable, glyph: glyph[0]||'.', fg, description: desc, furniture: key };
+        interiorTileMap[x][y] = { walkable, glyph: glyph[0]||'·', fg, description: desc, furniture: key };
       }
     }
   }
   const fur = state.cottage.furniture;
-  if (fur.kitchen)      stamp(1,8, 1,3, 'kitchen',      '#', '#aaaaaa', 'A modest kitchen. Functional.', false);
-  if (fur.fireplace)    stamp(8,14,1,3, 'fireplace',    '{', '#ff9933', 'A small fireplace. The warmth is real.', false);
-  if (fur.bed)          stamp(12,18,1,3,'bed',          '[', '#6688cc', 'A small bed. Adequate.', false);
-  if (fur.clock)        stamp(1,5, 2,3, 'clock',        'o', '#aaaaaa', 'A wall clock. It keeps better time than you do.', false);
-  if (fur.bookshelf)    stamp(14,18,2,4,'bookshelf',    '[', '#886633', 'Shelves of records. Your history, such as it is.', false);
-  if (fur.table)        stamp(7,13,3,4, 'table',        '=', '#aa7744', 'A sturdy wooden table. Older than it looks.', false);
-  if (fur.rockingchair) stamp(3,7, 5,6, 'rockingchair', '~', '#aa7744', 'A rocking chair. It faces the fire.', false);
-  if (fur.rug)          stamp(8,12,5,5, 'rug',          '≈', '#886633', 'A braided rug. It anchors the room.', true);
-  if (fur.candles)      stamp(7,11,6,6, 'candles',      'i', '#ffd633', "Two candles. They've been burning a while.", true);
-  if (fur.mat)          stamp(9,14,9,9, 'mat',          '-', '#aa7744', 'A welcome mat. It says nothing but means it.', true);
+  if (fur.kitchen)      stamp(1,7, 1,3, 'kitchen',      '┌', '#886633', 'A modest kitchen. Functional.', false);
+  if (fur.fireplace)    stamp(8,14,1,3, 'fireplace',    '╔', '#886633', 'A small fireplace. The warmth is real.', false);
+  if (fur.bed)          stamp(12,18,1,4, 'bed',         '┌', '#6688cc', 'A small bed. Adequate.', false);
+  if (fur.clock)        stamp(1,3, 2,4, 'clock',        '┌', '#aaaaaa', 'A wall clock. It keeps better time than you do.', false);
+  if (fur.bookshelf)    stamp(14,18,2,5,'bookshelf',    '╔', '#886633', 'Shelves of records. Your history, such as it is.', false);
+  if (fur.table)        stamp(7,13,3,5, 'table',        '┌', '#aa7744', 'A sturdy wooden table. Older than it looks.', false);
+  if (fur.rockingchair) stamp(3,5, 5,8, 'rockingchair', '╭', '#aa7744', 'A rocking chair. It faces the fire.', false);
+  if (fur.rug)          stamp(8,12,5,5, 'rug',          '▒', '#886633', 'A braided rug. It anchors the room.', true);
+  if (fur.candles)      stamp(7,13,6,6, 'candles',      '║', '#ffd633', "Two candles. They've been burning a while.", true);
+  if (fur.mat)          stamp(9,14,9,9, 'mat',          '▬', '#aa7744', 'A welcome mat. It says nothing but means it.', true);
   // Cat desc
   if (fur.cat) {
     const cx = state.cottage.catX, cy = state.cottage.catY;
@@ -6845,7 +6850,7 @@ function getCottageGlyphAt(ix, iy) {
   const W = 20, H = 12;
   const fur = state.cottage.furniture;
   if (ix === state.cottage.playerX && iy === state.cottage.playerY) return { ch: '@', fg: state.player.color || BRIGHT_WHITE };
-  if (fur.cat && ix === state.cottage.catX && iy === state.cottage.catY) return { ch: 'f', fg: '#cc9933' };
+  if (fur.cat && ix === state.cottage.catX && iy === state.cottage.catY) return { ch: 'ค', fg: '#cc9933' };
   if (interiorTileMap[ix] && interiorTileMap[ix][iy]) {
     const t = interiorTileMap[ix][iy];
     return { ch: t.glyph, fg: t.fg };
@@ -6858,56 +6863,88 @@ function drawInteriorFurniture() {
   const fur = state.cottage.furniture;
   function dp(ix, iy, ch, fg) { if (ix>=0&&ix<=19&&iy>=0&&iy<=11) display.draw(OX+ix, OY+iy, ch, fg, BG); }
 
+  // H — Kitchen Corner (1,1): 7w × 3h
   if (fur.kitchen) {
-    ['[##][##]','|  ||  |','|__|  |_'].forEach((row, r) => {
-      const fg = r===0?'#aaaaaa':'#886633';
-      for (let i=0;i<row.length;i++) dp(1+i,1+r,row[i],fg);
+    const WC = '#886633', TC = '#aaaaaa';
+    ['┌──┬──┐', '│▦▦│▦▦│', '└──┴──┘'].forEach((row, r) => {
+      const fg = r === 1 ? TC : WC;
+      for (let i = 0; i < row.length; i++) dp(1+i, 1+r, row[i], fg);
     });
   }
+
+  // D — Fireplace (8,1): 7w × 3h, two-frame animation
   if (fur.fireplace) {
-    const frames = [['{ ^ ^ }','#ff9933'],['{ * * }','#ffd633']];
-    dp(8,1,'{',  '#886633'); dp(14,1,'}','#886633');
-    for(let i=1;i<=5;i++) dp(8+i,1,' ','#886633');
-    const [fRow, fFg] = frames[fireplaceFrame];
-    for(let i=0;i<7;i++) dp(8+i,2,fRow[i],fFg);
-    for(let i=0;i<7;i++) dp(8+i,3,('{_____}')[i],'#aaaaaa');
+    const WC = '#886633', HC = '#aaaaaa';
+    const top = '╔═════╗', bot = '╚═════╝';
+    for (let i = 0; i < 7; i++) dp(8+i, 1, top[i], WC);
+    const flames = fireplaceFrame === 0
+      ? [['║',' ','▲',' ','▲',' ','║'], ['#886633','#886633','#ff9933','#886633','#ff9933','#886633','#886633']]
+      : [['║',' ','✸',' ','✸',' ','║'], ['#886633','#886633','#ffd633','#886633','#ffd633','#886633','#886633']];
+    for (let i = 0; i < 7; i++) dp(8+i, 2, flames[0][i], flames[1][i]);
+    for (let i = 0; i < 7; i++) dp(8+i, 3, bot[i], HC);
   }
+
+  // I — Bed (12,1): 8w × 4h
   if (fur.bed) {
-    ['[______]','|  zz  |','[______]'].forEach((row, r) => {
-      for(let i=0;i<row.length&&12+i<=18;i++) {
-        let ch=row[i], fg=r===1?'#aaaaaa':'#6688cc';
-        if(r===1&&(i===3||i===4)){ch='z';fg='#ccccff';}
-        dp(12+i,1+r,ch,fg);
+    const BC = '#6688cc', PC = '#ccccff';
+    ['┌──────┐', '│ ░░░░ │', '│ ▼▼▼▼ │', '└──────┘'].forEach((row, r) => {
+      for (let i = 0; i < row.length && 12+i <= 18; i++) {
+        const ch = row[i];
+        let fg = BC;
+        if (r === 1 && (ch === '░')) fg = PC;
+        dp(12+i, 1+r, ch, fg);
       }
     });
   }
+
+  // E — Bookshelf (14,2): 5w × 4h
   if (fur.bookshelf) {
-    for(let r=0;r<3;r++) for(let i=0;i<5;i++) dp(14+i,2+r,'[|||]'[i],'#886633');
+    const BC = '#886633';
+    ['╔═══╗', '║▤▤▤║', '║▤▤▤║', '╚═══╝'].forEach((row, r) => {
+      for (let i = 0; i < 5; i++) dp(14+i, 2+r, row[i], BC);
+    });
   }
+
+  // F — Clock (1,2): 3w × 3h, two-frame animation
   if (fur.clock) {
-    const faceColor = state.marketOpen?'#ffd633':'#cc66cc';
-    [' (o) ',' |_| '].forEach((row, r) => {
-      for(let i=0;i<5;i++) dp(1+i,2+r,row[i],(r===0&&i===2)?faceColor:'#aaaaaa');
+    const CC = '#aaaaaa', faceColor = state.marketOpen ? '#ffd633' : '#cc66cc';
+    const clockFace = state.tick % 60 < 30 ? '◷' : '◶';
+    ['┌─┐', `│${clockFace}│`, '└─┘'].forEach((row, r) => {
+      for (let i = 0; i < 3; i++) dp(1+i, 2+r, row[i], (r===1&&i===1) ? faceColor : CC);
     });
   }
+
+  // C — Wooden Table (7,3): 7w × 3h
   if (fur.table) {
-    for(let i=0;i<7;i++) dp(7+i,3,'[=====]'[i],'#aa7744');
-    for(let i=0;i<7;i++) dp(7+i,4,'  | |  '[i],'#886633');
-  }
-  if (fur.rockingchair) {
-    [' (~) ','/___\\'].forEach((row,r) => {
-      for(let i=0;i<5;i++) dp(3+i,5+r,row[i],r===0?'#aa7744':'#886633');
+    const TC = '#aa7744';
+    ['┌─────┐', '│     │', '└─┬─┬─┘'].forEach((row, r) => {
+      for (let i = 0; i < row.length; i++) dp(7+i, 3+r, row[i], TC);
     });
   }
+
+  // K — Rocking Chair (3,5): 3w × 4h
+  if (fur.rockingchair) {
+    const CC = '#aa7744', RC = '#886633';
+    ['╭─╮', '│ │', '╰┬╯', '╱_╲'].forEach((row, r) => {
+      for (let i = 0; i < 3; i++) dp(3+i, 5+r, row[i], r === 3 ? RC : CC);
+    });
+  }
+
+  // B — Braided Rug (8,5): 5w × 1h
   if (fur.rug) {
-    for(let i=0;i<5;i++) dp(8+i,5,'≈','#886633');
+    for (let i = 0; i < 5; i++) dp(8+i, 5, '▒', '#886633');
   }
+
+  // J — Candles (7,6): 7w × 1h, two-frame animation
   if (fur.candles) {
-    const dot = candlePhase ? '·' : ' ';
-    dp(7,6,'i','#ffd633'); dp(8,6,' ','#ffd633'); dp(9,6,dot,'#ffd633'); dp(10,6,' ','#ffd633'); dp(11,6,'i','#ffd633');
+    const CF = '#ffd633';
+    const row = candlePhase ? '║ ▪ ▪ ║' : '║   ▪ ║';
+    for (let i = 0; i < 7; i++) dp(7+i, 6, row[i], CF);
   }
+
+  // L — Welcome Mat (9,9): 6w × 1h
   if (fur.mat) {
-    for(let i=0;i<6;i++) dp(9+i,9,'[----]'[i],'#aa7744');
+    for (let i = 0; i < 6; i++) dp(9+i, 9, '▬', '#aa7744');
   }
 }
 
@@ -7001,22 +7038,22 @@ function drawCottageInterior() {
   for (let i = 1; i < W-1; i++) display.draw(OX+i, OY, '═', TC, BG);
   display.draw(OX+W-1, OY, '╗', TC, BG);
 
-  // Walkable rows y=1..9
+  // Walkable rows y=1..9 — floor is · in FC
   for (let iy = 1; iy <= 9; iy++) {
     const sy = OY + iy;
     display.draw(OX, sy, '║', TC, BG);
     for (let ix = 1; ix <= 18; ix++) {
       const warm = fur.fireplace && iy === 4 && ix >= 7 && ix <= 14;
-      display.draw(OX+ix, sy, '.', warm ? WARMC : FC, BG);
+      display.draw(OX+ix, sy, '·', warm ? WARMC : FC, BG);
     }
     display.draw(OX+W-1, sy, '║', TC, BG);
   }
 
-  // Row 10: bottom wall with door indicator
+  // Row 10: bottom wall with door indicator (- at ix=8)
   { const sy = OY + 10;
     display.draw(OX, sy, '║', TC, BG);
     for (let ix = 1; ix <= 18; ix++)
-      display.draw(OX+ix, sy, ix===10?'.':' ', ix===10?'#cc9933':'#333333', BG);
+      display.draw(OX+ix, sy, ix===8?'-':' ', ix===8?'#cc9933':'#333333', BG);
     display.draw(OX+W-1, sy, '║', TC, BG);
   }
 
@@ -7029,7 +7066,7 @@ function drawCottageInterior() {
   drawInteriorFurniture();
 
   // Cat
-  if (fur.cat) display.draw(OX+state.cottage.catX, OY+state.cottage.catY, 'f', '#cc9933', BG);
+  if (fur.cat) display.draw(OX+state.cottage.catX, OY+state.cottage.catY, 'ค', '#cc9933', BG);
 
   // Player
   display.draw(OX+state.cottage.playerX, OY+state.cottage.playerY, '@', state.player.color||BRIGHT_WHITE, BG);
@@ -7040,7 +7077,7 @@ function drawCottageInterior() {
     const ix = cottageLookX, iy = cottageLookY;
     let desc = '';
     if (iy===0||iy===H-1||ix===0||ix===W-1||iy===10) {
-      desc = (ix===10&&iy===10) ? 'The way out. The world is still there.' : 'The cottage wall. It keeps the weather out.';
+      desc = (ix===8&&iy===10) ? 'The way out. The world is still there.' : 'The cottage wall. It keeps the weather out.';
     } else if (ix===state.cottage.playerX && iy===state.cottage.playerY) {
       desc = "That's you. You're home.";
     } else if (fur.cat && ix===state.cottage.catX && iy===state.cottage.catY) {
