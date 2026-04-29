@@ -665,7 +665,7 @@ const CUBE_W        = 16;
 const CUBE_H        = 10;
 const CUBE_CX       = Math.floor(DISPLAY_WIDTH / 2);
 const TOTAL_TITLE_H = CUBE_H + 1 + TITLE_ART.length + 2 + 1;
-const ART_Y         = Math.floor((DISPLAY_HEIGHT - TOTAL_TITLE_H) / 2) + CUBE_H + 1;
+const ART_Y         = Math.floor((DISPLAY_HEIGHT - TOTAL_TITLE_H) / 2) + CUBE_H + 1 - 4;
 const CUBE_CY       = ART_Y - CUBE_H + Math.floor(CUBE_H / 2) - 1;
 const PROMPT_X      = Math.floor((DISPLAY_WIDTH - PROMPT.length) / 2);
 const PROMPT_Y      = ART_Y + TITLE_ART.length + 2;
@@ -830,9 +830,9 @@ drawArt(0);
 drawPrompt(true);
 
 const CREDIT  = "Created by Adam A.";
-const VERSION = "alpha 1.00.04";
-for (let i = 0; i < CREDIT.length;  i++) display.draw(79 - CREDIT.length  + i, 46, CREDIT[i],  '#555555', BG);
-for (let i = 0; i < VERSION.length; i++) display.draw(79 - VERSION.length + i, 47, VERSION[i], '#555555', BG);
+const VERSION = "alpha 1.00.05";
+for (let i = 0; i < CREDIT.length;  i++) display.draw(77 - CREDIT.length  + i, 46, CREDIT[i],  '#555555', BG);
+for (let i = 0; i < VERSION.length; i++) display.draw(77 - VERSION.length + i, 47, VERSION[i], '#555555', BG);
 requestAnimationFrame(titleAnimLoop);
 
 let promptVisible = true;
@@ -1684,7 +1684,7 @@ function showNewGameConfirm() {
   const BOX_W = INNER_W + 4;
   const BOX_H = 8;
   const BOX_X = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
-  const BOX_Y = Math.max(36, Math.floor((DISPLAY_HEIGHT - BOX_H) / 2));
+  const BOX_Y = Math.max(25, Math.floor((DISPLAY_HEIGHT - BOX_H) / 2));
   const CX = BOX_X + 2;
   display.draw(BOX_X, BOX_Y, '+', WC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y, '+', WC, BG);
   for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, BOX_Y, '-', WC, BG);
@@ -1724,7 +1724,7 @@ function showContinueMenu() {
   const BOX_W = INNER_W + 4;
   const BOX_H = 7;
   const BOX_X = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
-  const BOX_Y = Math.max(36, Math.floor((DISPLAY_HEIGHT - BOX_H) / 2));
+  const BOX_Y = Math.max(25, Math.floor((DISPLAY_HEIGHT - BOX_H) / 2));
   const CX = BOX_X + 2;
   display.draw(BOX_X, BOX_Y, '+', WC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y, '+', WC, BG);
   for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, BOX_Y, '-', WC, BG);
