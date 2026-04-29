@@ -837,7 +837,7 @@ drawArt(0);
 drawPrompt(true);
 
 const CREDIT  = "Created by Adam A.";
-const VERSION = "alpha 1.03.11";
+const VERSION = "alpha 1.04.01";
 
 // ── Sound system ──────────────────────────────────────────────────────────────
 const SOUNDS = {};
@@ -963,7 +963,7 @@ function drawStatusBar() {
     return x + text.length;
   };
   let sx = 0;
-  sx = seg(sx, `Credits: ${formatCredits(state.player.credits)}`, BRIGHT_YELLOW) + 2;
+  sx = seg(sx, `Credits: ${formatCredits(state.player.credits)}`, state.player.credits < 0 ? '#ff5555' : BRIGHT_YELLOW) + 2;
   sx = seg(sx, `Raw: ${inv.rm}`, '#ff9933') + 2;
   sx = seg(sx, `Widgets: ${inv.widgets}/${cap.widgets}`, widgetFg) + 2;
        seg(sx, `Price: ${state.marketPrice}cr`, '#66cc66');
@@ -2606,7 +2606,7 @@ function openRMShedMenu() {
   const IW    = 52;
   const AW    = 14; // art pane width
   const IPW   = 37; // info pane width
-  const BOX_H = 23; // +1 row for Gold bulk RM option
+  const BOX_H = 24; // +1 row for Gold bulk RM option, +1 for recycle
   const BOX_X = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
   const BOX_Y = Math.max(1, Math.floor((WORLD_ROWS - BOX_H) / 2));
   const RPX   = BOX_X + 1 + AW + 1; // right pane absolute x
@@ -2729,23 +2729,26 @@ function openRMShedMenu() {
     arow(BOX_Y + 17, '4. Cancel', '', '#555555');
     arow(BOX_Y + 18, `5. Buy 1 RM on card`, canBuyCard ? `-${discountedCost}cr (card)` : '', canBuyCard ? getCardTierColor(cardTier) : '#444444');
     arow(BOX_Y + 19, `6. Bulk buy 50 RM (-15%)`, isGoldPlus ? `-${Math.floor(50*COST*0.85)}cr` : '[Gold+ only]', canBulk50 ? CARD_TIERS.gold.color : '#444444');
+    const canRecycle = state.stations.storage?.unlocked && state.storage.widgets >= 10 && rmSpace > 0;
+    const recycleColor = canRecycle ? '#66cc66' : '#444444';
+    arow(BOX_Y + 20, `7. Recycle 10 widgets → 1 RM`, canRecycle ? '+1 RM' : '[need 10 WG in storage]', recycleColor);
 
-    // Row 20: ═ bottom rule
-    { const ay = BOX_Y + 20; border(ay);
+    // Row 21: ═ bottom rule
+    { const ay = BOX_Y + 21; border(ay);
       for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '═', DC, BG); }
 
-    // Row 21: status
+    // Row 22: status
     let statusText, statusFg;
     if (rmSpace <= 0)                { statusText = 'Inventory full.'; statusFg = '#ff5555'; }
     else if (state.player.credits < COST && !canBuyCard) { statusText = 'Insufficient credits.'; statusFg = '#ff5555'; }
     else                             { statusText = 'Walk to shed. Press space to purchase.'; statusFg = '#555555'; }
-    { const ay = BOX_Y + 21; border(ay);
+    { const ay = BOX_Y + 22; border(ay);
       const centered = menuPad(statusText.length < IW ? ' '.repeat(Math.floor((IW-statusText.length)/2)) + statusText : statusText, IW);
       for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, centered[i] || ' ', statusFg, BG); }
 
-    // Row 22: ╚═…═╝
-    display.draw(BOX_X, BOX_Y + 22, '╚', TC, BG); display.draw(BOX_X + BOX_W - 1, BOX_Y + 22, '╝', TC, BG);
-    for (let i = 1; i < BOX_W - 1; i++) display.draw(BOX_X + i, BOX_Y + 22, '═', TC, BG);
+    // Row 23: ╚═…═╝
+    display.draw(BOX_X, BOX_Y + 23, '╚', TC, BG); display.draw(BOX_X + BOX_W - 1, BOX_Y + 23, '╝', TC, BG);
+    for (let i = 1; i < BOX_W - 1; i++) display.draw(BOX_X + i, BOX_Y + 23, '═', TC, BG);
   }
 
   function closeRM() {
@@ -2822,6 +2825,18 @@ function openRMShedMenu() {
         } else { addLog('Insufficient credits or card limit for bulk purchase.', '#ff5555'); return; }
       }
       drawStatusBar(); redraw();
+    }
+    if (e.key === '7') {
+      if (!state.stations.storage?.unlocked) { addLog('Need storage to recycle.', '#555555'); return; }
+      if (state.storage.widgets < 10) { addLog(`Need 10 widgets in storage. Have ${state.storage.widgets}.`, '#ff5555'); return; }
+      if (rmSpace <= 0) { addLog('Inventory full. Drop some RM first.', '#ff5555'); return; }
+      state.storage.widgets -= 10;
+      state.player.inventory.rm += 1;
+      addLog('Recycled 10 widgets into 1 RM brick.', '#66cc66');
+      playSound('crafted');
+      drawStatusBar();
+      redraw();
+      return;
     }
   }
 
@@ -3246,8 +3261,23 @@ function calculateDailyDemand() {
   if (state.demandHistory.length > 30) state.demandHistory.shift();
 }
 
+function checkBankruptcyStipend() {
+  if (state.player.credits <= -20) {
+    state.player.credits = -20; // clamp to floor
+    addLog('You feel absolutely screwed.', '#ff5555');
+    setTimeout(() => {
+      state.player.credits = Math.round((state.player.credits + 30) * 10) / 10;
+      addLog('The bank extends an emergency stipend. +30cr.', '#66cc66');
+      drawStatusBar();
+    }, 1500);
+    drawStatusBar();
+    return true;
+  }
+  return false;
+}
+
 function checkPhase3Trigger() {
-  if (state.phase === 2 && (state.lifetimeCreditsEarned >= 500 || (state.couriersOwned >= 1 && state.day >= 2))) {
+  if (state.phase === 2 && (state.lifetimeCreditsEarned >= 1000 || (state.couriersOwned >= 1 && state.day >= 2))) {
     state.phase = 3;
     state.stations.bank = { unlocked: true };
     state.stations.newspaper.unlocked = true;
@@ -4820,7 +4850,7 @@ function getPonderHint() {
       text: '> Demand collapsed. Hold production or short it.', color: '#ff9933' },
     { cond: () => !!state.bank.card?.tier && getBankRatingIdx() <= 2,
       text: '> Credit rating at risk. Your card could be revoked.', color: '#ff5555' },
-    { cond: () => state.phase >= 5 && state.courierDestination === 'market' && state.rocketWidgets < 50000,
+    { cond: () => state.phase >= 5 && state.courierDestination === 'market' && state.rocketWidgets < 5000,
       text: '> Couriers selling at market. Toggle to the rocket?', color: '#ff5555' },
     { cond: () => state.stations.casino?.unlocked && !state.marketOpen,
       text: '> The casino is open.', color: '#aa3333' },
@@ -7537,6 +7567,7 @@ function renderLargeNumber(display, x, y, numberString, color, availableWidth) {
 // ── Launch Facility menu (§9) ─────────────────────────────────────────────────
 
 const CHANGELOG = [
+  { version: '1.04.01', summary: 'Major balance: rocket target reduced to 5,000. Bankruptcy stipend. Carry cost capped. Recycle widgets at RM shed. Phase 3 trigger raised.' },
   { version: '1.03.11', summary: 'Hammer animation extracted to hammer.js — 10 frames with anvil.' },
   { version: '1.03.10', summary: 'Workbench hammer animation -- 10 frames via sed (fifth attempt).' },
   { version: '1.03.09', summary: 'All menus updated to double-line border style.' },
@@ -7728,14 +7759,14 @@ function openLFMenu() {
       for (let i = 0; i < RW; i++) display.draw(RP + i, ay, line[i] || ' ', fg, BG);
     }
 
-    if (state.rocketWidgets >= 50000) {
+    if (state.rocketWidgets >= 5000) {
       rpt(4,  '', WC);
       rpt(5,  '', WC);
       rpt(6,  '╔══════════════════════════╗', RC);
       rpt(7,  '║                          ║', RC);
       rpt(8,  '║      ROCKET  READY       ║', '#ff5555');
       rpt(9,  '║                          ║', RC);
-      rpt(10, '║    50,000 / 50,000       ║', '#ffd633');
+      rpt(10, '║     5,000 / 5,000        ║', '#ffd633');
       rpt(11, '║                          ║', RC);
       rpt(12, '╚══════════════════════════╝', RC);
       rpt(13, '', WC);
@@ -7752,15 +7783,15 @@ function openLFMenu() {
     rpt(4,  'WIDGETS LOADED', WC);
 
     // Large digit display (rows 5-9, 5 rows tall)
-    const rw     = Math.min(state.rocketWidgets, 50000);
+    const rw     = Math.min(state.rocketWidgets, 5000);
     const numStr = rw.toLocaleString('en-US');
-    const numFg  = rw >= 45000 ? '#ff5555' : rw >= 25000 ? '#ff9933' : '#ffd633';
+    const numFg  = rw >= 4500 ? '#ff5555' : rw >= 2500 ? '#ff9933' : '#ffd633';
     renderLargeNumber(display, RP, BOX_Y + 5, numStr, numFg, RW);
 
-    rpt(10, '/ 50,000', WC);
+    rpt(10, '/ 5,000', WC);
 
     // Progress bar (row 12)
-    const pct      = rw / 50000;
+    const pct      = rw / 5000;
     const BAR_W    = 28;
     const filled   = Math.round(pct * BAR_W);
     const pctStr   = (pct * 100).toFixed(1) + '%';
@@ -7835,8 +7866,8 @@ function openLFMenu() {
 
   function drawChyron() {
     const ay = BOX_Y + 21;
-    if (state.rocketWidgets >= 50000) {
-      // Static ALL SYSTEMS GO at 50K
+    if (state.rocketWidgets >= 5000) {
+      // Static ALL SYSTEMS GO at 5K
       const msg = 'ALL SYSTEMS GO';
       const pad = Math.floor((IW - msg.length) / 2);
       const line = ' '.repeat(pad) + msg;
@@ -7875,7 +7906,7 @@ function openLFMenu() {
     if (e.key === 'Escape') { closeLF(); return; }
     if (e.key === ' ') {
       e.preventDefault();
-      if (state.rocketWidgets >= 50000) {
+      if (state.rocketWidgets >= 5000) {
         state.endingTriggered = true;
         closeLF();
         drawWorld();
@@ -10022,13 +10053,13 @@ function tickCouriers() {
       if (near(c, destDoor)) {
         if (isHeadingToLF(c)) {
           // Deliver to Launch Facility
-          if (c.carryWidgets > 0 && state.rocketWidgets < 50000) {
-            const toLoad = Math.min(c.carryWidgets, 50000 - state.rocketWidgets);
+          if (c.carryWidgets > 0 && state.rocketWidgets < 5000) {
+            const toLoad = Math.min(c.carryWidgets, 5000 - state.rocketWidgets);
             state.rocketWidgets += toLoad;
             c.carryWidgets -= toLoad;
-            addLog(`Courier loaded ${toLoad} widget${toLoad !== 1 ? 's' : ''}. Total: ${state.rocketWidgets.toLocaleString()} / 50,000.`, '#ff5555');
+            addLog(`Courier loaded ${toLoad} widget${toLoad !== 1 ? 's' : ''}. Total: ${state.rocketWidgets.toLocaleString()} / 5,000.`, '#ff5555');
             drawStatusBar();
-            if (!state.rocketFull && state.rocketWidgets >= 50000) {
+            if (!state.rocketFull && state.rocketWidgets >= 5000) {
               state.rocketFull = true;
               addLog('The rocket is ready. [launch sequence coming soon]', '#ff5555');
             }
@@ -10479,7 +10510,7 @@ function devUnlockEverything() {
   state.player.stamps = 500;
 
   // Rocket near-endgame
-  state.rocketWidgets = 49990;
+  state.rocketWidgets = 4990;
   state.courierDestination = 'market';
 
   // Market and economy
@@ -10498,7 +10529,7 @@ function devUnlockEverything() {
   state.gameState = 'playing';
   clearScreen();
   drawWorld();
-  addLog('DEV: Everything unlocked. Rocket at 49,990. Couriers set to market.', '#ff5555');
+  addLog('DEV: Everything unlocked. Rocket at 4,990. Couriers set to market.', '#ff5555');
   addLog('Toggle couriers to rocket when ready for the finale.', '#ff5555');
 }
 
@@ -11424,19 +11455,21 @@ setInterval(() => {
       }
     }
     // Then: charge carry cost on stored widgets
+    // Cost of carry — capped at 50cr/day max
     const mult      = state.skills.reducedCarry ? 0.1 : 0.2;
-    const carryCost = Math.round(state.storage.widgets * mult * 10) / 10;
+    let carryCost   = Math.round(state.storage.widgets * mult * 10) / 10;
+    carryCost       = Math.min(50, carryCost); // cap at 50cr
     if (carryCost > 0) {
       state.stats.costsToday = Math.round((state.stats.costsToday + carryCost) * 10) / 10;
-      if (state.player.credits >= carryCost) {
-        state.player.credits = Math.round((state.player.credits - carryCost) * 10) / 10;
-        addLog(`Storage cost: ${carryCost}cr for ${state.storage.widgets} widgets held.`, '#ff5555');
-      } else {
-        const shortfall = Math.round((carryCost - state.player.credits) * 10) / 10;
-        state.debt           = Math.round((state.debt + shortfall) * 10) / 10;
-        state.player.credits = 0;
-        addLog(`Insufficient credits for storage cost. Debt: ${state.debt}cr.`, '#ff5555');
-      }
+      state.player.credits = Math.round((state.player.credits - carryCost) * 10) / 10;
+      addLog(`Storage cost: ${carryCost}cr for ${state.storage.widgets} widgets held.`, '#ff5555');
+      drawStatusBar();
+      checkBankruptcyStipend();
+    }
+    // Emergency RM at the shed — if player is broke
+    if (state.player.credits <= 0 && state.player.inventory.rm < state.player.inventoryCaps.rm) {
+      state.player.inventory.rm += 1;
+      addLog('The RM shed leaves a free brick by the door. Get back on your feet.', '#66cc66');
       drawStatusBar();
     }
     // Deposit interest: 10% per day
@@ -11463,6 +11496,7 @@ setInterval(() => {
       state.derivatives.totalPnL = Math.round((state.derivatives.totalPnL + totalMTM) * 10) / 10;
       addLog(`Futures MTM: ${totalMTM >= 0 ? '+' : ''}${totalMTM}cr.`, totalMTM >= 0 ? '#66cc66' : '#ff5555');
       drawStatusBar();
+      checkBankruptcyStipend();
       // Maintenance margin check
       const totalNotional = state.derivatives.futures.reduce((s, f) => s + state.marketPrice * f.quantity, 0);
       const maintenanceMargin = totalNotional * 0.10;
