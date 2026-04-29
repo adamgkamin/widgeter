@@ -250,6 +250,7 @@ const state = {
   derivatives:          { forwards: [], futures: [], options: [], pnlToday: 0, totalPnL: 0, marginCallActive: false, marginCallDay: 0, nextSpreadId: 0 },
   volatility:           0.2,
   endingTriggered:      false,
+  endingCompleted:      false,
   devUnlocked:          false,
   widgetsMade:          0,
   peakCredits:          0,
@@ -371,6 +372,7 @@ function saveGame() {
     derivatives:          state.derivatives,
     volatility:           state.volatility,
     endingTriggered:      state.endingTriggered,
+    endingCompleted:      state.endingCompleted,
     devUnlocked:          state.devUnlocked,
     widgetsMade:          state.widgetsMade,
     peakCredits:          state.peakCredits,
@@ -461,6 +463,7 @@ function loadGame() {
     state.derivatives.nextSpreadId     = state.derivatives.nextSpreadId     ?? 0;
     state.volatility                     = data.volatility                     ?? 0.2;
     state.endingTriggered                = data.endingTriggered                ?? false;
+    state.endingCompleted                = data.endingCompleted                ?? false;
     state.devUnlocked                    = data.devUnlocked                    ?? false;
     state.widgetsMade          = data.widgetsMade          ?? 0;
     state.peakCredits          = data.peakCredits          ?? 0;
@@ -829,7 +832,7 @@ drawArt(0);
 drawPrompt(true);
 
 const CREDIT  = "Created by Adam A.";
-const VERSION = "alpha 1.01.02";
+const VERSION = "alpha 1.02.01";
 for (let i = 0; i < CREDIT.length;  i++) display.draw(77 - CREDIT.length  + i, 46, CREDIT[i],  '#555555', BG);
 for (let i = 0; i < VERSION.length; i++) display.draw(77 - VERSION.length + i, 47, VERSION[i], '#555555', BG);
 requestAnimationFrame(titleAnimLoop);
@@ -1626,6 +1629,7 @@ function resetState() {
   state.derivatives          = { forwards: [], futures: [], options: [], pnlToday: 0, totalPnL: 0, marginCallActive: false, marginCallDay: 0 };
   state.volatility           = 0.2;
   state.endingTriggered      = false;
+  state.endingCompleted      = false;
   state.devUnlocked          = false;
   state.widgetsMade          = 0;
   state.peakCredits          = 0;
@@ -1833,9 +1837,13 @@ function showContinueMenu() {
   const title = '-- WIDGETER --';
   for (let i = 0; i < title.length; i++) display.draw(CX+i, BOX_Y+1, title[i], BRIGHT_CYAN, BG);
   const saveExists = !!localStorage.getItem(SAVE_KEY);
-  const o1 = '1. Continue'; const o2 = '2. New Game'; const o3 = '3. Options';
+  const o1 = saveExists && state.endingCompleted ? '1. Continue ★' : '1. Continue';
+  const o2 = '2. New Game'; const o3 = '3. Options';
   const c1fg = saveExists ? BRIGHT_WHITE : '#333333';
-  for (let i = 0; i < o1.length; i++) display.draw(CX+i, BOX_Y+3, o1[i], c1fg, BG);
+  for (let i = 0; i < o1.length; i++) {
+    const fg = (o1[i] === '★') ? '#ffd633' : c1fg;
+    display.draw(CX+i, BOX_Y+3, o1[i], fg, BG);
+  }
   for (let i = 0; i < o2.length; i++) display.draw(CX+i, BOX_Y+4, o2[i], '#f0f0f0', BG);
   for (let i = 0; i < o3.length; i++) display.draw(CX+i, BOX_Y+5, o3[i], '#f0f0f0', BG);
   function cmKeyHandler(e) {
@@ -7328,10 +7336,10 @@ function openLFMenu() {
     if (e.key === ' ') {
       e.preventDefault();
       if (state.rocketWidgets >= 50000) {
-        // Launch trigger
         state.endingTriggered = true;
-        addLog('> Ignition sequence started.', '#ff5555');
-        redraw();
+        closeLF();
+        drawWorld();
+        startEndingSequence();
       } else {
         state.courierDestination = state.courierDestination === 'market' ? 'rocket' : 'market';
         redraw();
@@ -9567,6 +9575,283 @@ function devJumpToPhase(n) {
   addLog(`DEV: Jumped to Phase ${n}.`, '#ff5555');
 }
 
+// ── Ending cutscene (§Phase 5) ────────────────────────────────────────────────
+function startEndingSequence() {
+  state.gameState = 'ending';
+  let frame = 0;
+
+  // Phase 1 state
+  let scrollOffset = 0.0, scrollRows = 0;
+  let lastCountdownMsg = '> Ignition sequence initiated.', lastCountdownFg = '#ff5555';
+
+  // Phase 2-4 state — star field
+  const stars = [];
+  let starSpeedMult = 1.0;
+  function spawnStar() {
+    const rand = Math.random();
+    const ch = rand < 0.70 ? '·' : rand < 0.85 ? '*' : rand < 0.95 ? '+' : '✦';
+    const cr = Math.random();
+    const col = cr < 0.40 ? '#333333' : cr < 0.70 ? '#555555' : cr < 0.90 ? '#777777' : '#aaaaaa';
+    stars.push({ x: 1 + Math.floor(Math.random() * (DISPLAY_WIDTH-2)), y: -1.0,
+                 ch, color: col, speed: 0.3 + Math.random() * 0.4 });
+  }
+
+  // Moon art
+  const MOON_ART = [
+    "      .----.      ",
+    "    .'  o   '.    ",
+    "  .'    .  o   '. ",
+    " /  o        .   \\",
+    "|      .  o      |",
+    "|   o       .    |",
+    " \\     o  .     / ",
+    "  '.   .     .'   ",
+    "    '.     .'     ",
+    "      '----'      ",
+  ];
+  const MOON_W = 18;
+  const MOON_X = Math.floor((DISPLAY_WIDTH - MOON_W) / 2);
+  let moonY = -12.0;
+
+  // Rocket art for phases 2+
+  const END_ROCKET = [
+    "    /\\    ",
+    "   /  \\   ",
+    "  | /\\ |  ",
+    "  |/  \\|  ",
+    "  |████|  ",
+    "  |████|  ",
+    "  |████|  ",
+    "  |████|  ",
+    " /+----+\\ ",
+    "/  |  |  \\",
+    "   +--+   ",
+  ];
+  const ER_W = END_ROCKET[0].length;
+  const ER_X = Math.floor((DISPLAY_WIDTH - ER_W) / 2);
+  const FLAME_A = ["   *  *   ", "  ^^^*^^^ ", " * * * * *"];
+  const FLAME_B = ["  * ** *  ", " *^*^*^*  ", "  *^*^*^  "];
+  let rocketScreenY = 18.0;
+  let flameFrame = 0;
+
+  function clearAll() {
+    for (let y = 0; y < DISPLAY_HEIGHT; y++)
+      for (let x = 0; x < DISPLAY_WIDTH; x++)
+        display.draw(x, y, ' ', BRIGHT_WHITE, BG);
+  }
+
+  function drawEndRocket(topY) {
+    for (let r = 0; r < END_ROCKET.length; r++) {
+      const ay = Math.floor(topY) + r;
+      if (ay < 0 || ay >= DISPLAY_HEIGHT) continue;
+      const line = END_ROCKET[r];
+      for (let c = 0; c < line.length; c++) {
+        const ax = ER_X + c;
+        if (ax < 0 || ax >= DISPLAY_WIDTH) continue;
+        const ch = line[c];
+        if (ch === ' ') continue;
+        display.draw(ax, ay, ch, ch === '█' ? '#ff5555' : '#aaaaaa', BG);
+      }
+    }
+    const flRows = flameFrame % 8 < 4 ? FLAME_A : FLAME_B;
+    for (let r = 0; r < 3; r++) {
+      const ay = Math.floor(topY) + END_ROCKET.length + r;
+      if (ay < 0 || ay >= DISPLAY_HEIGHT) continue;
+      const line = flRows[r];
+      for (let c = 0; c < line.length; c++) {
+        const ax = ER_X + c;
+        if (ax < 0 || ax >= DISPLAY_WIDTH) continue;
+        const ch = line[c];
+        if (ch === ' ') continue;
+        display.draw(ax, ay, ch, ch === '^' ? '#ffd633' : r === 0 ? '#ff9933' : '#ff5555', BG);
+      }
+    }
+  }
+
+  function drawMoon(topY) {
+    for (let r = 0; r < MOON_ART.length; r++) {
+      const ay = Math.floor(topY) + r;
+      if (ay < 0 || ay >= DISPLAY_HEIGHT) continue;
+      for (let c = 0; c < MOON_W; c++) {
+        const ax = MOON_X + c;
+        if (ax < 0 || ax >= DISPLAY_WIDTH) continue;
+        const ch = MOON_ART[r][c];
+        if (ch === ' ') continue;
+        display.draw(ax, ay, ch, (ch === 'o' || ch === '.') ? '#888888' : '#aaaaaa', BG);
+      }
+    }
+  }
+
+  function drawArtCredits(baseRow, frameN) {
+    for (let row = 0; row < TITLE_ART.length; row++) {
+      const line = TITLE_ART[row];
+      for (let col = 0; col < line.length; col++) {
+        if (line[col] === ' ') continue;
+        const wave = Math.sin((col * 0.12) - (frameN * 0.03)) * 0.5 + 0.5;
+        const r2 = Math.round(200 + wave * 55);
+        const g2 = Math.round(170 + wave * 44);
+        const b2 = Math.round(wave * 51);
+        const hex = '#' + [r2, g2, b2].map(v => v.toString(16).padStart(2,'0')).join('');
+        display.draw(ART_X + col, baseRow + row, line[col], hex, BG);
+      }
+    }
+  }
+
+  // Phase 5 state
+  let endKeyActive = false;
+  function endingKeyHandler() {
+    if (frame < 2060) return;
+    window.removeEventListener('keydown', endingKeyHandler);
+    state.endingCompleted = true;
+    saveGame();
+    state.gameState = 'title';
+    clearScreen();
+    drawTitleBorder();
+    drawArt(0);
+    drawPrompt(true);
+    clearInterval(blinkInterval);
+    let pv = true;
+    blinkInterval = setInterval(() => { pv = !pv; drawPrompt(pv); }, 500);
+    titleFrame = 0;
+    requestAnimationFrame(titleAnimLoop);
+    showContinueMenu();
+  }
+  window.addEventListener('keydown', endingKeyHandler);
+
+  function endLoop() {
+    if (state.gameState !== 'ending') { window.removeEventListener('keydown', endingKeyHandler); return; }
+    flameFrame++;
+
+    // ── Phase 1: Liftoff (0-299) ─────────────────────────────────────────────
+    if (frame < 300) {
+      if (frame === 0)   { drawRow(LOG_END_ROW, '> Ignition sequence initiated.', '#ff5555'); lastCountdownMsg = '> Ignition sequence initiated.'; lastCountdownFg = '#ff5555'; }
+      if (frame === 60)  { drawRow(LOG_END_ROW, '> 3...', '#ff5555'); lastCountdownMsg = '> 3...'; lastCountdownFg = '#ff5555'; }
+      if (frame === 120) { drawRow(LOG_END_ROW, '> 2...', '#ff5555'); lastCountdownMsg = '> 2...'; lastCountdownFg = '#ff5555'; }
+      if (frame === 180) { drawRow(LOG_END_ROW, '> 1...', '#ff5555'); lastCountdownMsg = '> 1...'; lastCountdownFg = '#ff5555'; }
+      if (frame === 240) { drawRow(LOG_END_ROW, '> LIFTOFF.', '#ffd633'); lastCountdownMsg = '> LIFTOFF.'; lastCountdownFg = '#ffd633'; }
+
+      if (frame >= 180) {
+        scrollOffset += 0.15;
+        while (scrollOffset >= 1.0) { scrollOffset -= 1.0; scrollRows++; }
+        if (scrollRows > 0) {
+          clearAll();
+          // Re-render tileMap with Y offset (world scrolls down)
+          for (let ty = 0; ty < WORLD_ROWS && ty + scrollRows < DISPLAY_HEIGHT; ty++) {
+            const screenY = ty + scrollRows;
+            for (let tx = 0; tx < DISPLAY_WIDTH; tx++) {
+              const tile = tileMap[tx] && tileMap[tx][ty];
+              if (tile) display.draw(tx, screenY, tile.glyph, tile.fg, tile.bg || BG);
+            }
+          }
+          // Countdown text stays at its row (scrolled down too)
+          const msgRow = LOG_END_ROW + scrollRows;
+          if (msgRow < DISPLAY_HEIGHT) drawRow(msgRow, lastCountdownMsg, lastCountdownFg);
+          // Flames at LF station base, scroll with world
+          const lfX = 66, lfBaseY = 37 + scrollRows;
+          const fPat = flameFrame % 8 < 4 ? ['*', '^', '*'] : ['*', '^', '^'];
+          for (let fi = 0; fi < 3 && lfBaseY + fi < DISPLAY_HEIGHT; fi++) {
+            if (lfBaseY + fi < 0) continue;
+            for (let fx = -2; fx <= 2; fx++) {
+              const ax = lfX + fx;
+              if (ax >= 0 && ax < DISPLAY_WIDTH)
+                display.draw(ax, lfBaseY + fi, fPat[fi], fi === 2 ? '#ff5555' : '#ff9933', BG);
+            }
+          }
+        }
+      }
+
+    // ── Phase 2: Ascent (300-899) ─────────────────────────────────────────────
+    } else if (frame < 900) {
+      clearAll();
+      // Initial star burst at start of phase
+      if (frame === 300) for (let i = 0; i < 40; i++) { spawnStar(); stars[stars.length-1].y = Math.random() * DISPLAY_HEIGHT; }
+      const spawnRate = 2 + Math.floor((frame - 300) / 200);
+      for (let i = 0; i < spawnRate; i++) spawnStar();
+      for (let i = stars.length - 1; i >= 0; i--) {
+        const s = stars[i]; s.y += s.speed;
+        if (s.y >= DISPLAY_HEIGHT) { stars.splice(i, 1); continue; }
+        const py = Math.floor(s.y);
+        if (py >= 0) display.draw(s.x, py, s.ch, s.color, BG);
+      }
+      drawEndRocket(rocketScreenY);
+
+    // ── Phase 3: Moon (900-1499) ──────────────────────────────────────────────
+    } else if (frame < 1500) {
+      clearAll();
+      for (let i = 0; i < 4; i++) spawnStar();
+      for (let i = stars.length - 1; i >= 0; i--) {
+        const s = stars[i]; s.y += s.speed;
+        if (s.y >= DISPLAY_HEIGHT) { stars.splice(i, 1); continue; }
+        const py = Math.floor(s.y);
+        if (py >= 0) display.draw(s.x, py, s.ch, s.color, BG);
+      }
+      moonY += 0.12;
+      drawMoon(moonY);
+      if (frame >= 1200) rocketScreenY -= 0.1;
+      drawEndRocket(rocketScreenY);
+
+    // ── Phase 4: Departure (1500-1799) ────────────────────────────────────────
+    } else if (frame < 1800) {
+      const t = (frame - 1500) / 300;
+      starSpeedMult = Math.max(0, 1.0 - t);
+      clearAll();
+      for (let i = stars.length - 1; i >= 0; i--) {
+        const s = stars[i];
+        if (starSpeedMult < 0.05) { stars.splice(i, 1); continue; }
+        s.y += s.speed * starSpeedMult;
+        if (s.y >= DISPLAY_HEIGHT) { stars.splice(i, 1); continue; }
+        const py = Math.floor(s.y);
+        if (py >= 0) display.draw(s.x, py, s.ch, dimColor(s.color, starSpeedMult), BG);
+      }
+      rocketScreenY -= 0.25;
+      if (Math.floor(rocketScreenY) + END_ROCKET.length + 3 > 0) drawEndRocket(rocketScreenY);
+
+    // ── Phase 5: Credits (1800+) ──────────────────────────────────────────────
+    } else {
+      if (frame === 1800) clearAll();
+
+      if (frame >= 1860 && frame < 1960) {
+        // WIDGETER fade in (5 chars/frame revealed)
+        const revealed = (frame - 1860) * 5;
+        let count = 0;
+        for (let row = 0; row < TITLE_ART.length; row++) {
+          const line = TITLE_ART[row];
+          for (let col = 0; col < line.length; col++) {
+            if (line[col] !== ' ' && count <= revealed) {
+              const wave = Math.sin((col * 0.12) - (frame * 0.03)) * 0.5 + 0.5;
+              const r2 = Math.round(200 + wave * 55), g2 = Math.round(170 + wave * 44), b2 = Math.round(wave * 51);
+              display.draw(ART_X + col, 18 + row, line[col], '#' + [r2,g2,b2].map(v=>v.toString(16).padStart(2,'0')).join(''), BG);
+            }
+            count++;
+          }
+        }
+      } else if (frame >= 1960) {
+        drawArtCredits(18, frame);
+        const byLine = 'game by adam a.';
+        const bx = Math.floor((DISPLAY_WIDTH - byLine.length) / 2);
+        if (frame < 2060) {
+          // "game by adam a." fade in
+          const rev = Math.min(byLine.length, frame - 1960);
+          for (let i = 0; i < rev; i++) display.draw(bx + i, 25, byLine[i], '#555555', BG);
+        } else {
+          for (let i = 0; i < byLine.length; i++) display.draw(bx + i, 25, byLine[i], '#555555', BG);
+          // Blink "[ press any key ]"
+          const pk = '[ press any key ]';
+          const pkx = Math.floor((DISPLAY_WIDTH - pk.length) / 2);
+          const blinkOn = Math.floor(frame / 30) % 2 === 0;
+          for (let i = 0; i < pk.length; i++)
+            display.draw(pkx + i, 30, blinkOn ? pk[i] : ' ', '#333333', BG);
+        }
+      }
+    }
+
+    frame++;
+    requestAnimationFrame(endLoop);
+  }
+
+  requestAnimationFrame(endLoop);
+}
+
 function devUnlockEverything() {
   resetState();
   state.phase = 5;
@@ -10803,6 +11088,7 @@ setInterval(() => {
 
 // ── Effects render loop — runs at ~60fps independent of game tick ─────────────
 ;(function effectsLoop(ts) {
+  if (state.gameState === 'ending') { requestAnimationFrame(effectsLoop); return; }
   if (state.gameState !== 'cottage') effectsManager.render(display);
 
   // Scroll-in: advance pendingLine only when world is active (not paused, not look mode)
