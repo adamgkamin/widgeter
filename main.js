@@ -1,4 +1,4 @@
-import {
+﻿import {
   DISPLAY_WIDTH, DISPLAY_HEIGHT, WORLD_ROWS,
   STATUS_ROW, LOG_START_ROW, LOG_END_ROW, HINT_ROW,
   BG, BRIGHT_WHITE, BRIGHT_YELLOW, BRIGHT_CYAN, BRIGHT_MAGENTA, DIM_GRAY,
@@ -2443,33 +2443,33 @@ function colorInStation(label, wc, lc, dc) {
 // Stamp or re-stamp the Casino footprint. Called from buildTileMap and on unlock/visibility trigger.
 function stampCasino(locked) {
   const cs = state.stations.casino;
-  const wc  = locked ? ‘#555555’ : ‘#2244aa’;
-  const lc  = locked ? ‘#555555’ : ‘#5577cc’;
-  const dc  = locked ? ‘#555555’ : ‘#112266’;
-  const l0  = locked ? ‘?’ : ‘C’, l1 = locked ? ‘?’ : ‘S’;
+  const wc  = locked ? '#555555' : '#2244aa';
+  const lc  = locked ? '#555555' : '#5577cc';
+  const dc  = locked ? '#555555' : '#112266';
+  const l0  = locked ? '?' : 'C', l1 = locked ? '?' : 'S';
   const wallDesc = locked
-    ? ‘A run-down building. Cracked windows. Something inside is waiting.’
-    : ‘The Casino. Velvet inside. Velvet smell outside.’;
+    ? 'A run-down building. Cracked windows. Something inside is waiting.'
+    : 'The Casino. Velvet inside. Velvet smell outside.';
   const doorDesc = locked
-    ? ‘A boarded door. The lock has three coloured slots — red, yellow, blue.’
-    : ‘The casino door. Open after dark. The Black card opens it any time.’;
+    ? 'A boarded door. The lock has three coloured slots — red, yellow, blue.'
+    : 'The casino door. Open after dark. The Black card opens it any time.';
   const labelDesc = locked
-    ? "Whatever this was, it isn’t anymore. Or maybe it never was."
-    : ‘The Casino. Open after dark.’;
+    ? "Whatever this was, it isn't anymore. Or maybe it never was."
+    : 'The Casino. Open after dark.';
   const mk = (g, fg, walk, desc) => ({ glyph: g, fg, bg: BG, walkable: walk, description: desc });
   const x = cs.x, y = cs.y;
-  tileMap[x  ][y  ] = mk(‘╔’, wc, false, wallDesc);
-  tileMap[x+1][y  ] = mk(‘═’, wc, false, wallDesc);
-  tileMap[x+2][y  ] = mk(‘═’, wc, false, wallDesc);
-  tileMap[x+3][y  ] = mk(‘╗’, wc, false, wallDesc);
-  tileMap[x  ][y+1] = mk(‘║’, wc, false, wallDesc);
+  tileMap[x  ][y  ] = mk('╔', wc, false, wallDesc);
+  tileMap[x+1][y  ] = mk('═', wc, false, wallDesc);
+  tileMap[x+2][y  ] = mk('═', wc, false, wallDesc);
+  tileMap[x+3][y  ] = mk('╗', wc, false, wallDesc);
+  tileMap[x  ][y+1] = mk('║', wc, false, wallDesc);
   tileMap[x+1][y+1] = mk(l0,  lc, false, labelDesc);
   tileMap[x+2][y+1] = mk(l1,  lc, false, labelDesc);
-  tileMap[x+3][y+1] = mk(‘║’, wc, false, wallDesc);
-  tileMap[x  ][y+2] = mk(‘╚’, wc, false, wallDesc);
-  tileMap[x+1][y+2] = mk(‘-’, dc, true,  doorDesc);
-  tileMap[x+2][y+2] = mk(‘═’, wc, false, wallDesc);
-  tileMap[x+3][y+2] = mk(‘╝’, wc, false, wallDesc);
+  tileMap[x+3][y+1] = mk('║', wc, false, wallDesc);
+  tileMap[x  ][y+2] = mk('╚', wc, false, wallDesc);
+  tileMap[x+1][y+2] = mk('-', dc, true,  doorDesc);
+  tileMap[x+2][y+2] = mk('═', wc, false, wallDesc);
+  tileMap[x+3][y+2] = mk('╝', wc, false, wallDesc);
   for (let dx = 0; dx <= 3; dx++) for (let dy = 0; dy <= 2; dy++) markDirty(x + dx, y + dy);
 }
 
