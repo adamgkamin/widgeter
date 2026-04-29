@@ -9901,28 +9901,19 @@ setInterval(() => {
   }
 
   if (state.gameState === 'crafting') {
-    // Advance hammer animation frame
-    const HAMMER_SCHEDULE = [5, 2, 1, 3]; // ticks held per frame
-    state.workbenchHammerTick++;
-    if (state.workbenchHammerTick >= HAMMER_SCHEDULE[state.workbenchHammerFrame]) {
-      const prevFrame = state.workbenchHammerFrame;
-      state.workbenchHammerTick = 0;
-      state.workbenchHammerFrame = (state.workbenchHammerFrame + 1) % 4;
-      // Door tile spark: draw on entry to impact frame, restore on exit
-      const wbDef = STATION_DEFS.find(s => s.label === 'WB');
-      if (wbDef) {
-        const doorX = wbDef.x + 1, doorY = wbDef.y + 2;
-        if (state.workbenchHammerFrame === 2) {
-          display.draw(doorX, doorY, '*', '#ffd633', BG);
-        } else if (prevFrame === 2) {
-          markDirty(doorX, doorY);
-          renderDirty();
-        }
-      }
-    }
-
     const secsLeft = activeCraftTicks - craftProgress;
     drawRow(LOG_END_ROW, `> Crafting — ${secsLeft}s remaining`, '#ff9933');
+    const prevHammerFrame = state.workbenchHammerFrame;
+    state.workbenchHammerFrame = Math.min(3, Math.floor((craftProgress / activeCraftTicks) * 4));
+    const wbDef = STATION_DEFS.find(s => s.label === 'WB');
+    if (wbDef) {
+      const doorX = wbDef.x + 1, doorY = wbDef.y + 2;
+      if (state.workbenchHammerFrame === 2 && prevHammerFrame < 2) {
+        display.draw(doorX, doorY, '*', '#ffd633', BG);
+      } else if (prevHammerFrame === 2 && state.workbenchHammerFrame !== 2) {
+        markDirty(doorX, doorY); renderDirty();
+      }
+    }
     craftProgress++;
     if (!craftingRemote) pulseWB();
     if (craftProgress >= activeCraftTicks) {
@@ -9936,6 +9927,8 @@ setInterval(() => {
         const stillLeft = craftQueue;
         craftQueue--;
         state.player.inventory.rm--;
+        state.workbenchHammerFrame = 0;
+        state.workbenchHammerTick  = 0;
         addLog(`Widget complete. ${stillLeft} remaining.`, '#66cc66');
         drawStatusBar();
       } else {
