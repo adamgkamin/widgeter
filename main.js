@@ -837,7 +837,7 @@ drawArt(0);
 drawPrompt(true);
 
 const CREDIT  = "Created by Adam A.";
-const VERSION = "alpha 1.04.01";
+const VERSION = "alpha 1.04.02";
 
 // ── Sound system ──────────────────────────────────────────────────────────────
 const SOUNDS = {};
@@ -7567,6 +7567,7 @@ function renderLargeNumber(display, x, y, numberString, color, availableWidth) {
 // ── Launch Facility menu (§9) ─────────────────────────────────────────────────
 
 const CHANGELOG = [
+  { version: '1.04.02', summary: 'Rocket full message updated.' },
   { version: '1.04.01', summary: 'Major balance: rocket target reduced to 5,000. Bankruptcy stipend. Carry cost capped. Recycle widgets at RM shed. Phase 3 trigger raised.' },
   { version: '1.03.11', summary: 'Hammer animation extracted to hammer.js — 10 frames with anvil.' },
   { version: '1.03.10', summary: 'Workbench hammer animation -- 10 frames via sed (fifth attempt).' },
@@ -10061,7 +10062,7 @@ function tickCouriers() {
             drawStatusBar();
             if (!state.rocketFull && state.rocketWidgets >= 5000) {
               state.rocketFull = true;
-              addLog('The rocket is ready. [launch sequence coming soon]', '#ff5555');
+              addLog('The rocket is full. Open the Launch Facility to begin.', '#ff5555');
             }
           }
           c.carryWidgets = 0; // committed — cannot be retrieved
