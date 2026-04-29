@@ -28,6 +28,7 @@ document.getElementById('game-container').appendChild(display.getContainer());
 
 // Fullscreen / resize helpers — module-level so any function can use them
 let pauseMenuRedrawFn  = null; // set by showPauseMenu, cleared on close
+let pauseMenuCloseFn   = null; // set by showPauseMenu so fullscreenchange can close it
 let _pauseFrameCount  = 0;   // throttle counter for effectsLoop animation
 let fsError = '';             // shown in settings menu when requestFullscreen fails
 let fsErrorTimer = null;
@@ -88,17 +89,8 @@ function recalculateDisplaySize(availW, availH) {
   const maxFontH = Math.floor(availH / DISPLAY_HEIGHT);
   const fontSize = Math.max(8, Math.min(maxFontW, maxFontH));
   if (state && state.settings) state.settings.currentFontSize = fontSize;
-  const container = document.getElementById('game-container');
-  container.innerHTML = '';
-  display = new ROT.Display({
-    width:      DISPLAY_WIDTH,
-    height:     DISPLAY_HEIGHT,
-    fontSize,
-    fontFamily: "'IBM Plex Mono', 'Courier New', monospace",
-    bg:         BG,
-    fg:         BRIGHT_WHITE,
-  });
-  container.appendChild(display.getContainer());
+  // Resize by updating the existing display — never destroy/recreate it
+  display.setOptions({ fontSize });
 }
 
 function setFullscreen(enabled) {
@@ -117,6 +109,8 @@ function setFullscreen(enabled) {
   } else {
     recalculateDisplaySize(window.innerWidth, window.innerHeight);
     if (document.fullscreenElement) document.exitFullscreen();
+    fullRedraw();
+    if (pauseMenuRedrawFn) pauseMenuRedrawFn();
   }
 }
 
@@ -150,10 +144,13 @@ document.addEventListener('fullscreenchange', () => {
   const isFS = !!document.fullscreenElement;
   if (state && state.settings && state.settings.fullscreen !== isFS) {
     // User exited/entered fullscreen without going through our menu
-    if (state.settings) state.settings.fullscreen = isFS;
+    state.settings.fullscreen = isFS;
     localStorage.setItem('widgeter.settings.fullscreen', JSON.stringify(isFS));
     recalculateDisplaySize(isFS ? window.screen.width : window.innerWidth, isFS ? window.screen.height : window.innerHeight);
+    // If Escape exited fullscreen and also triggered the pause menu, close it immediately
+    if (!isFS && state.gameState === 'paused' && pauseMenuCloseFn) pauseMenuCloseFn();
     fullRedraw();
+    if (pauseMenuRedrawFn) pauseMenuRedrawFn();
   }
 });
 
@@ -251,6 +248,8 @@ const state = {
   peakCredits:          0,
   bank: {
     deposit: 0,
+    tab:                     'account',
+    cardPage:                'bronze',
     creditRating:            'CC',
     creditRatingScore:       3.0,
     ratingHistory:           [],
@@ -445,6 +444,8 @@ function loadGame() {
     state.bank.ratingHistory          = state.bank.ratingHistory          ?? [];
     state.bank.consecutivePositiveDays = state.bank.consecutivePositiveDays ?? 0;
     state.bank.creditNegativeLogged   = false; // transient
+    state.bank.tab      = state.bank.tab      ?? 'account';
+    state.bank.cardPage = state.bank.cardPage ?? 'bronze';
     { const _c = state.bank.card = state.bank.card ?? {};
       // Migrate old card.owned to card.tier
       if (_c.owned === true && !_c.tier) _c.tier = 'bronze';
@@ -4446,7 +4447,8 @@ function changeRating(delta, reason) {
         if (tIdx > currentTIdx && state.bank.creditRatingScore >= CARD_TIERS[t].requiresScore
             && !state.bank.card.upgradeNotified[t]) {
           state.bank.card.upgradeNotified[t] = true;
-          addLog(`> [BANK] Your credit rating qualifies you for a ${t.toUpperCase()} card. Visit the Bank to upgrade.`, CARD_TIERS[t].color);
+          addLog(`> [BANK] You qualify for a ${t.toUpperCase()} card.`, CARD_TIERS[t].color);
+          addLog(`> Visit the Bank to upgrade.`, CARD_TIERS[t].color);
         }
       }
     }
@@ -4460,8 +4462,8 @@ function openBankMenu() {
   if (!state.stations.bank || !state.stations.bank.unlocked) return;
   state.gameState = 'menu';
 
-  let bkTab      = 'account'; // 'account' | 'cards'
-  let cardPage   = 0;         // 0-3 for bronze/silver/gold/black
+  let bkTab    = state.bank.tab ?? 'account';   // 'account' | 'cards'
+  let cardPage = Math.max(0, CARD_TIER_ORDER.indexOf(state.bank.cardPage ?? 'bronze')); // 0-3
 
   const TC  = '#66cc66';
   const CC  = '#66ccff';
@@ -4600,15 +4602,23 @@ function openBankMenu() {
     { const ay = BOX_Y + 2; border(ay);
       for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '═', DC, BG); }
 
-    // Row 3: tab bar
+    // Row 3: tab bar — IW=58, split: left 28 │ right 29
     { const ay = BOX_Y + 3; border(ay);
-      const tabBar = '      [ ACCOUNT ]           │         [ CARDS ]         ';
-      const acS = 6, acE = 17, cdS = 32, cdE = 43;
+      // Left half (28 chars): [ ACCOUNT ] or >> [ ACCOUNT ] <<
+      const acLbl = bkTab === 'account' ? '>> [ ACCOUNT ] <<' : '[ ACCOUNT ]';
+      const acPad = Math.floor((28 - acLbl.length) / 2);
+      const acHalf = acLbl.padStart(acPad + acLbl.length).padEnd(28);
+      // Right half (29 chars): [ CARDS ] or >> [ CARDS ] <<
+      const cdLbl = bkTab === 'cards' ? '>> [ CARDS ] <<' : '[ CARDS ]';
+      const cdPad = Math.floor((29 - cdLbl.length) / 2);
+      const cdHalf = cdLbl.padStart(cdPad + cdLbl.length).padEnd(29);
+      const tabBar = acHalf + '│' + cdHalf; // 28+1+29 = 58 = IW
       for (let i = 0; i < IW; i++) {
         const ch = tabBar[i] || ' ';
         let fg = DC;
-        if (bkTab === 'account' && i >= acS && i <= acE) fg = TC;
-        if (bkTab === 'cards'   && i >= cdS && i <= cdE) fg = TC;
+        if (i < 28 && bkTab === 'account') fg = TC;        // entire left active
+        else if (i > 28 && bkTab === 'cards') fg = TC;     // entire right active
+        else if (i === 28) fg = DC;                         // divider
         display.draw(BOX_X + 1 + i, ay, ch, fg, BG);
       }
     }
@@ -4819,7 +4829,7 @@ function openBankMenu() {
         for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '═', DC, BG); }
 
       // Row 30: status
-      const statusTxt = !qualified ? `Unlock at ${RATING_TIERS[tierDef.requiresScore]} rating.` : `← → to browse  4 to apply/upgrade`;
+      const statusTxt = !qualified ? `Unlock at ${RATING_TIERS[tierDef.requiresScore]} rating.` : `TAB to browse  4 to apply/upgrade`;
       irow(BOX_Y + 30, ' '.repeat(Math.floor((IW - statusTxt.length) / 2)) + statusTxt, qualified ? DC : '#444444');
     }
 
@@ -4842,14 +4852,23 @@ function openBankMenu() {
 
   function bankKeyHandler(e) {
     if (e.key === 'Escape') { closeBank(); return; }
+    // Left/right arrows: switch between top-level ACCOUNT / CARDS tabs only
     if (e.key === 'ArrowLeft')  {
-      if (bkTab === 'cards') { cardPage = (cardPage - 1 + 4) % 4; redraw(); }
-      else                   { bkTab = 'cards'; redraw(); }
+      if (bkTab === 'cards') { bkTab = 'account'; state.bank.tab = 'account'; redraw(); }
       return;
     }
     if (e.key === 'ArrowRight') {
-      if (bkTab === 'account') { bkTab = 'cards'; redraw(); }
-      else                     { cardPage = (cardPage + 1) % 4; redraw(); }
+      if (bkTab === 'account') { bkTab = 'cards'; state.bank.tab = 'cards'; redraw(); }
+      return;
+    }
+    // TAB: cycle card pages only while on the CARDS tab
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      if (bkTab === 'cards') {
+        cardPage = (cardPage + 1) % 4;
+        state.bank.cardPage = CARD_TIER_ORDER[cardPage];
+        redraw();
+      }
       return;
     }
 
@@ -8090,6 +8109,7 @@ function showPauseMenu() {
 
   function close() {
     pauseMenuRedrawFn = null;
+    pauseMenuCloseFn  = null;
     if (devPwErrTimer) clearTimeout(devPwErrTimer);
     window.removeEventListener('keydown', pauseKeyHandler);
     clearMenuRegion(BOX_X, BOX_Y, BOX_W, BOX_H);
@@ -8099,6 +8119,7 @@ function showPauseMenu() {
     display.draw(state.player.x, state.player.y, '@', state.player.color || BRIGHT_WHITE, BG);
     state.gameState = prevState;
   }
+  pauseMenuCloseFn = close;
 
   function activate() {
     if (screen === 'pause') {
@@ -8156,7 +8177,8 @@ function showPauseMenu() {
             const curTIdx = state.bank.card.tier ? CARD_TIER_ORDER.indexOf(state.bank.card.tier) : -1;
             if (CARD_TIER_ORDER.indexOf(t) > curTIdx && !state.bank.card.upgradeNotified[t]) {
               state.bank.card.upgradeNotified[t] = true;
-              addLog(`> [BANK] Your credit rating qualifies you for a ${t.toUpperCase()} card. Visit the Bank to upgrade.`, CARD_TIERS[t].color);
+              addLog(`> [BANK] You qualify for a ${t.toUpperCase()} card.`, CARD_TIERS[t].color);
+              addLog(`> Visit the Bank to upgrade.`, CARD_TIERS[t].color);
             }
           }
         }
@@ -8194,7 +8216,7 @@ function showPauseMenu() {
     const mo = maxOpts();
     if (e.key === 'ArrowUp')   { selOpt = (selOpt - 1 + mo) % mo; render(); return; }
     if (e.key === 'ArrowDown') { selOpt = (selOpt + 1) % mo;       render(); return; }
-    if (e.key === 'Enter')     { activate(); return; }
+    if (e.key === ' ')         { e.preventDefault(); activate(); return; }
     // ESC
     if (e.key === 'Escape') {
       if      (screen === 'pause')    { close(); return; }
@@ -8364,7 +8386,8 @@ setInterval(() => {
             const deficit = Math.abs(state.player.credits - penalty);
             covered = Math.min(deficit, state.bank.card.insuranceBalance);
             state.bank.card.insuranceBalance = Math.round((state.bank.card.insuranceBalance - covered) * 10) / 10;
-            addLog(`> Card insurance covered ${formatCredits(covered)}cr deficit. Insurance remaining: ${formatCredits(state.bank.card.insuranceBalance)}cr.`, '#f0f0f0');
+            addLog(`> Insurance covered ${formatCredits(covered)}cr.`, '#f0f0f0');
+            addLog(`> Remaining insurance: ${formatCredits(state.bank.card.insuranceBalance)}cr.`, '#f0f0f0');
           }
           state.player.credits       = Math.round((state.player.credits - penalty + covered) * 10) / 10;
           state.derivatives.pnlToday = Math.round((state.derivatives.pnlToday - penalty) * 10) / 10;
@@ -8447,7 +8470,8 @@ setInterval(() => {
       if (tierDef && state.bank.creditRatingScore < tierDef.requiresScore) {
         if (!card.demotionWarningDay) {
           card.demotionWarningDay = state.day;
-          addLog(`> [BANK] Your credit rating has fallen below your card tier requirements. You have 3 days to improve.`, '#ff9933');
+          addLog(`> [BANK] Rating below card tier requirements.`, '#ff9933');
+          addLog(`> You have 3 days to improve.`, '#ff9933');
         } else if (state.day - card.demotionWarningDay >= 3) {
           const oldTier = card.tier;
           const newEligible = getMaxEligibleCardTier(state.bank.creditRatingScore);
@@ -8457,7 +8481,8 @@ setInterval(() => {
           card.interestRate  = newTierDef ? newTierDef.interestRate : 0;
           card.statementCycle = newTierDef ? newTierDef.cycle : 10;
           card.demotionWarningDay = null;
-          addLog(`> [BANK] Your ${oldTier.toUpperCase()} card has been revoked. Your credit tier has been adjusted.`, '#ff5555');
+          addLog(`> [BANK] Your ${oldTier.toUpperCase()} card has been revoked.`, '#ff5555');
+          addLog(`> Credit tier has been adjusted.`, '#ff5555');
         }
       } else if (card.demotionWarningDay) {
         card.demotionWarningDay = null;
