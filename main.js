@@ -744,10 +744,6 @@ function drawCubeLine(buf, x0, y0, z0, x1, y1, z1) {
 
 function renderTitleCube() {
   cubeAngleA += 0.015; cubeAngleB += 0.008;
-  for (let cy = CUBE_CY - 5; cy <= CUBE_CY + 5; cy++)
-    for (let cx = CUBE_CX - 9; cx <= CUBE_CX + 9; cx++)
-      if (cx >= 0 && cx < DISPLAY_WIDTH && cy >= 0 && cy < DISPLAY_HEIGHT)
-        display.draw(cx, cy, ' ', BRIGHT_WHITE, BG);
   const rotated   = rotateCube(CUBE_VERTS, cubeAngleA, cubeAngleB);
   const projected = rotated.map(([x, y, z]) => projectPoint(x, y, z, CUBE_CX, CUBE_CY, 3.5));
   const buf = {};
@@ -787,30 +783,30 @@ function titleAnimLoop() {
   if (state.gameState !== 'title' && state.gameState !== 'title_menu') return;
   titleFrame++;
 
-  // Step 1: Erase all particles at current positions
-  for (const p of titleParticles) {
-    const px = Math.floor(p.x), py = Math.floor(p.y);
-    if (px >= 1 && px < DISPLAY_WIDTH - 1 && py >= 1 && py < DISPLAY_HEIGHT - 1)
-      display.draw(px, py, ' ', BRIGHT_WHITE, BG);
-  }
+  // Step 1: Clear the entire cube/particle zone (rows 2..ART_Y-1, inside border)
+  for (let y = 2; y < ART_Y; y++)
+    for (let x = 1; x < DISPLAY_WIDTH - 1; x++)
+      display.draw(x, y, ' ', BRIGHT_WHITE, BG);
 
-  // Step 2: Update positions, decrement life, remove dead ones
+  // Step 2: Update and cull particles
   for (let i = titleParticles.length - 1; i >= 0; i--) {
     const p = titleParticles[i];
     p.x += p.vx; p.y += p.vy; p.life--;
     if (p.life <= 0 || p.y <= 1 || p.y >= ART_Y - 1) { titleParticles.splice(i, 1); }
   }
 
-  // Step 3: Render cube and text (so erased particle spots are restored)
+  // Step 3: Draw cube
   renderTitleCube();
-  drawArt(titleFrame);
 
-  // Step 4: Draw surviving particles on top
+  // Step 4: Draw particles on top of cube
   for (const p of titleParticles) {
     const px = Math.floor(p.x), py = Math.floor(p.y);
     if (px >= 1 && px < DISPLAY_WIDTH - 1 && py >= 1 && py < DISPLAY_HEIGHT - 1)
       display.draw(px, py, p.char, p.color, BG);
   }
+
+  // Step 5: Draw WIDGETER text with pulse
+  drawArt(titleFrame);
 
   if (titleParticles.length < 4 && Math.random() < 0.015) spawnTitleParticle();
   requestAnimationFrame(titleAnimLoop);
@@ -830,7 +826,7 @@ drawArt(0);
 drawPrompt(true);
 
 const CREDIT  = "Created by Adam A.";
-const VERSION = "alpha 1.00.05";
+const VERSION = "alpha 1.00.06";
 for (let i = 0; i < CREDIT.length;  i++) display.draw(77 - CREDIT.length  + i, 46, CREDIT[i],  '#555555', BG);
 for (let i = 0; i < VERSION.length; i++) display.draw(77 - VERSION.length + i, 47, VERSION[i], '#555555', BG);
 requestAnimationFrame(titleAnimLoop);
