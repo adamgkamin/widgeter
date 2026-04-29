@@ -612,13 +612,11 @@ function loadGame() {
       _sr.red    = _sr.red    ?? { collected: false, x: 5,  y: 12 };
       _sr.yellow = _sr.yellow ?? { collected: false, x: 42, y: 8  };
       _sr.blue   = _sr.blue   ?? { collected: false, x: 74, y: 36 };
-      // Migrate blinkTick (singular, old format) → blinkTicks (array, new format)
-      for (const rock of Object.values(_sr)) {
-        if (rock.blinkTick !== undefined && !Array.isArray(rock.blinkTicks)) {
-          rock.blinkTicks = [rock.blinkTick, -1, -1];
+      for (const color of ['red', 'yellow', 'blue']) {
+        const rock = _sr[color];
+        if (!rock.blinkTicks) {
+          rock.blinkTicks = rock.blinkTick !== undefined ? [rock.blinkTick, -1, -1] : [-1, -1, -1];
           delete rock.blinkTick;
-        } else if (!Array.isArray(rock.blinkTicks)) {
-          rock.blinkTicks = [-1, -1, -1];
         }
         rock.blinkFramesRemaining = 0; // transient — always reset on load
       }
@@ -7547,7 +7545,8 @@ function handleInteract() {
   const px = state.player.x, py = state.player.y;
   // Shiny rock collection — Space on exact tile (first priority, always wins)
   for (const color of ['red', 'yellow', 'blue']) {
-    const rock = state.shinyRocks[color];
+    const rock = state.shinyRocks?.[color];
+    if (!rock) continue;
     if (!rock.collected && state.player.x === rock.x && state.player.y === rock.y) { collectRock(color, rock); return; }
   }
   // Fishing: pond center (22, 25) with Aquatics
@@ -7598,8 +7597,12 @@ const ROCK_COLORS      = { red: '#ff5555', yellow: '#ffd633', blue: '#66ccff' };
 const ROCK_PEAK_COLORS = { red: '#ff7777', yellow: '#ffea44', blue: '#88ddff' };
 
 function dimColor(hex, factor) {
-  const r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
-  return '#' + [r,g,b].map(c => Math.round(c*factor).toString(16).padStart(2,'0')).join('');
+  const h = hex.replace('#', '');
+  const r = Math.floor(parseInt(h.slice(0,2), 16) * factor);
+  const g = Math.floor(parseInt(h.slice(2,4), 16) * factor);
+  const b = Math.floor(parseInt(h.slice(4,6), 16) * factor);
+  const toHex = (n) => Math.max(0, Math.min(255, n)).toString(16).padStart(2, '0');
+  return '#' + toHex(r) + toHex(g) + toHex(b);
 }
 
 function pickThreeBlinkTicks() {
@@ -10137,8 +10140,10 @@ setInterval(() => {
 
   // Shiny rock pulse animation — runs at 60fps, 1 second per blink
   if (state.gameState === 'playing' || state.gameState === 'look') {
+    if (!state.shinyRocks) return;
     for (const color of ['red', 'yellow', 'blue']) {
       const rock = state.shinyRocks[color];
+      if (!rock || !Array.isArray(rock.blinkTicks)) continue;
       if (rock.collected || rock.blinkFramesRemaining <= 0) continue;
       const elapsed  = 60 - rock.blinkFramesRemaining;
       const peak     = ROCK_PEAK_COLORS[color];
