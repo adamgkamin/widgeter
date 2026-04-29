@@ -12,6 +12,7 @@
   RATING_COLORS,
 } from './constants.js';
 import { EffectsManager } from './src/effects.js';
+import { HAMMER_FRAMES, HAMMER_COLORS } from './hammer.js';
 
 // ── Display init ──────────────────────────────────────────────────────────────
 
@@ -836,7 +837,7 @@ drawArt(0);
 drawPrompt(true);
 
 const CREDIT  = "Created by Adam A.";
-const VERSION = "alpha 1.03.10";
+const VERSION = "alpha 1.03.11";
 
 // ── Sound system ──────────────────────────────────────────────────────────────
 const SOUNDS = {};
@@ -2893,31 +2894,6 @@ function openWorkbenchMenu(isRemote = false) {
     '  ||      ||  ',
     '  ||      ||  ',
     '  ++      ++  ',
-  ];
-
-  const HAMMER_FRAMES = [
-    ['              ', '        ___   ', '       |   |  ', '       |___|  ', '  _____|      '],
-    ['       ___    ', '      |   |   ', '      |___|   ', '        |     ', '  _____|      '],
-    ['    _______   ', '   |       |  ', '   |_______|  ', '       |      ', '  _____|      '],
-    ['   |       |  ', '   |_______|  ', '       |      ', '       |      ', '  _____|      '],
-    ['              ', '    _______   ', '   |       |  ', '   |_______|  ', '  _____|      '],
-    ['              ', '              ', '    _______   ', '   |_______|  ', '  _____|      '],
-    ['  * . * . *   ', '    \\  |  /   ', '   |_______|  ', '  *|=anvil=|* ', '  ==-----==   '],
-    [' *  .  *  . * ', '    *   *     ', '   |_______|  ', '   |=anvil=|  ', '  ==-----==   '],
-    ['              ', '    _______   ', '   |       |  ', '   |_______|  ', '  ==-----==   '],
-    ['              ', '              ', '      ___     ', '     |___|    ', '  _____|      '],
-  ];
-  const HAMMER_COLORS = [
-    ['#aaaaaa', '#aaaaaa', '#aaaaaa', '#aaaaaa', '#886633'],
-    ['#aaaaaa', '#aaaaaa', '#aaaaaa', '#cc6600', '#886633'],
-    ['#aaaaaa', '#aaaaaa', '#aaaaaa', '#cc6600', '#886633'],
-    ['#aaaaaa', '#aaaaaa', '#cc6600', '#cc6600', '#886633'],
-    ['#aaaaaa', '#aaaaaa', '#aaaaaa', '#aaaaaa', '#886633'],
-    ['#aaaaaa', '#aaaaaa', '#aaaaaa', '#aaaaaa', '#886633'],
-    [null,      '#ff9933', '#ffffff', null,      '#ffaa33'],
-    [null,      null,      '#aaaaaa', '#aaaaaa', '#ffaa33'],
-    ['#aaaaaa', '#aaaaaa', '#aaaaaa', '#aaaaaa', '#ffaa33'],
-    ['#aaaaaa', '#aaaaaa', '#aaaaaa', '#aaaaaa', '#886633'],
   ];
 
   function drawHammerRow(r, ay) {
@@ -7561,6 +7537,7 @@ function renderLargeNumber(display, x, y, numberString, color, availableWidth) {
 // ── Launch Facility menu (§9) ─────────────────────────────────────────────────
 
 const CHANGELOG = [
+  { version: '1.03.11', summary: 'Hammer animation extracted to hammer.js — 10 frames with anvil.' },
   { version: '1.03.10', summary: 'Workbench hammer animation -- 10 frames via sed (fifth attempt).' },
   { version: '1.03.09', summary: 'All menus updated to double-line border style.' },
   { version: '1.03.08', summary: 'Title menus restyled with cyan double-line borders, removed WIDGETER label.' },
