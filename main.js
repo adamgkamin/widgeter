@@ -836,7 +836,7 @@ drawArt(0);
 drawPrompt(true);
 
 const CREDIT  = "Created by Adam A.";
-const VERSION = "alpha 1.03.08";
+const VERSION = "alpha 1.03.09";
 
 // ── Sound system ──────────────────────────────────────────────────────────────
 const SOUNDS = {};
@@ -2047,12 +2047,12 @@ function showTitleOptions() {
   function renderOpts() {
     // Clear and redraw box interior
     const bY = BOX_Y + BOX_H - 1;
-    display.draw(BOX_X, BOX_Y, '+', WC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y, '+', WC, BG);
-    for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, BOX_Y, '-', WC, BG);
-    display.draw(BOX_X, bY, '+', WC, BG); display.draw(BOX_X+BOX_W-1, bY, '+', WC, BG);
-    for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, bY, '-', WC, BG);
+    display.draw(BOX_X, BOX_Y, '╔', WC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y, '╗', WC, BG);
+    for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, BOX_Y, '═', WC, BG);
+    display.draw(BOX_X, bY, '╚', WC, BG); display.draw(BOX_X+BOX_W-1, bY, '╝', WC, BG);
+    for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, bY, '═', WC, BG);
     for (let y = 1; y < BOX_H-1; y++) {
-      display.draw(BOX_X, BOX_Y+y, '|', WC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y+y, '|', WC, BG);
+      display.draw(BOX_X, BOX_Y+y, '║', WC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y+y, '║', WC, BG);
       for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, BOX_Y+y, ' ', BRIGHT_WHITE, BG);
     }
     if (devPwMode) {
@@ -2534,16 +2534,16 @@ function showMenu(title, options) {
   const WC     = '#555555';
 
   // Frame
-  display.draw(BOX_X, BOX_Y, '+', WC, BG);
-  display.draw(BOX_X + BOX_W - 1, BOX_Y, '+', WC, BG);
-  for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, BOX_Y, '-', WC, BG);
+  display.draw(BOX_X, BOX_Y, '╔', WC, BG);
+  display.draw(BOX_X + BOX_W - 1, BOX_Y, '╔', WC, BG);
+  for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, BOX_Y, '═', WC, BG);
   const botY = BOX_Y + BOX_H - 1;
-  display.draw(BOX_X, botY, '+', WC, BG);
-  display.draw(BOX_X + BOX_W - 1, botY, '+', WC, BG);
-  for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, botY, '-', WC, BG);
+  display.draw(BOX_X, botY, '╚', WC, BG);
+  display.draw(BOX_X + BOX_W - 1, botY, '╚', WC, BG);
+  for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, botY, '═', WC, BG);
   for (let y = 1; y < BOX_H - 1; y++) {
-    display.draw(BOX_X, BOX_Y + y, '|', WC, BG);
-    display.draw(BOX_X + BOX_W - 1, BOX_Y + y, '|', WC, BG);
+    display.draw(BOX_X, BOX_Y + y, '║', WC, BG);
+    display.draw(BOX_X + BOX_W - 1, BOX_Y + y, '║', WC, BG);
     for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, BOX_Y + y, ' ', BRIGHT_WHITE, BG);
   }
 
@@ -3382,13 +3382,13 @@ function drawDemandChart(title, rows, subtitle) {
   const CONT_W = BOX_W - 4;
   const WC     = '#555555';
 
-  display.draw(BOX_X, BOX_Y, '+', WC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y, '+', WC, BG);
-  for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, BOX_Y, '-', WC, BG);
+  display.draw(BOX_X, BOX_Y, '╔', WC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y, '╗', WC, BG);
+  for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, BOX_Y, '═', WC, BG);
   const bY = BOX_Y + BOX_H - 1;
-  display.draw(BOX_X, bY, '+', WC, BG); display.draw(BOX_X+BOX_W-1, bY, '+', WC, BG);
-  for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, bY, '-', WC, BG);
+  display.draw(BOX_X, bY, '╚', WC, BG); display.draw(BOX_X+BOX_W-1, bY, '╝', WC, BG);
+  for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, bY, '═', WC, BG);
   for (let y = 1; y < BOX_H-1; y++) {
-    display.draw(BOX_X, BOX_Y+y, '|', WC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y+y, '|', WC, BG);
+    display.draw(BOX_X, BOX_Y+y, '║', WC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y+y, '║', WC, BG);
     for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, BOX_Y+y, ' ', BRIGHT_WHITE, BG);
   }
 
@@ -5446,13 +5446,13 @@ function showWorkerManagement() {
   const WC     = '#555555';
 
   function redraw() {
-    display.draw(BOX_X, BOX_Y, '+', WC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y, '+', WC, BG);
-    for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, BOX_Y, '-', WC, BG);
+    display.draw(BOX_X, BOX_Y, '╔', WC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y, '╗', WC, BG);
+    for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, BOX_Y, '═', WC, BG);
     const botY = BOX_Y + BOX_H - 1;
-    display.draw(BOX_X, botY, '+', WC, BG); display.draw(BOX_X+BOX_W-1, botY, '+', WC, BG);
-    for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, botY, '-', WC, BG);
+    display.draw(BOX_X, botY, '╚', WC, BG); display.draw(BOX_X+BOX_W-1, botY, '╝', WC, BG);
+    for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, botY, '═', WC, BG);
     for (let y = 1; y < BOX_H-1; y++) {
-      display.draw(BOX_X, BOX_Y+y, '|', WC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y+y, '|', WC, BG);
+      display.draw(BOX_X, BOX_Y+y, '║', WC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y+y, '║', WC, BG);
       for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, BOX_Y+y, ' ', BRIGHT_WHITE, BG);
     }
     const TITLE = '– WORKERS –';
@@ -5518,13 +5518,13 @@ function showOfficeDispatch() {
   const BOX_Y = Math.max(10, Math.floor((WORLD_ROWS - BOX_H) / 2));
   const CX    = BOX_X + 2;
 
-  display.draw(BOX_X, BOX_Y, '+', WC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y, '+', WC, BG);
-  for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, BOX_Y, '-', WC, BG);
+  display.draw(BOX_X, BOX_Y, '╔', WC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y, '╗', WC, BG);
+  for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, BOX_Y, '═', WC, BG);
   const bY = BOX_Y + BOX_H - 1;
-  display.draw(BOX_X, bY, '+', WC, BG); display.draw(BOX_X+BOX_W-1, bY, '+', WC, BG);
-  for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, bY, '-', WC, BG);
+  display.draw(BOX_X, bY, '╚', WC, BG); display.draw(BOX_X+BOX_W-1, bY, '╝', WC, BG);
+  for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, bY, '═', WC, BG);
   for (let y = 1; y < BOX_H-1; y++) {
-    display.draw(BOX_X, BOX_Y+y, '|', WC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y+y, '|', WC, BG);
+    display.draw(BOX_X, BOX_Y+y, '║', WC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y+y, '║', WC, BG);
     for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, BOX_Y+y, ' ', BRIGHT_WHITE, BG);
   }
   const TITLE = '– THE OFFICE –';
@@ -5579,13 +5579,13 @@ function showNumericPrompt(title, maxVal, onConfirm, onCancel, opts = {}) {
   let inputStr = '';
 
   function redrawPrompt() {
-    display.draw(BOX_X, BOX_Y, '+', WC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y, '+', WC, BG);
-    for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, BOX_Y, '-', WC, BG);
+    display.draw(BOX_X, BOX_Y, '╔', WC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y, '╗', WC, BG);
+    for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, BOX_Y, '═', WC, BG);
     const bY = BOX_Y + BOX_H - 1;
-    display.draw(BOX_X, bY, '+', WC, BG); display.draw(BOX_X+BOX_W-1, bY, '+', WC, BG);
-    for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, bY, '-', WC, BG);
+    display.draw(BOX_X, bY, '╚', WC, BG); display.draw(BOX_X+BOX_W-1, bY, '╝', WC, BG);
+    for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, bY, '═', WC, BG);
     for (let y = 1; y < BOX_H-1; y++) {
-      display.draw(BOX_X, BOX_Y+y, '|', WC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y+y, '|', WC, BG);
+      display.draw(BOX_X, BOX_Y+y, '║', WC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y+y, '║', WC, BG);
       for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, BOX_Y+y, ' ', BRIGHT_WHITE, BG);
     }
     const tX = CONT_X + Math.floor((CONT_W - title.length) / 2);
@@ -7561,6 +7561,7 @@ function renderLargeNumber(display, x, y, numberString, color, availableWidth) {
 // ── Launch Facility menu (§9) ─────────────────────────────────────────────────
 
 const CHANGELOG = [
+  { version: '1.03.09', summary: 'All menus updated to double-line border style.' },
   { version: '1.03.08', summary: 'Title menus restyled with cyan double-line borders, removed WIDGETER label.' },
   { version: '1.03.07', summary: 'Workbench 10-frame hammer animation (fourth attempt).' },
   { version: '1.03.06', summary: 'Pause menu widget art replaced with rotating cube and particles.' },
