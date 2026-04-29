@@ -7149,6 +7149,9 @@ function openNewspaperMenu() {
       for (let i = 1; i < BOX_W-1; i++) display.draw(BOX_X+i, ay, '═', NC, BG); }
   }
 
+  // Must be declared before redraw() is first called — redraw() assigns to it.
+  let _npCloseBOX_H = calcBOX_H();
+
   npMenuRedrawFn = redraw;
   redraw();
 
@@ -7158,9 +7161,6 @@ function openNewspaperMenu() {
     state.newspaper.animTick++;
     redraw();
   }, 250);
-
-  // Capture the drawn height at close time, before any state changes alter calcBOX_H().
-  let _npCloseBOX_H = calcBOX_H();
   function closeNP() {
     npMenuRedrawFn = null;
     clearInterval(npAnimInterval);
