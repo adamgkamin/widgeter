@@ -10192,7 +10192,7 @@ setInterval(() => {
   // Shiny rock blink — start a 60-frame blink window on matching tick (animation runs in effectsLoop)
   for (const rock of Object.values(state.shinyRocks)) {
     if (!rock.collected && (rock.blinkTicks || [-1,-1,-1]).includes(state.dayTick)) {
-      rock.blinkFramesRemaining = 60;
+      rock.blinkFramesRemaining = 120;
     }
   }
 
@@ -10231,13 +10231,13 @@ setInterval(() => {
       const rock = state.shinyRocks[color];
       if (!rock || !Array.isArray(rock.blinkTicks)) continue;
       if (rock.collected || rock.blinkFramesRemaining <= 0) continue;
-      const elapsed  = 60 - rock.blinkFramesRemaining;
+      const elapsed  = 120 - rock.blinkFramesRemaining;
       const peak     = ROCK_PEAK_COLORS[color];
       let glyph, fg;
-      if (elapsed < 15)      { glyph = '·'; fg = dimColor(peak, 0.5); }
-      else if (elapsed < 30) { glyph = '◦'; fg = dimColor(peak, 0.8); }
-      else if (elapsed < 45) { glyph = '●'; fg = peak; }
-      else                   { glyph = '◦'; fg = dimColor(peak, 0.6); }
+      if      (elapsed < 30)  { glyph = '·'; fg = dimColor(peak, 0.5); }
+      else if (elapsed < 60)  { glyph = '◦'; fg = dimColor(peak, 0.8); }
+      else if (elapsed < 90)  { glyph = '●'; fg = peak; }
+      else                    { glyph = '◦'; fg = dimColor(peak, 0.6); }
       display.draw(rock.x, rock.y, glyph, fg, BG);
       rock.blinkFramesRemaining--;
       if (rock.blinkFramesRemaining === 0) {
