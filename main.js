@@ -27,7 +27,8 @@ let display = new ROT.Display({
 document.getElementById('game-container').appendChild(display.getContainer());
 
 // Fullscreen / resize helpers — module-level so any function can use them
-let pauseMenuRedrawFn = null; // set by showPauseMenu, cleared on close
+let pauseMenuRedrawFn  = null; // set by showPauseMenu, cleared on close
+let _pauseFrameCount  = 0;   // throttle counter for effectsLoop animation
 let fsError = '';             // shown in settings menu when requestFullscreen fails
 let fsErrorTimer = null;
 let resizeDebounceTimer = null;
@@ -7802,100 +7803,294 @@ function showPauseMenu() {
   const prevState = state.gameState !== 'paused' ? state.gameState : 'playing';
   state.gameState = 'paused';
 
-  const BOX_W  = 54;
-  const BOX_H  = 14;
-  const BOX_X  = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
-  const BOX_Y  = Math.max(5, Math.floor((WORLD_ROWS - BOX_H) / 2));
-  const CONT_X = BOX_X + 2;
-  const CONT_W = BOX_W - 4; // 50
-  const WC     = '#555555';
+  const PC    = '#cc66cc';
+  const DC    = '#333333';
+  const WC    = '#555555';
+  const TC    = '#f0f0f0';
+  const BOX_W = 54;
+  const BOX_H = 24;
+  const IW    = 52;
+  const LP_W  = 20;
+  const RP_W  = 31;
+  const BOX_X = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
+  const BOX_Y = Math.max(1, Math.floor((WORLD_ROWS - BOX_H) / 2));
+  const DIVX  = BOX_X + 1 + LP_W;
+  const RPX   = DIVX + 1;
+  const PS    = 4;   // pane start row offset (from BOX_Y)
+  const PR    = 17;  // pane rows 0–16
+
+  const FLAVOR_POOL = [
+    'time is not passing right now.',
+    'the market is frozen mid-transaction.',
+    'your workers are standing very still.',
+    'a courier is suspended mid-step.',
+    'somewhere, a widget waits to be made.',
+    'the pond is not shimmering.',
+  ];
+  const flavorLine = FLAVOR_POOL[Math.floor(Math.random() * FLAVOR_POOL.length)];
+
+  // Widget art — 20 chars each; ## gear at row1[9-10], !! lights at row7[9-10]
+  const ART = [
+    '                    ',  // 0
+    '         ##         ',  // 1  gear (animated: ## <-> //)
+    '                    ',  // 2
+    '        ________    ',  // 3
+    '       /       /|   ',  // 4
+    '      /_______/ |   ',  // 5
+    '      |       | |   ',  // 6
+    '      |  !!   | |   ',  // 7  lights (animated color)
+    '      |       | /   ',  // 8
+    '      |_______|/    ',  // 9
+    '                    ',  // 10
+    '                    ',  // 11
+    '                    ',  // 12
+    '                    ',  // 13
+    '                    ',  // 14
+    '  a widget.         ',  // 15
+    '  probably.         ',  // 16
+  ];
+
+  let screen       = 'pause';
+  let selOpt       = 0;
+  let devPwBuf     = '';
+  let devPwErr     = false;
+  let devPwErrTimer = null;
+
+  // ── Drawing helpers ──────────────────────────────────────────────────────────
 
   function drawBorder() {
-    display.draw(BOX_X, BOX_Y, '+', WC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y, '+', WC, BG);
-    for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, BOX_Y, '-', WC, BG);
-    const bY = BOX_Y + BOX_H - 1;
-    display.draw(BOX_X, bY, '+', WC, BG); display.draw(BOX_X+BOX_W-1, bY, '+', WC, BG);
-    for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, bY, '-', WC, BG);
+    display.draw(BOX_X,           BOX_Y,           '╔', PC, BG);
+    display.draw(BOX_X + BOX_W-1, BOX_Y,           '╗', PC, BG);
+    display.draw(BOX_X,           BOX_Y + BOX_H-1, '╚', PC, BG);
+    display.draw(BOX_X + BOX_W-1, BOX_Y + BOX_H-1, '╝', PC, BG);
+    for (let i = 1; i < BOX_W-1; i++) {
+      display.draw(BOX_X + i, BOX_Y,           '═', PC, BG);
+      display.draw(BOX_X + i, BOX_Y + BOX_H-1, '═', PC, BG);
+    }
     for (let y = 1; y < BOX_H-1; y++) {
-      display.draw(BOX_X, BOX_Y+y, '|', WC, BG);
-      display.draw(BOX_X+BOX_W-1, BOX_Y+y, '|', WC, BG);
+      display.draw(BOX_X,           BOX_Y + y, '║', PC, BG);
+      display.draw(BOX_X + BOX_W-1, BOX_Y + y, '║', PC, BG);
     }
   }
 
-  drawBorder();
-
-  let screen = 'pause';
-  let devPwBuf = '';
-  let devPwError = false;
-
-  function clearInner() {
-    for (let y = 1; y < BOX_H-1; y++)
-      for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, BOX_Y+y, ' ', BRIGHT_WHITE, BG);
+  // Full inner-width row (IW=52)
+  function irow(r, text, fg) {
+    const p = menuPad(text, IW);
+    for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, BOX_Y + r, p[i] || ' ', fg, BG);
   }
 
-  function line(row, text, fg) {
-    for (let i = 0; i < text.length; i++) display.draw(CONT_X+i, BOX_Y+row, text[i], fg, BG);
+  // Right-pane row (RP_W=31), pane-relative row r (0–16)
+  function rrow(r, text, fg) {
+    const p = menuPad(text, RP_W);
+    for (let i = 0; i < RP_W; i++) display.draw(RPX + i, BOX_Y + PS + r, p[i] || ' ', fg, BG);
   }
-  function centered(row, text, fg) {
-    const cx = CONT_X + Math.floor((CONT_W - text.length) / 2);
-    for (let i = 0; i < text.length; i++) display.draw(cx+i, BOX_Y+row, text[i], fg, BG);
+
+  // Right-pane separator (29 dashes + 2 spaces)
+  function rsep(r) {
+    const dy = BOX_Y + PS + r;
+    for (let i = 0; i < RP_W; i++) display.draw(RPX + i, dy, i < 29 ? '─' : ' ', i < 29 ? DC : BRIGHT_WHITE, BG);
   }
+
+  // Right-pane centered header row
+  function rhead(r, text, fg) {
+    const dy = BOX_Y + PS + r;
+    for (let i = 0; i < RP_W; i++) display.draw(RPX + i, dy, ' ', BRIGHT_WHITE, BG);
+    const cx = Math.floor((RP_W - text.length) / 2);
+    for (let i = 0; i < text.length; i++) display.draw(RPX + cx + i, dy, text[i], fg || PC, BG);
+  }
+
+  // Option row — prefix(>>/#) + number in PC + text in TC/white
+  function optRow(r, num, text, selected) {
+    const dy  = BOX_Y + PS + r;
+    const pre = selected ? '>>' : '  ';
+    const p   = menuPad(`${pre} ${num}.  ${text}`, RP_W);
+    const txtFg = selected ? '#ffffff' : TC;
+    for (let i = 0; i < RP_W; i++) display.draw(RPX + i, dy, p[i] || ' ', txtFg, BG);
+    if (selected) { display.draw(RPX,     dy, '>', PC, BG); display.draw(RPX + 1, dy, '>', PC, BG); }
+    display.draw(RPX + 3, dy, String(num), PC, BG);
+  }
+
+  // ── Left pane art ────────────────────────────────────────────────────────────
+
+  function drawLeftArt() {
+    const gt = state.gameState === 'paused' ? Math.floor(Date.now() / 2000) % 2 : 0;
+    const lt = state.gameState === 'paused' ? Math.floor(Date.now() / 500)  % 2 : 0;
+    const gearCh   = gt === 0 ? '#' : '/';
+    const lightCol = lt === 0 ? '#66cc66' : '#ff5555';
+    for (let r = 0; r < PR; r++) {
+      const row = ART[r] || '                    ';
+      const dy  = BOX_Y + PS + r;
+      for (let i = 0; i < LP_W; i++) {
+        let ch = row[i] !== undefined ? row[i] : ' ';
+        let fg = BRIGHT_WHITE;
+        if      (r === 1 && (i === 9 || i === 10))                    { ch = gearCh; fg = '#ffd633'; }
+        else if (r === 7 && (i === 9 || i === 10) && ch === '!')       { fg = lightCol; }
+        else if (r === 15 && i >= 2 && i <= 10)                        { fg = WC; }
+        else if (r === 16 && i >= 2 && i <= 10)                        { fg = DC; }
+        else if (ch === '_')                                            { fg = '#886633'; }
+        else if (ch === '/' || ch === '\\' || ch === '|')              { fg = '#aaaaaa'; }
+        display.draw(BOX_X + 1 + i, dy, ch, fg, BG);
+      }
+      display.draw(DIVX, dy, '│', DC, BG);
+    }
+  }
+
+  // ── Right pane per-screen renderers ─────────────────────────────────────────
+
+  function drawRightPause() {
+    rrow(0, '', BRIGHT_WHITE);
+    rhead(1, 'OPTIONS');
+    rrow(2, '', BRIGHT_WHITE);
+    rsep(3);
+    rrow(4, '', BRIGHT_WHITE);
+    optRow(5, 1, 'Resume',       selOpt === 0);
+    rrow(6, '', BRIGHT_WHITE);
+    optRow(7, 2, 'Settings',     selOpt === 1);
+    rrow(8, '', BRIGHT_WHITE);
+    optRow(9, 3, 'Quit to Menu', selOpt === 2);
+    rrow(10, '', BRIGHT_WHITE);
+    rsep(11);
+    const rTier = RATING_TIERS[getBankRatingIdx()];
+    const statsArr = [
+      ['Day:',     String(state.day)],
+      ['Credits:', formatCredits(state.player.credits) + 'cr'],
+      ['Phase:',   String(state.phase)],
+      ['Rating:',  rTier],
+      ['Stamps:',  formatCredits(state.stamps || 0) + ' ∙'],
+    ];
+    statsArr.forEach(([lbl, val], si) => {
+      const dy = BOX_Y + PS + 12 + si;
+      const padded = menuPad(lbl.padEnd(9) + val, RP_W);
+      for (let i = 0; i < RP_W; i++) display.draw(RPX + i, dy, padded[i] || ' ', BRIGHT_WHITE, BG);
+      for (let i = 0; i < lbl.length; i++) display.draw(RPX + i,     dy, lbl[i], DC, BG);
+      for (let i = 0; i < val.length;  i++) display.draw(RPX + 9 + i, dy, val[i], WC, BG);
+    });
+  }
+
+  function drawRightSettings() {
+    rrow(0, '', BRIGHT_WHITE);
+    rhead(1, 'OPTIONS > SETTINGS');
+    rrow(2, '', BRIGHT_WHITE);
+    rsep(3);
+    rrow(4, '', BRIGHT_WHITE);
+    const soundOn = !state.audio.muted;
+    const fsOn    = state.settings.fullscreen;
+    optRow(5,  1, `Sound      [${soundOn ? 'ON ' : 'OFF'}]`, selOpt === 0);
+    rrow(6, '', BRIGHT_WHITE);
+    optRow(7,  2, `Fullscreen [${fsOn    ? 'ON ' : 'OFF'}]`, selOpt === 1);
+    rrow(8, '', BRIGHT_WHITE);
+    optRow(9,  3, 'Dev Mode',  selOpt === 2);
+    rrow(10, '', BRIGHT_WHITE);
+    optRow(11, 4, 'Back',      selOpt === 3);
+    // Recolor ON/OFF bracket values (both options have value at RPX+19)
+    const colorBrack = (rPaneRow, isOn) => {
+      const dy    = BOX_Y + PS + rPaneRow;
+      const valFg = isOn ? '#66cc66' : WC;
+      const vStr  = isOn ? 'ON ' : 'OFF';
+      for (let i = 0; i < vStr.length; i++) display.draw(RPX + 19 + i, dy, vStr[i], valFg, BG);
+    };
+    colorBrack(5, soundOn);
+    colorBrack(7, fsOn);
+    rrow(12, '', BRIGHT_WHITE);
+    if (fsError) {
+      const eTrunc = fsError.substring(0, RP_W);
+      for (let i = 0; i < RP_W; i++) display.draw(RPX + i, BOX_Y + PS + 13, ' ', BRIGHT_WHITE, BG);
+      for (let i = 0; i < eTrunc.length; i++) display.draw(RPX + i, BOX_Y + PS + 13, eTrunc[i], '#ff5555', BG);
+    } else {
+      rrow(13, '', BRIGHT_WHITE);
+    }
+    rrow(14, '', BRIGHT_WHITE);
+    rrow(15, '', BRIGHT_WHITE);
+    rrow(16, '', BRIGHT_WHITE);
+  }
+
+  function drawRightDevPw() {
+    rrow(0, '', BRIGHT_WHITE);
+    rhead(1, 'OPTIONS > DEV MODE');
+    rrow(2, '', BRIGHT_WHITE);
+    rsep(3);
+    rrow(4, '', BRIGHT_WHITE);
+    rrow(5, '[password protected]', WC);
+    rrow(6, '', BRIGHT_WHITE);
+    const mask   = devPwBuf.replace(/./g, '*').padEnd(10, ' ');
+    const prompt = `Enter code: [${mask}]`;
+    rrow(7, prompt, TC);
+    // Recolor mask and brackets
+    const dy7    = BOX_Y + PS + 7;
+    const mOff   = 'Enter code: ['.length;
+    for (let i = 0; i < mask.length; i++) display.draw(RPX + mOff + i, dy7, mask[i], '#66cc66', BG);
+    display.draw(RPX + mOff - 1, dy7, '[', PC, BG);
+    display.draw(RPX + mOff + 10, dy7, ']', PC, BG);
+    rrow(8, '', BRIGHT_WHITE);
+    rrow(9, devPwErr ? 'Access denied.' : '', devPwErr ? '#ff5555' : BRIGHT_WHITE);
+    for (let r = 10; r < PR; r++) rrow(r, '', BRIGHT_WHITE);
+  }
+
+  function drawRightDev() {
+    rrow(0, '', BRIGHT_WHITE);
+    // Title with ⚠ in red
+    { const s1 = 'OPTIONS > DEV MODE ', s2 = '⚠';
+      const cx = Math.floor((RP_W - s1.length - 1) / 2);
+      const dy = BOX_Y + PS + 1;
+      for (let i = 0; i < RP_W; i++) display.draw(RPX + i, dy, ' ', BRIGHT_WHITE, BG);
+      for (let i = 0; i < s1.length; i++) display.draw(RPX + cx + i, dy, s1[i], PC, BG);
+      display.draw(RPX + cx + s1.length, dy, s2, '#ff5555', BG); }
+    rrow(2, '', BRIGHT_WHITE);
+    rsep(3);
+    rrow(4, '', BRIGHT_WHITE);
+    const devOpts = [
+      'Jump to Phase 1',
+      'Jump to Phase 2',
+      'Jump to Phase 3',
+      'Jump to Phase 4',
+      'Give Credits',
+      'Give Widgets',
+      'Make Credit Score S',
+      'Back',
+    ];
+    devOpts.forEach((opt, idx) => optRow(5 + idx, idx + 1, opt, selOpt === idx));
+    for (let r = 13; r < PR; r++) rrow(r, '', BRIGHT_WHITE);
+  }
+
+  // ── Main render ──────────────────────────────────────────────────────────────
 
   function render() {
-    clearInner();
-    if (screen === 'pause') {
-      centered(1, '– PAUSED –', '#66ccff');
-      line(3, '1. Resume',          BRIGHT_WHITE);
-      line(4, '2. Settings',        BRIGHT_WHITE);
-      line(5, '3. Quit to Menu',    BRIGHT_WHITE);
-      centered(10, 'ESC to resume', WC);
-    } else if (screen === 'settings') {
-      centered(1, '– SETTINGS –', '#66ccff');
-      line(3, `1. Mute / Unmute sounds  [${state.audio.muted ? 'OFF' : 'ON '}]`, BRIGHT_WHITE);
-      { const fsOn = state.settings.fullscreen;
-        line(4, `2. Fullscreen            [${fsOn ? 'ON ' : 'OFF'}]`, BRIGHT_WHITE);
-        // Color the bracket value
-        const valStr = fsOn ? 'ON ' : 'OFF', valFg = fsOn ? '#66cc66' : '#555555';
-        const valCol = CONT_X + '2. Fullscreen            ['.length;
-        for (let i=0;i<valStr.length;i++) display.draw(valCol+i, BOX_Y+4, valStr[i], valFg, BG); }
-      line(5, '3. Developer Mode',  BRIGHT_WHITE);
-      line(6, '4. Back',            BRIGHT_WHITE);
-      if (fsError) line(8, fsError, '#ff5555');
-      centered(10, 'ESC to go back', WC);
-    } else if (screen === 'devPassword') {
-      centered(1, '– ENTER CODE –', '#66ccff');
-      const mask = devPwBuf.replace(/./g, '*').padEnd(10, ' ');
-      const prompt = `Enter code:  [${mask}]`;
-      const cx = CONT_X + Math.floor((CONT_W - prompt.length) / 2);
-      for (let i = 0; i < prompt.length; i++) {
-        const inBracket = i > 'Enter code:  '.length && i < prompt.length - 1;
-        const isBrace   = i === 'Enter code:  '.length || i === prompt.length - 1;
-        const fg = isBrace ? '#66ccff' : (inBracket ? '#66cc66' : BRIGHT_WHITE);
-        display.draw(cx + i, BOX_Y + 3, prompt[i], fg, BG);
-      }
-      if (devPwError) centered(6, 'Access denied.', '#ff5555');
-      centered(10, 'ESC to cancel', WC);
-    } else {
-      centered(1, '– DEV MODE –', '#ff5555');
-      line(2, 'For testing only.', WC);
-      line(4, '1. Jump to Phase 1  (fresh start, 50cr)',           BRIGHT_WHITE);
-      line(5, '2. Jump to Phase 2  (500cr, workers unlocked)',     BRIGHT_WHITE);
-      line(6, '3. Jump to Phase 3  (2000cr, bank unlocked)',       BRIGHT_WHITE);
-      line(7, '4. Jump to Phase 4  (5000cr, derivatives unlocked)',BRIGHT_WHITE);
-      line(8, '5. Jump to Phase 5  (10000cr, LF unlocked)',        BRIGHT_WHITE);
-      line(9,  '6. Give credits',   BRIGHT_WHITE);
-      line(10, '7. Give widgets',   BRIGHT_WHITE);
-      line(11, '8. Back',           BRIGHT_WHITE);
-      centered(12, 'ESC to go back', WC);
-    }
+    // Row 1: WIDGETER centered
+    irow(1, '', BRIGHT_WHITE);
+    { const s = 'WIDGETER'; const cx = BOX_X + 1 + Math.floor((IW - s.length) / 2);
+      for (let i = 0; i < s.length; i++) display.draw(cx + i, BOX_Y + 1, s[i], TC, BG); }
+    // Row 2: paused centered
+    irow(2, '', BRIGHT_WHITE);
+    { const s = 'paused'; const cx = BOX_X + 1 + Math.floor((IW - s.length) / 2);
+      for (let i = 0; i < s.length; i++) display.draw(cx + i, BOX_Y + 2, s[i], WC, BG); }
+    // Row 3: ═ separator
+    for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, BOX_Y + 3, '═', DC, BG);
+    // Pane rows
+    drawLeftArt();
+    if      (screen === 'pause')       drawRightPause();
+    else if (screen === 'settings')    drawRightSettings();
+    else if (screen === 'devPassword') drawRightDevPw();
+    else                               drawRightDev();
+    // Row 21: ═ separator
+    for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, BOX_Y + 21, '═', DC, BG);
+    // Row 22: flavor line centered
+    irow(22, '', BRIGHT_WHITE);
+    { const s = flavorLine; const cx = BOX_X + 1 + Math.floor((IW - s.length) / 2);
+      for (let i = 0; i < s.length; i++) display.draw(cx + i, BOX_Y + 22, s[i], DC, BG); }
   }
 
-  render();
+  // ── Option activation ────────────────────────────────────────────────────────
 
-  pauseMenuRedrawFn = () => { drawBorder(); render(); };
+  function maxOpts() {
+    if (screen === 'pause')    return 3;
+    if (screen === 'settings') return 4;
+    if (screen === 'dev')      return 8;
+    return 0;
+  }
 
   function close() {
     pauseMenuRedrawFn = null;
+    if (devPwErrTimer) clearTimeout(devPwErrTimer);
     window.removeEventListener('keydown', pauseKeyHandler);
     clearMenuRegion(BOX_X, BOX_Y, BOX_W, BOX_H);
     renderDirty();
@@ -7905,76 +8100,116 @@ function showPauseMenu() {
     state.gameState = prevState;
   }
 
-  function pauseKeyHandler(e) {
+  function activate() {
     if (screen === 'pause') {
-      if (e.key === '1' || e.key === 'Escape') { close(); }
-      else if (e.key === '2') { screen = 'settings'; render(); }
-      else if (e.key === '3') {
+      if      (selOpt === 0) { close(); }
+      else if (selOpt === 1) { screen = 'settings'; selOpt = 0; render(); }
+      else if (selOpt === 2) {
         pauseMenuRedrawFn = null;
+        if (devPwErrTimer) clearTimeout(devPwErrTimer);
         window.removeEventListener('keydown', pauseKeyHandler);
+        clearMenuRegion(BOX_X, BOX_Y, BOX_W, BOX_H);
+        renderDirty();
         saveGame();
         showContinueMenu();
       }
     } else if (screen === 'settings') {
-      if (e.key === '1') { state.audio.muted = !state.audio.muted; saveGame(); render(); }
-      else if (e.key === '2') {
-        // Fullscreen toggle
-        const newFS = !state.settings.fullscreen;
-        setFullscreen(newFS);
-        drawBorder(); render(); // redraw menu on newly-sized display
-      }
-      else if (e.key === '3') { devPwBuf = ''; devPwError = false; screen = 'devPassword'; render(); }
-      else if (e.key === '4' || e.key === 'Escape') { screen = 'pause'; render(); }
-    } else if (screen === 'devPassword') {
-      if (devPwError) return; // waiting for error timeout
-      if (e.key === 'Escape') { devPwBuf = ''; screen = 'settings'; render(); return; }
-      if (e.key === 'Backspace') { devPwBuf = devPwBuf.slice(0, -1); render(); return; }
-      if (e.key === 'Enter') {
-        if (devPwBuf.toLowerCase() === DEV_PASSWORD) {
-          devPwBuf = ''; screen = 'dev'; render();
-        } else {
-          devPwError = true; render();
-          setTimeout(() => { devPwError = false; devPwBuf = ''; screen = 'settings'; render(); }, 2000);
-        }
-        return;
-      }
-      if (e.key.length === 1 && devPwBuf.length < 10) { devPwBuf += e.key; render(); }
-    } else {
-      const num = parseInt(e.key);
-      if (num >= 1 && num <= 5) {
+      if      (selOpt === 0) { state.audio.muted = !state.audio.muted; saveGame(); drawBorder(); render(); }
+      else if (selOpt === 1) { setFullscreen(!state.settings.fullscreen); drawBorder(); render(); }
+      else if (selOpt === 2) { devPwBuf = ''; devPwErr = false; screen = 'devPassword'; render(); }
+      else if (selOpt === 3) { screen = 'pause'; selOpt = 0; render(); }
+    } else if (screen === 'dev') {
+      if (selOpt >= 0 && selOpt <= 3) {
+        pauseMenuRedrawFn = null;
         window.removeEventListener('keydown', pauseKeyHandler);
-        devJumpToPhase(num);
-      } else if (e.key === '6') {
+        devJumpToPhase(selOpt + 1);
+      } else if (selOpt === 4) {
+        pauseMenuRedrawFn = null;
         window.removeEventListener('keydown', pauseKeyHandler);
         showNumericPrompt('Give credits (any amount)', 9999999,
           (v) => {
-            state.player.credits += v;
-            state.lifetimeCreditsEarned += v;
-            drawStatusBar();
-            addLog(`> DEV: +${v}cr added.`, '#ff5555');
-            state.gameState = prevState;
-            showPauseMenu();
+            state.player.credits += v; state.lifetimeCreditsEarned += v;
+            drawStatusBar(); addLog(`> DEV: +${v}cr added.`, '#ff5555');
+            state.gameState = prevState; showPauseMenu();
           },
           () => { state.gameState = prevState; showPauseMenu(); }
         );
-      } else if (e.key === '7') {
+      } else if (selOpt === 5) {
+        pauseMenuRedrawFn = null;
         window.removeEventListener('keydown', pauseKeyHandler);
         showNumericPrompt('Give widgets (any amount)', 9999999,
           (v) => {
             const space = state.storage.widgetCap - state.storage.widgets;
             const add   = Math.min(v, space);
             state.storage.widgets += add;
-            if (add < v) addLog(`> DEV: Storage full. Added ${add} widgets to storage.`, '#ff5555');
-            else         addLog(`> DEV: +${add} widgets added to storage.`, '#ff5555');
-            drawStatusBar();
-            state.gameState = prevState;
-            showPauseMenu();
+            addLog(add < v ? `> DEV: Storage full. Added ${add} widgets.` : `> DEV: +${add} widgets added.`, '#ff5555');
+            drawStatusBar(); state.gameState = prevState; showPauseMenu();
           },
           () => { state.gameState = prevState; showPauseMenu(); }
         );
-      } else if (e.key === '8' || e.key === 'Escape') { screen = 'settings'; render(); }
+      } else if (selOpt === 6) {
+        // Make Credit Score S
+        state.bank.creditRatingScore = 10.0;
+        addLog('> DEV: Credit score set to S.', '#ff5555');
+        if (state.bank.card) {
+          for (const t of CARD_TIER_ORDER) {
+            const curTIdx = state.bank.card.tier ? CARD_TIER_ORDER.indexOf(state.bank.card.tier) : -1;
+            if (CARD_TIER_ORDER.indexOf(t) > curTIdx && !state.bank.card.upgradeNotified[t]) {
+              state.bank.card.upgradeNotified[t] = true;
+              addLog(`> [BANK] Your credit rating qualifies you for a ${t.toUpperCase()} card. Visit the Bank to upgrade.`, CARD_TIERS[t].color);
+            }
+          }
+        }
+        drawStatusBar();
+        close();
+      } else if (selOpt === 7) {
+        screen = 'settings'; selOpt = 0; render();
+      }
     }
   }
+
+  // ── Key handler ──────────────────────────────────────────────────────────────
+
+  function pauseKeyHandler(e) {
+    // Password screen: text input only
+    if (screen === 'devPassword') {
+      if (devPwErr) return;
+      if (e.key === 'Escape')    { devPwBuf = ''; screen = 'settings'; selOpt = 0; render(); return; }
+      if (e.key === 'Backspace') { devPwBuf = devPwBuf.slice(0, -1); render(); return; }
+      if (e.key === 'Enter') {
+        if (devPwBuf.toLowerCase() === DEV_PASSWORD) {
+          devPwBuf = ''; screen = 'dev'; selOpt = 0; render();
+        } else {
+          devPwErr = true; render();
+          devPwErrTimer = setTimeout(() => {
+            devPwErr = false; devPwBuf = ''; screen = 'settings'; selOpt = 0; render();
+          }, 2000);
+        }
+        return;
+      }
+      if (e.key.length === 1 && devPwBuf.length < 10) { devPwBuf += e.key; render(); }
+      return;
+    }
+    // Arrow / Enter navigation
+    const mo = maxOpts();
+    if (e.key === 'ArrowUp')   { selOpt = (selOpt - 1 + mo) % mo; render(); return; }
+    if (e.key === 'ArrowDown') { selOpt = (selOpt + 1) % mo;       render(); return; }
+    if (e.key === 'Enter')     { activate(); return; }
+    // ESC
+    if (e.key === 'Escape') {
+      if      (screen === 'pause')    { close(); return; }
+      else if (screen === 'settings') { screen = 'pause';    selOpt = 0; render(); return; }
+      else if (screen === 'dev')      { screen = 'settings'; selOpt = 0; render(); return; }
+      return;
+    }
+    // Number key shortcuts
+    const n = parseInt(e.key);
+    if (!isNaN(n) && n >= 1 && n <= mo) { selOpt = n - 1; activate(); }
+  }
+
+  drawBorder();
+  render();
+  pauseMenuRedrawFn = () => { drawBorder(); render(); };
   window.addEventListener('keydown', pauseKeyHandler);
 }
 
@@ -8641,6 +8876,12 @@ setInterval(() => {
 
   // Day/night slow wave advance (~60fps)
   _advanceDayNightWave();
+
+  // Animate pause menu (gear spin + indicator lights) at ~10fps
+  if (state.gameState === 'paused' && pauseMenuRedrawFn) {
+    _pauseFrameCount++;
+    if (_pauseFrameCount % 6 === 0) pauseMenuRedrawFn();
+  }
 
   requestAnimationFrame(effectsLoop);
 })(0);
