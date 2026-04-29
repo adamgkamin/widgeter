@@ -203,12 +203,12 @@ const state = {
     storage:         { unlocked: false },
     general_store:   { unlocked: false },
     newspaper:       { unlocked: false, lastManipulationDay: -99, manipulationCooldownDays: 3, pendingManipulation: null },
-    casino:          { id: 'CS', x: 71, y: 11, unlocked: false, visible: false, spunToday: 0, dailyBetTotal: 0, lossesTonight: 0, jackpotLogged: false },
+    casino:          { id: 'CS', x: 71, y: 11, unlocked: false, visible: true, spunToday: 0, dailyBetTotal: 0, lossesTonight: 0, jackpotLogged: false },
   },
   shinyRocks: {
-    red:    { collected: false, blinkTick: -1, x: 5,  y: 12 },
-    yellow: { collected: false, blinkTick: -1, x: 42, y: 8  },
-    blue:   { collected: false, blinkTick: -1, x: 74, y: 36 },
+    red:    { collected: false, blinkTicks: [-1, -1, -1], x: 5,  y: 12 },
+    yellow: { collected: false, blinkTicks: [-1, -1, -1], x: 42, y: 8  },
+    blue:   { collected: false, blinkTicks: [-1, -1, -1], x: 74, y: 36 },
   },
   newspaper: { todayHeadline: '', tomorrowForecastLabel: '', animTick: 0 },
   rocketWidgets:       0,
@@ -601,7 +601,7 @@ function loadGame() {
       _cs.x               = 71;
       _cs.y               = 11;
       _cs.unlocked        = _cs.unlocked        ?? false;
-      _cs.visible         = _cs.visible         ?? false;
+      _cs.visible         = true; // always visible from game start
       _cs.spunToday       = _cs.spunToday       ?? 0;
       _cs.dailyBetTotal   = _cs.dailyBetTotal   ?? 0;
       _cs.lossesTonight   = _cs.lossesTonight   ?? 0;
@@ -612,7 +612,15 @@ function loadGame() {
       _sr.red    = _sr.red    ?? { collected: false, x: 5,  y: 12 };
       _sr.yellow = _sr.yellow ?? { collected: false, x: 42, y: 8  };
       _sr.blue   = _sr.blue   ?? { collected: false, x: 74, y: 36 };
-      _sr.red.blinkTick = -1; _sr.yellow.blinkTick = -1; _sr.blue.blinkTick = -1;
+      // Migrate blinkTick (singular, old format) → blinkTicks (array, new format)
+      for (const rock of Object.values(_sr)) {
+        if (rock.blinkTick !== undefined && !Array.isArray(rock.blinkTicks)) {
+          rock.blinkTicks = [rock.blinkTick, -1, -1];
+          delete rock.blinkTick;
+        } else if (!Array.isArray(rock.blinkTicks)) {
+          rock.blinkTicks = [-1, -1, -1];
+        }
+      }
     }
   } catch (_) {
     // corrupt save — start fresh
@@ -1053,8 +1061,13 @@ function buildTileMap() {
   }
   // Surrounding pond tile descriptions are in descriptions.json tiles["21,25"] etc.
 
-  // Casino (§4.2) — stamp footprint if visible
-  if (state.stations.casino?.visible) stampCasino(!state.stations.casino.unlocked);
+  // Casino (§4.2) — always stamp; locked state shows ?? in dim grey
+  stampCasino(!state.stations.casino.unlocked);
+
+  // Rock proximity tile descriptions (override descriptions.json entries)
+  if (tileMap[4]?.[12])  tileMap[4][12].description  = 'Something glints between the trees. You catch it for a moment, then it\'s gone. It comes back.';
+  if (tileMap[41]?.[8])  tileMap[41][8].description  = 'A flash of yellow in the grass. Gone before you could focus. It will be again.';
+  if (tileMap[73]?.[36]) tileMap[73][36].description = 'Something blue blinks here. Sometimes once an hour, sometimes more often.';
 }
 
 // Inject cottage tiles into the live tileMap and mark them dirty.
@@ -1360,12 +1373,12 @@ function resetState() {
   state.stations = {
     launch_facility: { unlocked: false }, storage: { unlocked: false }, general_store: { unlocked: false },
     newspaper: { unlocked: false, lastManipulationDay: -99, manipulationCooldownDays: 3, pendingManipulation: null },
-    casino:    { id: 'CS', x: 71, y: 11, unlocked: false, visible: false, spunToday: 0, dailyBetTotal: 0, lossesTonight: 0, jackpotLogged: false },
+    casino:    { id: 'CS', x: 71, y: 11, unlocked: false, visible: true, spunToday: 0, dailyBetTotal: 0, lossesTonight: 0, jackpotLogged: false },
   };
   state.shinyRocks = {
-    red:    { collected: false, blinkTick: -1, x: 5,  y: 12 },
-    yellow: { collected: false, blinkTick: -1, x: 42, y: 8  },
-    blue:   { collected: false, blinkTick: -1, x: 74, y: 36 },
+    red:    { collected: false, blinkTicks: [-1, -1, -1], x: 5,  y: 12 },
+    yellow: { collected: false, blinkTicks: [-1, -1, -1], x: 42, y: 8  },
+    blue:   { collected: false, blinkTicks: [-1, -1, -1], x: 74, y: 36 },
   };
   state.newspaper = { todayHeadline: '', tomorrowForecastLabel: '', animTick: 0 };
   const gsDef = STATION_DEFS.find(s => s.label === 'GS');
@@ -3939,10 +3952,10 @@ function getPonderHint() {
     { cond: () => state.phase === 5 && state.rocketWidgets >= 45000,
       text: '> Almost. Everything you built was for this.', color: '#66ccff' },
     // Rock and casino discovery hints
-    { cond: () => state.stations.casino?.visible && !state.stations.casino.unlocked && Object.values(state.shinyRocks).every(r => !r.collected),
-      text: '> Three coloured stones, hidden by day. They blink, briefly. Be patient.', color: '#888888' },
+    { cond: () => !state.stations.casino?.unlocked && Object.values(state.shinyRocks).every(r => !r.collected),
+      text: '> Three coloured stones, hidden by day. They blink, briefly. Three times each, somewhere out there.', color: '#888888' },
     { cond: () => { const n = Object.values(state.shinyRocks).filter(r => r.collected).length; return n >= 1 && n <= 2 && !state.stations.casino?.unlocked; },
-      text: '> Find the rest. They appear, briefly, once a day each.', color: '#888888' },
+      text: '> Find the rest. Each appears three times a day, briefly.', color: '#888888' },
     { cond: () => Object.values(state.shinyRocks).every(r => r.collected) && !state.stations.casino?.unlocked,
       text: '> The stones are warm. The casino has a lock with three slots.', color: '#aa3333' },
   ];
@@ -7499,7 +7512,7 @@ function handleInteract() {
   }
   // Casino
   const cs = state.stations.casino;
-  if (cs?.visible && isAdjacentToStation(cs)) { handleCasinoInteract(); return; }
+  if (cs && isAdjacentToStation(cs)) { handleCasinoInteract(); return; }
   const rm = STATION_DEFS.find(s => s.label === 'RM');
   if (rm && isAdjacentToStation(rm)) { openRMShedMenu(); return; }
   const wb = STATION_DEFS.find(s => s.label === 'WB');
@@ -7538,6 +7551,17 @@ function handleInteract() {
 // ── Rock collection and casino interact (§4.2) ───────────────────────────────
 
 const ROCK_COLORS = { red: '#ff5555', yellow: '#ffd633', blue: '#66ccff' };
+
+function pickThreeBlinkTicks() {
+  while (true) {
+    const ticks = [
+      1 + Math.floor(Math.random() * 239),
+      1 + Math.floor(Math.random() * 239),
+      1 + Math.floor(Math.random() * 239),
+    ].sort((a, b) => a - b);
+    if (ticks[1] - ticks[0] >= 30 && ticks[2] - ticks[1] >= 30) return ticks;
+  }
+}
 
 function collectRock(color, rock) {
   const prevCount = Object.values(state.shinyRocks).filter(r => r.collected).length;
@@ -8905,7 +8929,6 @@ function devJumpToPhase(n) {
   applyPhaseUnlocks(n);
   // Casino dev unlock for phase 3+
   if (n >= 3) {
-    state.stations.casino.visible = true;
     state.shinyRocks.red.collected = true;
     state.shinyRocks.yellow.collected = true;
     state.shinyRocks.blue.collected = true;
@@ -9286,7 +9309,6 @@ function showPauseMenu() {
         close();
       } else if (selOpt === 7) {
         // Open Casino
-        state.stations.casino.visible = true;
         state.shinyRocks.red.collected = true;
         state.shinyRocks.yellow.collected = true;
         state.shinyRocks.blue.collected = true;
@@ -9434,9 +9456,9 @@ setInterval(() => {
     state.dayTick = 0; state.day++; state.bellFiredToday = false; state.widgetsSoldToday = 0; state.demandMetLogged = false; state._demandImmunityActiveToday = false; state.stats.widgetsMadeToday = 0; state.stats.revenueToday = 0; state.stats.costsToday = 0; state.fishing.catchesToday = 0;
     // Casino daily reset
     if (state.stations.casino) { state.stations.casino.spunToday = 0; state.stations.casino.dailyBetTotal = 0; state.stations.casino.lossesTonight = 0; }
-    // Assign new random blink ticks for uncollected rocks
+    // Assign three spread-out blink ticks per uncollected rock
     for (const rock of Object.values(state.shinyRocks)) {
-      if (!rock.collected) rock.blinkTick = Math.floor(Math.random() * 239) + 1;
+      if (!rock.collected) rock.blinkTicks = pickThreeBlinkTicks();
     }
     // Auto-close casino at dawn for non-Black card holders
     if (state.gameState === 'casino' && state.bank.card?.tier !== 'black') {
@@ -10028,22 +10050,14 @@ setInterval(() => {
     display.draw(state.player.x, state.player.y, '@', state.player.color || BRIGHT_WHITE, BG);
   }
 
-  // Casino visibility trigger — phase 2 + 1000cr lifetime
-  if (state.phase >= 2 && state.lifetimeCreditsEarned >= 1000 && !state.stations.casino.visible) {
-    state.stations.casino.visible = true;
-    stampCasino(true);
-    renderDirty();
-    display.draw(state.player.x, state.player.y, '@', state.player.color || BRIGHT_WHITE, BG);
-    setTimeout(() => wrapLog('> A boarded-up building catches your eye on the north-east corner. You hadn\'t noticed it before.', '#555555'), 2000);
-  }
-
-  // Shiny rock blink — each uncollected rock appears for 1 tick at its blinkTick
+  // Shiny rock blink — each uncollected rock blinks 3 times per day
   if (state.gameState === 'playing' || state.gameState === 'look') {
     for (const [color, rock] of Object.entries(state.shinyRocks)) {
       if (rock.collected) continue;
-      if (rock.blinkTick === state.dayTick) {
+      const ticks = rock.blinkTicks || [-1, -1, -1];
+      if (ticks.includes(state.dayTick)) {
         display.draw(rock.x, rock.y, '*', ROCK_COLORS[color], BG);
-      } else if (rock.blinkTick >= 0 && (rock.blinkTick + 1) % 240 === state.dayTick) {
+      } else if (ticks.some(t => t >= 0 && (t + 1) % 240 === state.dayTick)) {
         markDirty(rock.x, rock.y);
         renderDirty();
       }
