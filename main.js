@@ -620,6 +620,13 @@ function loadGame() {
         }
         rock.blinkFramesRemaining = 0; // transient — always reset on load
       }
+      // If any uncollected rock still has no valid ticks (saved before dawn ever ran), assign now
+      for (const color of ['red', 'yellow', 'blue']) {
+        const rock = _sr[color];
+        if (!rock.collected && rock.blinkTicks.every(t => t === -1)) {
+          rock.blinkTicks = pickThreeBlinkTicks();
+        }
+      }
     }
   } catch (_) {
     // corrupt save — start fresh
@@ -1387,6 +1394,9 @@ function resetState() {
     yellow: { collected: false, blinkTicks: [-1, -1, -1], blinkFramesRemaining: 0, x: 42, y: 8  },
     blue:   { collected: false, blinkTicks: [-1, -1, -1], blinkFramesRemaining: 0, x: 74, y: 36 },
   };
+  for (const rock of Object.values(state.shinyRocks)) {
+    if (!rock.collected) rock.blinkTicks = pickThreeBlinkTicks();
+  }
   state.newspaper = { todayHeadline: '', tomorrowForecastLabel: '', animTick: 0 };
   const gsDef = STATION_DEFS.find(s => s.label === 'GS');
   if (gsDef) { gsDef.wc = DIM_GRAY; gsDef.lc = DIM_GRAY; }
@@ -7616,6 +7626,19 @@ function pickThreeBlinkTicks() {
   }
 }
 
+function rockDirection(rock) {
+  const dx = rock.x - state.player.x;
+  const dy = rock.y - state.player.y;
+  const adx = Math.abs(dx), ady = Math.abs(dy);
+  if (adx < 5 && ady < 5) return 'nearby';
+  if (adx > ady * 2)  return dx > 0 ? 'to the east'      : 'to the west';
+  if (ady > adx * 2)  return dy > 0 ? 'to the south'     : 'to the north';
+  if (dx > 0 && dy > 0) return 'to the south-east';
+  if (dx > 0 && dy < 0) return 'to the north-east';
+  if (dx < 0 && dy > 0) return 'to the south-west';
+  return 'to the north-west';
+}
+
 function collectRock(color, rock) {
   const prevCount = Object.values(state.shinyRocks).filter(r => r.collected).length;
   rock.collected = true;
@@ -9512,6 +9535,24 @@ setInterval(() => {
     // Assign three spread-out blink ticks per uncollected rock
     for (const rock of Object.values(state.shinyRocks)) {
       if (!rock.collected) rock.blinkTicks = pickThreeBlinkTicks();
+    }
+    // Once-per-dawn directional hint for uncollected rocks (day 2 onward)
+    if (state.day > 1) {
+      const ROCK_HINTS = [
+        { color: 'red',    text: (dir) => `> Something red catches your eye ${dir}.`,       fg: '#ff5555' },
+        { color: 'yellow', text: (dir) => `> A glint of yellow, ${dir}.`,                   fg: '#ffd633' },
+        { color: 'blue',   text: (dir) => `> Something blue, ${dir}. Gone before you look.`, fg: '#66ccff' },
+      ];
+      let delay = 0;
+      for (const hint of ROCK_HINTS) {
+        const rock = state.shinyRocks[hint.color];
+        if (rock && !rock.collected) {
+          const capturedRock = rock;
+          const capturedHint = hint;
+          setTimeout(() => addLog(capturedHint.text(rockDirection(capturedRock)), capturedHint.fg), delay);
+          delay += 800;
+        }
+      }
     }
     // Auto-close casino at dawn for non-Black card holders
     if (state.gameState === 'casino' && state.bank.card?.tier !== 'black') {
