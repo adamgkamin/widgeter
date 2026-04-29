@@ -117,7 +117,7 @@ function setFullscreen(enabled) {
 function fullRedraw() {
   const gs = state ? state.gameState : 'title';
   if (gs === 'title' || gs === 'title_menu') {
-    clearScreen(); drawArt(); drawPrompt(true);
+    clearScreen(); drawTitleBorder(); drawArt(); drawPrompt(true);
   } else if (gs === 'cottage') {
     clearScreen(); drawCottageInterior(); drawStatusBar(); renderLog();
   } else if (gs !== 'transitioning' && gs !== 'intro') {
@@ -772,7 +772,7 @@ const PARTICLE_COLORS = ['#5a4a20', '#6a5a28', '#4a3a18', '#8a7a30'];
 function spawnTitleParticle() {
   titleParticles.push({
     x: CUBE_CX - 6 + Math.random() * 12,
-    y: CUBE_CY + 5 + Math.random() * 2,
+    y: CUBE_CY - 3 + Math.random() * 6,  // within cube area only, max CUBE_CY+3
     vy: -0.04 - Math.random() * 0.03,
     vx: (Math.random() - 0.5) * 0.02,
     char: PARTICLE_CHARS[Math.floor(Math.random() * PARTICLE_CHARS.length)],
@@ -791,7 +791,7 @@ function titleAnimLoop() {
   for (let i = titleParticles.length - 1; i >= 0; i--) {
     const p = titleParticles[i];
     p.x += p.vx; p.y += p.vy; p.life--;
-    if (p.life <= 0) { titleParticles.splice(i, 1); continue; }
+    if (p.life <= 0 || p.y <= 2 || p.y >= ART_Y - 1) { titleParticles.splice(i, 1); continue; }
     const px = Math.floor(p.x), py = Math.floor(p.y);
     if (px >= 0 && px < DISPLAY_WIDTH && py >= 0 && py < DISPLAY_HEIGHT)
       display.draw(px, py, p.char, p.color, BG);
@@ -801,12 +801,21 @@ function titleAnimLoop() {
   requestAnimationFrame(titleAnimLoop);
 }
 
+function drawTitleBorder() {
+  const W = DISPLAY_WIDTH, H = DISPLAY_HEIGHT, BC = '#ffd633';
+  display.draw(0,   0,   '╔', BC, BG); display.draw(W-1, 0,   '╗', BC, BG);
+  display.draw(0,   H-1, '╚', BC, BG); display.draw(W-1, H-1, '╝', BC, BG);
+  for (let x = 1; x < W - 1; x++) { display.draw(x, 0, '═', BC, BG); display.draw(x, H-1, '═', BC, BG); }
+  for (let y = 1; y < H - 1; y++) { display.draw(0, y, '║', BC, BG); display.draw(W-1, y, '║', BC, BG); }
+}
+
 clearScreen();
+drawTitleBorder();
 drawArt(0);
 drawPrompt(true);
 
 const CREDIT  = "Created by Adam A.";
-const VERSION = "alpha 1.00.01";
+const VERSION = "alpha 1.00.02";
 for (let i = 0; i < CREDIT.length;  i++) display.draw(79 - CREDIT.length  + i, 46, CREDIT[i],  '#555555', BG);
 for (let i = 0; i < VERSION.length; i++) display.draw(79 - VERSION.length + i, 47, VERSION[i], '#555555', BG);
 requestAnimationFrame(titleAnimLoop);
@@ -1136,17 +1145,13 @@ function buildTileMap() {
   if (state.cottage.owned) placeCottageTiles();
 
   // Border — §4.1 (overwrites edge floor)
-  tileMap[0][0]                          = mk('╔', '#ffd633', false);
-  tileMap[DISPLAY_WIDTH-1][0]            = mk('╗', '#ffd633', false);
-  tileMap[0][WORLD_ROWS-1]               = mk('╚', '#ffd633', false);
-  tileMap[DISPLAY_WIDTH-1][WORLD_ROWS-1] = mk('╝', '#ffd633', false);
-  for (let x = 1; x < DISPLAY_WIDTH - 1; x++) {
-    tileMap[x][0]            = mk('═', '#ffd633', false);
-    tileMap[x][WORLD_ROWS-1] = mk('═', '#ffd633', false);
+  for (let x = 0; x < DISPLAY_WIDTH; x++) {
+    tileMap[x][0]            = mk('#', DIM_GRAY, false);
+    tileMap[x][WORLD_ROWS-1] = mk('#', DIM_GRAY, false);
   }
   for (let y = 1; y < WORLD_ROWS - 1; y++) {
-    tileMap[0][y]               = mk('║', '#ffd633', false);
-    tileMap[DISPLAY_WIDTH-1][y] = mk('║', '#ffd633', false);
+    tileMap[0][y]               = mk('#', DIM_GRAY, false);
+    tileMap[DISPLAY_WIDTH-1][y] = mk('#', DIM_GRAY, false);
   }
 
   // Apply phase unlock colors before stamping stations
@@ -1657,7 +1662,7 @@ function resetState() {
 }
 
 function showNewGameConfirm() {
-  clearScreen(); drawArt();
+  clearScreen(); drawTitleBorder(); drawArt();
   state.gameState = 'title_menu';
   const WC = '#555555';
   const INNER_W = 23; // "Your save will be lost."
@@ -1697,7 +1702,7 @@ function showNewGameConfirm() {
 }
 
 function showContinueMenu() {
-  clearScreen(); drawArt();
+  clearScreen(); drawTitleBorder(); drawArt();
   state.gameState = 'title_menu';
   const WC = '#555555';
   const INNER_W = 14; // "-- WIDGETER --"
