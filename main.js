@@ -836,7 +836,7 @@ drawArt(0);
 drawPrompt(true);
 
 const CREDIT  = "Created by Adam A.";
-const VERSION = "alpha 1.03.07";
+const VERSION = "alpha 1.03.08";
 
 // ── Sound system ──────────────────────────────────────────────────────────────
 const SOUNDS = {};
@@ -1988,28 +1988,35 @@ function resetState() {
 function showNewGameConfirm() {
   clearScreen(); drawTitleBorder(); drawArt(); drawTitleBottomText();
   state.gameState = 'title_menu';
-  const WC = '#555555';
-  const INNER_W = 23; // "Your save will be lost."
+  const BC = BRIGHT_CYAN;
+  const INNER_W = 25;
   const BOX_W = INNER_W + 4;
   const BOX_H = 8;
   const BOX_X = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
-  const BOX_Y = PROMPT_Y + 5;
+  const BOX_Y = PROMPT_Y + 3;
   const CX = BOX_X + 2;
-  display.draw(BOX_X, BOX_Y, '+', WC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y, '+', WC, BG);
-  for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, BOX_Y, '-', WC, BG);
-  const bY = BOX_Y + BOX_H - 1;
-  display.draw(BOX_X, bY, '+', WC, BG); display.draw(BOX_X+BOX_W-1, bY, '+', WC, BG);
-  for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, bY, '-', WC, BG);
-  for (let y = 1; y < BOX_H-1; y++) {
-    display.draw(BOX_X, BOX_Y+y, '|', WC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y+y, '|', WC, BG);
-    for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, BOX_Y+y, ' ', BRIGHT_WHITE, BG);
+  display.draw(BOX_X, BOX_Y, '╔', BC, BG);
+  display.draw(BOX_X + BOX_W - 1, BOX_Y, '╗', BC, BG);
+  display.draw(BOX_X, BOX_Y + BOX_H - 1, '╚', BC, BG);
+  display.draw(BOX_X + BOX_W - 1, BOX_Y + BOX_H - 1, '╝', BC, BG);
+  for (let x = 1; x < BOX_W - 1; x++) {
+    display.draw(BOX_X + x, BOX_Y, '═', BC, BG);
+    display.draw(BOX_X + x, BOX_Y + BOX_H - 1, '═', BC, BG);
   }
-  const t1 = 'Are you sure?'; const t2 = 'Your save will be lost.';
-  const o1 = '1. Yes, start over'; const o2 = '2. Cancel';
-  for (let i = 0; i < t1.length; i++) display.draw(CX+i, BOX_Y+1, t1[i], BRIGHT_YELLOW, BG);
-  for (let i = 0; i < t2.length; i++) display.draw(CX+i, BOX_Y+2, t2[i], BRIGHT_WHITE, BG);
-  for (let i = 0; i < o1.length; i++) display.draw(CX+i, BOX_Y+4, o1[i], BRIGHT_WHITE, BG);
-  for (let i = 0; i < o2.length; i++) display.draw(CX+i, BOX_Y+5, o2[i], BRIGHT_WHITE, BG);
+  for (let y = 1; y < BOX_H - 1; y++) {
+    display.draw(BOX_X, BOX_Y + y, '║', BC, BG);
+    display.draw(BOX_X + BOX_W - 1, BOX_Y + y, '║', BC, BG);
+    for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, BOX_Y + y, ' ', BRIGHT_WHITE, BG);
+  }
+  const t1 = 'Are you sure?';
+  const t2 = 'Your save will be lost.';
+  const o1 = '1. Yes, start over';
+  const o2 = '2. Cancel';
+  for (let i = 0; i < t1.length; i++) display.draw(CX + i, BOX_Y + 1, t1[i], '#ffd633', BG);
+  for (let i = 0; i < t2.length; i++) display.draw(CX + i, BOX_Y + 2, t2[i], '#f0f0f0', BG);
+  for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, BOX_Y + 3, '─', '#333333', BG);
+  for (let i = 0; i < o1.length; i++) display.draw(CX + i, BOX_Y + 4, o1[i], '#f0f0f0', BG);
+  for (let i = 0; i < o2.length; i++) display.draw(CX + i, BOX_Y + 5, o2[i], '#f0f0f0', BG);
   function ngKeyHandler(e) {
     if (e.key === '1') {
       window.removeEventListener('keydown', ngKeyHandler);
@@ -2219,34 +2226,38 @@ function showChangelog() {
 function showContinueMenu() {
   clearScreen(); drawTitleBorder(); drawArt(); drawTitleBottomText();
   state.gameState = 'title_menu';
-  const WC = '#555555';
-  const INNER_W = 14; // "-- WIDGETER --"
+  const BC = BRIGHT_CYAN;
+  const INNER_W = 16;
   const BOX_W = INNER_W + 4;
-  const BOX_H = 9;
+  const BOX_H = 7;
   const BOX_X = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
   const BOX_Y = PROMPT_Y + 3;
   const CX = BOX_X + 2;
-  display.draw(BOX_X, BOX_Y, '+', WC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y, '+', WC, BG);
-  for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, BOX_Y, '-', WC, BG);
-  const bY = BOX_Y + BOX_H - 1;
-  display.draw(BOX_X, bY, '+', WC, BG); display.draw(BOX_X+BOX_W-1, bY, '+', WC, BG);
-  for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, bY, '-', WC, BG);
-  for (let y = 1; y < BOX_H-1; y++) {
-    display.draw(BOX_X, BOX_Y+y, '|', WC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y+y, '|', WC, BG);
-    for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, BOX_Y+y, ' ', BRIGHT_WHITE, BG);
+  display.draw(BOX_X, BOX_Y, '╔', BC, BG);
+  display.draw(BOX_X + BOX_W - 1, BOX_Y, '╗', BC, BG);
+  display.draw(BOX_X, BOX_Y + BOX_H - 1, '╚', BC, BG);
+  display.draw(BOX_X + BOX_W - 1, BOX_Y + BOX_H - 1, '╝', BC, BG);
+  for (let x = 1; x < BOX_W - 1; x++) {
+    display.draw(BOX_X + x, BOX_Y, '═', BC, BG);
+    display.draw(BOX_X + x, BOX_Y + BOX_H - 1, '═', BC, BG);
   }
-  const title = '-- WIDGETER --';
-  for (let i = 0; i < title.length; i++) display.draw(CX+i, BOX_Y+1, title[i], BRIGHT_CYAN, BG);
+  for (let y = 1; y < BOX_H - 1; y++) {
+    display.draw(BOX_X, BOX_Y + y, '║', BC, BG);
+    display.draw(BOX_X + BOX_W - 1, BOX_Y + y, '║', BC, BG);
+    for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, BOX_Y + y, ' ', BRIGHT_WHITE, BG);
+  }
   const saveExists = !!localStorage.getItem(SAVE_KEY);
   const o1 = saveExists && state.endingCompleted ? '1. Continue ★' : '1. Continue';
-  const o2 = '2. New Game'; const o3 = '3. Options';
-  const c1fg = saveExists ? BRIGHT_WHITE : '#333333';
-  for (let i = 0; i < o1.length; i++) {
-    const fg = (o1[i] === '★') ? '#ffd633' : c1fg;
-    display.draw(CX+i, BOX_Y+3, o1[i], fg, BG);
+  const o2 = '2. New Game';
+  const o3 = '3. Options';
+  const c1fg = saveExists ? '#f0f0f0' : '#333333';
+  for (let i = 0; i < o1.length; i++) display.draw(CX + i, BOX_Y + 2, o1[i], c1fg, BG);
+  for (let i = 0; i < o2.length; i++) display.draw(CX + i, BOX_Y + 3, o2[i], '#f0f0f0', BG);
+  for (let i = 0; i < o3.length; i++) display.draw(CX + i, BOX_Y + 4, o3[i], '#f0f0f0', BG);
+  if (saveExists && state.endingCompleted) {
+    const starIdx = o1.indexOf('★');
+    if (starIdx >= 0) display.draw(CX + starIdx, BOX_Y + 2, '★', '#ffd633', BG);
   }
-  for (let i = 0; i < o2.length; i++) display.draw(CX+i, BOX_Y+4, o2[i], '#f0f0f0', BG);
-  for (let i = 0; i < o3.length; i++) display.draw(CX+i, BOX_Y+5, o3[i], '#f0f0f0', BG);
   function cmKeyHandler(e) {
     if (e.key === '1') {
       if (!saveExists) return;
@@ -7550,6 +7561,7 @@ function renderLargeNumber(display, x, y, numberString, color, availableWidth) {
 // ── Launch Facility menu (§9) ─────────────────────────────────────────────────
 
 const CHANGELOG = [
+  { version: '1.03.08', summary: 'Title menus restyled with cyan double-line borders, removed WIDGETER label.' },
   { version: '1.03.07', summary: 'Workbench 10-frame hammer animation (fourth attempt).' },
   { version: '1.03.06', summary: 'Pause menu widget art replaced with rotating cube and particles.' },
   { version: '1.03.05', summary: 'Workbench hammer animation replaced with 10-frame version.' },
