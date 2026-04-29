@@ -826,7 +826,7 @@ drawArt(0);
 drawPrompt(true);
 
 const CREDIT  = "Created by Adam A.";
-const VERSION = "alpha 1.00.06";
+const VERSION = "alpha 1.00.07";
 for (let i = 0; i < CREDIT.length;  i++) display.draw(77 - CREDIT.length  + i, 46, CREDIT[i],  '#555555', BG);
 for (let i = 0; i < VERSION.length; i++) display.draw(77 - VERSION.length + i, 47, VERSION[i], '#555555', BG);
 requestAnimationFrame(titleAnimLoop);
@@ -1712,15 +1712,104 @@ function showNewGameConfirm() {
   window.addEventListener('keydown', ngKeyHandler);
 }
 
+function showTitleOptions() {
+  state.gameState = 'title_menu';
+  const WC = '#555555';
+  const INNER_W = 18;
+  const BOX_W = INNER_W + 4;
+  const BOX_H = 9;
+  const BOX_X = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
+  const BOX_Y = PROMPT_Y + 3;
+  const CX = BOX_X + 2;
+
+  let devPwMode = false, devPwBuf = '', devPwErr = false;
+
+  function renderOpts() {
+    // Clear and redraw box interior
+    const bY = BOX_Y + BOX_H - 1;
+    display.draw(BOX_X, BOX_Y, '+', WC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y, '+', WC, BG);
+    for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, BOX_Y, '-', WC, BG);
+    display.draw(BOX_X, bY, '+', WC, BG); display.draw(BOX_X+BOX_W-1, bY, '+', WC, BG);
+    for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, bY, '-', WC, BG);
+    for (let y = 1; y < BOX_H-1; y++) {
+      display.draw(BOX_X, BOX_Y+y, '|', WC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y+y, '|', WC, BG);
+      for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, BOX_Y+y, ' ', BRIGHT_WHITE, BG);
+    }
+    if (devPwMode) {
+      const prompt = devPwErr ? 'Wrong password.' : `Password: ${'*'.repeat(devPwBuf.length)}_`;
+      const ttl = '-- DEV MODE --';
+      for (let i = 0; i < ttl.length; i++) display.draw(CX+i, BOX_Y+1, ttl[i], BRIGHT_CYAN, BG);
+      for (let i = 0; i < prompt.length; i++) display.draw(CX+i, BOX_Y+3, prompt[i], devPwErr ? '#ff5555' : BRIGHT_WHITE, BG);
+      const hint = 'ESC: cancel';
+      for (let i = 0; i < hint.length; i++) display.draw(CX+i, BOX_Y+5, hint[i], WC, BG);
+    } else {
+      const ttl = '-- SETTINGS --';
+      for (let i = 0; i < ttl.length; i++) display.draw(CX+i, BOX_Y+1, ttl[i], BRIGHT_CYAN, BG);
+      const sndLabel = state.audio.muted ? '[OFF]' : '[ON ]';
+      const sndFg    = state.audio.muted ? '#555555' : '#66cc66';
+      const fsLabel  = state.settings.fullscreen ? '[ON ]' : '[OFF]';
+      const fsFg     = state.settings.fullscreen ? '#66cc66' : '#555555';
+      const line1 = `1. Sound   ${sndLabel}`;
+      const line2 = `2. Fullscr ${fsLabel}`;
+      const line3 = '3. Dev Mode';
+      const line4 = '4. Back';
+      for (let i = 0; i < line1.length; i++) display.draw(CX+i, BOX_Y+3, line1[i], i >= 11 ? sndFg : BRIGHT_WHITE, BG);
+      for (let i = 0; i < line2.length; i++) display.draw(CX+i, BOX_Y+4, line2[i], i >= 11 ? fsFg  : BRIGHT_WHITE, BG);
+      for (let i = 0; i < line3.length; i++) display.draw(CX+i, BOX_Y+5, line3[i], BRIGHT_WHITE, BG);
+      for (let i = 0; i < line4.length; i++) display.draw(CX+i, BOX_Y+6, line4[i], WC, BG);
+    }
+  }
+
+  function optsKeyHandler(e) {
+    if (devPwMode) {
+      if (e.key === 'Escape') { devPwMode = false; devPwBuf = ''; devPwErr = false; renderOpts(); return; }
+      if (e.key === 'Backspace') { devPwBuf = devPwBuf.slice(0, -1); renderOpts(); return; }
+      if (e.key === 'Enter') {
+        if (devPwBuf.toLowerCase() === DEV_PASSWORD) {
+          state.devMode = true;
+          devPwMode = false; devPwBuf = '';
+          window.removeEventListener('keydown', optsKeyHandler);
+          showContinueMenu();
+        } else {
+          devPwErr = true; renderOpts();
+          setTimeout(() => { devPwErr = false; devPwBuf = ''; renderOpts(); }, 2000);
+        }
+        return;
+      }
+      if (e.key.length === 1 && devPwBuf.length < 10) { devPwBuf += e.key; renderOpts(); }
+      return;
+    }
+    if (e.key === '1') {
+      state.audio.muted = !state.audio.muted;
+      renderOpts(); return;
+    }
+    if (e.key === '2') {
+      setFullscreen(!state.settings.fullscreen);
+      renderOpts(); return;
+    }
+    if (e.key === '3') {
+      devPwMode = true; devPwBuf = ''; devPwErr = false;
+      renderOpts(); return;
+    }
+    if (e.key === '4' || e.key === 'Escape') {
+      window.removeEventListener('keydown', optsKeyHandler);
+      showContinueMenu();
+    }
+  }
+
+  renderOpts();
+  window.addEventListener('keydown', optsKeyHandler);
+}
+
 function showContinueMenu() {
   clearScreen(); drawTitleBorder(); drawArt();
   state.gameState = 'title_menu';
   const WC = '#555555';
   const INNER_W = 14; // "-- WIDGETER --"
   const BOX_W = INNER_W + 4;
-  const BOX_H = 7;
+  const BOX_H = 9;
   const BOX_X = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
-  const BOX_Y = Math.max(25, Math.floor((DISPLAY_HEIGHT - BOX_H) / 2));
+  const BOX_Y = PROMPT_Y + 3;
   const CX = BOX_X + 2;
   display.draw(BOX_X, BOX_Y, '+', WC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y, '+', WC, BG);
   for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, BOX_Y, '-', WC, BG);
@@ -1734,10 +1823,11 @@ function showContinueMenu() {
   const title = '-- WIDGETER --';
   for (let i = 0; i < title.length; i++) display.draw(CX+i, BOX_Y+1, title[i], BRIGHT_CYAN, BG);
   const saveExists = !!localStorage.getItem(SAVE_KEY);
-  const o1 = '1. Continue'; const o2 = '2. New Game';
+  const o1 = '1. Continue'; const o2 = '2. New Game'; const o3 = '3. Options';
   const c1fg = saveExists ? BRIGHT_WHITE : '#333333';
   for (let i = 0; i < o1.length; i++) display.draw(CX+i, BOX_Y+3, o1[i], c1fg, BG);
   for (let i = 0; i < o2.length; i++) display.draw(CX+i, BOX_Y+4, o2[i], '#f0f0f0', BG);
+  for (let i = 0; i < o3.length; i++) display.draw(CX+i, BOX_Y+5, o3[i], '#f0f0f0', BG);
   function cmKeyHandler(e) {
     if (e.key === '1') {
       if (!saveExists) return;
@@ -1755,6 +1845,9 @@ function showContinueMenu() {
       } else {
         showNewGameConfirm();
       }
+    } else if (e.key === '3') {
+      window.removeEventListener('keydown', cmKeyHandler);
+      showTitleOptions();
     }
   }
   window.addEventListener('keydown', cmKeyHandler);
