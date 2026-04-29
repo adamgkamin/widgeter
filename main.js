@@ -791,12 +791,18 @@ function titleAnimLoop() {
   for (let i = titleParticles.length - 1; i >= 0; i--) {
     const p = titleParticles[i];
     p.x += p.vx; p.y += p.vy; p.life--;
-    if (p.life <= 0 || p.y <= 2 || p.y >= ART_Y - 1) { titleParticles.splice(i, 1); continue; }
     const px = Math.floor(p.x), py = Math.floor(p.y);
+    const dead = p.life <= 0 || p.y <= 1 || p.y >= ART_Y - 1;
+    if (dead) {
+      if (py >= 2 && py < ART_Y && px >= 0 && px < DISPLAY_WIDTH)
+        display.draw(px, py, ' ', BRIGHT_WHITE, BG);
+      titleParticles.splice(i, 1);
+      continue;
+    }
     if (px >= 0 && px < DISPLAY_WIDTH && py >= 0 && py < DISPLAY_HEIGHT)
       display.draw(px, py, p.char, p.color, BG);
   }
-  if (titleParticles.length < 3 && Math.random() < 0.02) spawnTitleParticle();
+  if (titleParticles.length < 4 && Math.random() < 0.015) spawnTitleParticle();
   drawArt(titleFrame);
   requestAnimationFrame(titleAnimLoop);
 }
@@ -815,7 +821,7 @@ drawArt(0);
 drawPrompt(true);
 
 const CREDIT  = "Created by Adam A.";
-const VERSION = "alpha 1.00.02";
+const VERSION = "alpha 1.00.03";
 for (let i = 0; i < CREDIT.length;  i++) display.draw(79 - CREDIT.length  + i, 46, CREDIT[i],  '#555555', BG);
 for (let i = 0; i < VERSION.length; i++) display.draw(79 - VERSION.length + i, 47, VERSION[i], '#555555', BG);
 requestAnimationFrame(titleAnimLoop);
