@@ -20,6 +20,21 @@ export const COLOR_HINT_LINE = '#2a2a3a';
 // Stamps currency color (§13)
 export const COLOR_STAMPS = '#aa9966';
 
+// Credit rating tier colors (§5.4)
+export const RATING_COLORS = {
+  'F':   '#ff5555',
+  'D':   '#ff7733',
+  'C':   '#ffaa44',
+  'CC':  '#ffcc55',
+  'B':   '#f0f0f0',
+  'BB':  '#aaddff',
+  'BBB': '#66ccff',
+  'A':   '#66cc66',
+  'AA':  '#aaffaa',
+  'AAA': '#ffd633',
+  'S':   '#ffffff',
+};
+
 // Newspaper station colors (§4.2)
 export const COLOR_NP_FRAME = '#3a8c4a';
 export const COLOR_NP_LABEL = '#6abf7a';

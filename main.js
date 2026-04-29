@@ -9,6 +9,7 @@ import {
   DEV_PASSWORD,
   COLOR_NP_FRAME,
   COLOR_NP_LABEL,
+  RATING_COLORS,
 } from './constants.js';
 import { EffectsManager } from './src/effects.js';
 
@@ -249,17 +250,20 @@ const state = {
   peakCredits:          0,
   bank: {
     deposit: 0,
-    loan: null,
-    creditRating:           'B',
-    creditRatingScore:      3.0,
-    ratingHistory:          [],
+    creditRating:            'CC',
+    creditRatingScore:       3.0,
+    ratingHistory:           [],
     consecutivePositiveDays: 0,
-    creditNegativeLogged:   false,
+    creditNegativeLogged:    false,
     card: {
-      owned: false, limit: 0, balance: 0,
-      lastStatementDay: 0, cycleLength: 10,
-      minimumPaymentDue: 0, paymentDueDay: 0,
-      missedPayments: 0, interestRate: 0.02,
+      tier: null, limit: 0, balance: 0, interestRate: 0,
+      statementCycle: 10, lastStatementDay: 0,
+      minimumPaymentDue: 0, paymentDueDay: 0, missedPayments: 0,
+      consecutiveGoldPayments: 0, demotionWarningDay: null,
+      upgradeNotified: { bronze: false, silver: false, gold: false, black: false },
+      overdraftUsedThisCycle: false, graceUsedThisCycle: false,
+      silverMarketExtraUsedToday: false, demandImmunityUsedThisWeek: false,
+      insuranceBalance: 0, autoRMThreshold: 0,
     },
   },
   audio: { muted: false },
@@ -431,23 +435,39 @@ function loadGame() {
     state.endingTriggered                = data.endingTriggered                ?? false;
     state.widgetsMade          = data.widgetsMade          ?? 0;
     state.peakCredits          = data.peakCredits          ?? 0;
-    state.bank                 = data.bank                 ?? { deposit: 0, loan: null };
+    state.bank                 = data.bank                 ?? { deposit: 0 };
     state.bank.deposit         = state.bank.deposit        ?? 0;
-    state.bank.creditRating           = state.bank.creditRating           ?? 'B';
+    // Migrate old 'B' start rating to 'CC'
+    if (state.bank.creditRating === 'B' && (state.bank.creditRatingScore ?? 3.0) === 3.0) state.bank.creditRating = 'CC';
+    state.bank.creditRating           = state.bank.creditRating           ?? 'CC';
     state.bank.creditRatingScore      = state.bank.creditRatingScore      ?? 3.0;
     state.bank.ratingHistory          = state.bank.ratingHistory          ?? [];
     state.bank.consecutivePositiveDays = state.bank.consecutivePositiveDays ?? 0;
-    state.bank.creditNegativeLogged   = false; // transient — not restored from save
+    state.bank.creditNegativeLogged   = false; // transient
     { const _c = state.bank.card = state.bank.card ?? {};
-      _c.owned             = _c.owned             ?? false;
-      _c.limit             = _c.limit             ?? 0;
-      _c.balance           = _c.balance           ?? 0;
-      _c.lastStatementDay  = _c.lastStatementDay  ?? 0;
-      _c.cycleLength       = _c.cycleLength       ?? 10;
-      _c.minimumPaymentDue = _c.minimumPaymentDue ?? 0;
-      _c.paymentDueDay     = _c.paymentDueDay     ?? 0;
-      _c.missedPayments    = _c.missedPayments    ?? 0;
-      _c.interestRate      = _c.interestRate      ?? 0.02; }
+      // Migrate old card.owned to card.tier
+      if (_c.owned === true && !_c.tier) _c.tier = 'bronze';
+      if (_c.owned === false && _c.tier === undefined) _c.tier = null;
+      delete _c.owned;
+      _c.tier                       = _c.tier                       ?? null;
+      _c.limit                      = _c.limit                      ?? 0;
+      _c.balance                    = _c.balance                    ?? 0;
+      _c.interestRate               = _c.interestRate               ?? 0;
+      _c.statementCycle             = _c.statementCycle             ?? (_c.cycleLength ?? 10);
+      _c.lastStatementDay           = _c.lastStatementDay           ?? 0;
+      _c.minimumPaymentDue          = _c.minimumPaymentDue          ?? 0;
+      _c.paymentDueDay              = _c.paymentDueDay              ?? 0;
+      _c.missedPayments             = _c.missedPayments             ?? 0;
+      _c.consecutiveGoldPayments    = _c.consecutiveGoldPayments    ?? 0;
+      _c.demotionWarningDay         = _c.demotionWarningDay         ?? null;
+      _c.upgradeNotified            = _c.upgradeNotified            ?? { bronze: false, silver: false, gold: false, black: false };
+      _c.overdraftUsedThisCycle     = _c.overdraftUsedThisCycle     ?? false;
+      _c.graceUsedThisCycle         = _c.graceUsedThisCycle         ?? false;
+      _c.silverMarketExtraUsedToday = _c.silverMarketExtraUsedToday ?? false;
+      _c.demandImmunityUsedThisWeek = _c.demandImmunityUsedThisWeek ?? false;
+      _c.insuranceBalance           = _c.insuranceBalance           ?? 0;
+      _c.autoRMThreshold            = _c.autoRMThreshold            ?? 0;
+    }
     state.audio                = data.audio               ?? { muted: false };
     state.settings             = data.settings            ?? {};
     state.settings.fullscreen  = state.settings.fullscreen  ?? false;
@@ -1250,11 +1270,19 @@ function resetState() {
   state.peakCredits          = 0;
   state.bank                 = {
     deposit: 0,
-    creditRating: 'B', creditRatingScore: 3.0,
+    creditRating: 'CC', creditRatingScore: 3.0,
     ratingHistory: [], consecutivePositiveDays: 0,
     creditNegativeLogged: false,
-    card: { owned:false, limit:0, balance:0, lastStatementDay:0, cycleLength:10,
-            minimumPaymentDue:0, paymentDueDay:0, missedPayments:0, interestRate:0.02 },
+    card: {
+      tier: null, limit: 0, balance: 0, interestRate: 0,
+      statementCycle: 10, lastStatementDay: 0,
+      minimumPaymentDue: 0, paymentDueDay: 0, missedPayments: 0,
+      consecutiveGoldPayments: 0, demotionWarningDay: null,
+      upgradeNotified: { bronze: false, silver: false, gold: false, black: false },
+      overdraftUsedThisCycle: false, graceUsedThisCycle: false,
+      silverMarketExtraUsedToday: false, demandImmunityUsedThisWeek: false,
+      insuranceBalance: 0, autoRMThreshold: 0,
+    },
   };
   state.audio            = { muted: false };
   { const savedFS = localStorage.getItem('widgeter.settings.fullscreen');
@@ -1680,7 +1708,7 @@ function openRMShedMenu() {
   const IW    = 52;
   const AW    = 14; // art pane width
   const IPW   = 37; // info pane width
-  const BOX_H = 22;
+  const BOX_H = 23; // +1 row for Gold bulk RM option
   const BOX_X = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
   const BOX_Y = Math.max(1, Math.floor((WORLD_ROWS - BOX_H) / 2));
   const RPX   = BOX_X + 1 + AW + 1; // right pane absolute x
@@ -1779,40 +1807,47 @@ function openRMShedMenu() {
     const numStr = `${rm}/${rmCap}`;
     renderLargeNumber(display, RPX, BOX_Y + 6, numStr, TC, IPW);
 
-    drp(BOX_Y + 11, `Cost per unit:  ${formatCredits(COST)}cr`, '#f0f0f0');
+    const cardTier = state.bank.card.tier;
+    const isBronzePlus = ['bronze','silver','gold','black'].includes(cardTier);
+    const isGoldPlus   = ['gold','black'].includes(cardTier);
+    const discountedCost = isBronzePlus ? Math.max(1, Math.floor(COST * 0.95)) : COST;
+    const discStr = isBronzePlus ? `${formatCredits(discountedCost)}cr (-5%)` : `${formatCredits(COST)}cr`;
+    drp(BOX_Y + 11, `Cost per unit:  ${discStr}`, isBronzePlus ? '#cc7733' : '#f0f0f0');
     drp(BOX_Y + 12, '', DC);
 
     // Row 13: ─ action separator
     { const ay = BOX_Y + 13; border(ay);
       for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '─', DC, BG); }
 
-    // Action rows 14-18
-    const c1 = `-${formatCredits(COST)}cr`;
-    const cm = maxBuy > 0 ? `-${formatCredits(maxBuy * COST)}cr` : '';
-    const cardAvail = state.bank.card?.owned ? Math.max(0, state.bank.card.limit - state.bank.card.balance) : 0;
-    const canBuyCard = state.bank.card?.owned && cardAvail >= COST && rmSpace > 0;
+    // Action rows 14-19
+    const c1 = `-${formatCredits(discountedCost)}cr`;
+    const cm = maxBuy > 0 ? `-${formatCredits(maxBuy * discountedCost)}cr` : '';
+    const cardAvail = cardTier ? Math.max(0, state.bank.card.limit - state.bank.card.balance) : 0;
+    const canBuyCard = !!cardTier && cardAvail >= discountedCost && rmSpace > 0;
+    const canBulk50  = isGoldPlus && rmSpace >= 50 && (cardAvail >= Math.floor(50 * COST * 0.85) || state.player.credits >= Math.floor(50 * COST * 0.85));
     arow(BOX_Y + 14, `1. Buy 1 RM`, c1, canBuy1 ? '#66cc66' : '#ff5555');
     arow(BOX_Y + 15, `2. Buy max (${maxBuy})`, cm, canBuy1 && maxBuy > 0 ? '#66cc66' : '#ff5555');
     arow(BOX_Y + 16, '3. Buy custom amount', '', canBuy1 ? '#66cc66' : '#ff5555');
     arow(BOX_Y + 17, '4. Cancel', '', '#555555');
-    arow(BOX_Y + 18, `5. Buy 1 RM on card`, canBuyCard ? `-${COST}cr (card)` : '', canBuyCard ? '#66ccff' : '#444444');
+    arow(BOX_Y + 18, `5. Buy 1 RM on card`, canBuyCard ? `-${discountedCost}cr (card)` : '', canBuyCard ? getCardTierColor(cardTier) : '#444444');
+    arow(BOX_Y + 19, `6. Bulk buy 50 RM (-15%)`, isGoldPlus ? `-${Math.floor(50*COST*0.85)}cr` : '[Gold+ only]', canBulk50 ? CARD_TIERS.gold.color : '#444444');
 
-    // Row 19: ═ bottom rule
-    { const ay = BOX_Y + 19; border(ay);
+    // Row 20: ═ bottom rule
+    { const ay = BOX_Y + 20; border(ay);
       for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '═', DC, BG); }
 
-    // Row 20: status
+    // Row 21: status
     let statusText, statusFg;
     if (rmSpace <= 0)                { statusText = 'Inventory full.'; statusFg = '#ff5555'; }
     else if (state.player.credits < COST && !canBuyCard) { statusText = 'Insufficient credits.'; statusFg = '#ff5555'; }
     else                             { statusText = 'Walk to shed. Press space to purchase.'; statusFg = '#555555'; }
-    { const ay = BOX_Y + 20; border(ay);
+    { const ay = BOX_Y + 21; border(ay);
       const centered = menuPad(statusText.length < IW ? ' '.repeat(Math.floor((IW-statusText.length)/2)) + statusText : statusText, IW);
       for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, centered[i] || ' ', statusFg, BG); }
 
-    // Row 21: ╚═…═╝
-    display.draw(BOX_X, BOX_Y + 21, '╚', TC, BG); display.draw(BOX_X + BOX_W - 1, BOX_Y + 21, '╝', TC, BG);
-    for (let i = 1; i < BOX_W - 1; i++) display.draw(BOX_X + i, BOX_Y + 21, '═', TC, BG);
+    // Row 22: ╚═…═╝
+    display.draw(BOX_X, BOX_Y + 22, '╚', TC, BG); display.draw(BOX_X + BOX_W - 1, BOX_Y + 22, '╝', TC, BG);
+    for (let i = 1; i < BOX_W - 1; i++) display.draw(BOX_X + i, BOX_Y + 22, '═', TC, BG);
   }
 
   function closeRM() {
@@ -1834,21 +1869,28 @@ function openRMShedMenu() {
     const maxBuy  = Math.min(rmSpace, Math.floor(state.player.credits / COST));
     const canBuy1 = state.player.credits >= COST && rmSpace > 0;
 
+    const cardTier2 = state.bank.card.tier;
+    const isBronzePlus2 = ['bronze','silver','gold','black'].includes(cardTier2);
+    const isGoldPlus2   = ['gold','black'].includes(cardTier2);
+    const effectiveCost = isBronzePlus2 ? Math.max(1, Math.floor(COST * 0.95)) : COST;
+    const maxBuy2 = Math.min(rmSpace, Math.floor(state.player.credits / effectiveCost));
+
     if (e.key === '1' && canBuy1) {
-      state.player.credits -= COST; state.player.inventory.rm++;
+      state.player.credits -= effectiveCost; state.player.inventory.rm++;
+      if (isBronzePlus2 && effectiveCost < COST) addLog(`> Card discount applied: -${COST - effectiveCost}cr.`, '#cc7733');
       addLog('You buy 1 raw material.', '#ff9933'); drawStatusBar();
-      { const rmD = STATION_DEFS.find(s => s.label === 'RM'); if (rmD) effectsManager.coinDrain(state.player.x, state.player.y, rmD.x+1, rmD.y+2, COST); }
+      { const rmD = STATION_DEFS.find(s => s.label === 'RM'); if (rmD) effectsManager.coinDrain(state.player.x, state.player.y, rmD.x+1, rmD.y+2, effectiveCost); }
       return;
     }
-    if (e.key === '2' && maxBuy > 0 && canBuy1) {
-      state.player.credits -= maxBuy * COST; state.player.inventory.rm += maxBuy;
-      addLog(`You buy ${maxBuy} raw material${maxBuy !== 1 ? 's' : ''}.`, '#ff9933'); drawStatusBar();
+    if (e.key === '2' && maxBuy2 > 0 && canBuy1) {
+      state.player.credits -= maxBuy2 * effectiveCost; state.player.inventory.rm += maxBuy2;
+      addLog(`You buy ${maxBuy2} raw material${maxBuy2 !== 1 ? 's' : ''}.`, '#ff9933'); drawStatusBar();
       return;
     }
     if (e.key === '3' && canBuy1) {
       window.removeEventListener('keydown', rmKeyHandler);
-      showNumericPrompt(`Buy RM (max ${maxBuy})`, maxBuy,
-        (n) => { state.player.credits -= n * COST; state.player.inventory.rm += n;
+      showNumericPrompt(`Buy RM (max ${maxBuy2})`, maxBuy2,
+        (n) => { state.player.credits -= n * effectiveCost; state.player.inventory.rm += n;
                  addLog(`You buy ${n} raw material${n !== 1 ? 's' : ''}.`, '#ff9933'); drawStatusBar();
                  openRMShedMenu(); },
         () => openRMShedMenu()
@@ -1856,14 +1898,31 @@ function openRMShedMenu() {
     }
     if (e.key === '5') {
       const card = state.bank.card;
-      if (!card?.owned) return;
+      if (!card?.tier) return;
       const avail = Math.max(0, card.limit - card.balance);
-      if (avail < COST || rmSpace <= 0) return;
-      card.balance = Math.round((card.balance + COST) * 10) / 10;
+      if (avail < effectiveCost || rmSpace <= 0) return;
+      card.balance = Math.round((card.balance + effectiveCost) * 10) / 10;
       state.player.inventory.rm++;
-      addLog('You buy 1 RM on card.', '#66ccff'); drawStatusBar();
-      { const rmD = STATION_DEFS.find(s => s.label === 'RM'); if (rmD) effectsManager.coinDrain(state.player.x, state.player.y, rmD.x+1, rmD.y+2, COST); }
+      addLog(`You buy 1 RM on ${card.tier} card.`, getCardTierColor(card.tier)); drawStatusBar();
+      { const rmD = STATION_DEFS.find(s => s.label === 'RM'); if (rmD) effectsManager.coinDrain(state.player.x, state.player.y, rmD.x+1, rmD.y+2, effectiveCost); }
       redraw();
+    }
+    if (e.key === '6' && isGoldPlus2) {
+      const bulkCost = Math.floor(50 * COST * 0.85);
+      if (rmSpace < 50) { addLog('Not enough inventory space for 50 RM.', '#ff5555'); return; }
+      if (state.player.credits >= bulkCost) {
+        state.player.credits -= bulkCost; state.player.inventory.rm += 50;
+        addLog(`Bulk purchase: 50 RM for ${bulkCost}cr (-15%).`, CARD_TIERS.gold.color);
+      } else {
+        const card3 = state.bank.card;
+        const avail3 = Math.max(0, card3.limit - card3.balance);
+        if (avail3 >= bulkCost) {
+          card3.balance = Math.round((card3.balance + bulkCost) * 10) / 10;
+          state.player.inventory.rm += 50;
+          addLog(`Bulk purchase: 50 RM for ${bulkCost}cr on card (-15%).`, CARD_TIERS.gold.color);
+        } else { addLog('Insufficient credits or card limit for bulk purchase.', '#ff5555'); return; }
+      }
+      drawStatusBar(); redraw();
     }
   }
 
@@ -2319,15 +2378,39 @@ function checkPhase5Trigger() {
 
 function sellWidgets(n) {
   if (state.phase >= 3) {
+    const card = state.bank.card;
+    const immuneActive = card.tier === 'black' && card.demandImmunityUsedThisWeek && state._demandImmunityActiveToday;
     const remaining = state.demand - state.widgetsSoldToday;
-    if (remaining <= 0) {
+    if (remaining <= 0 && !immuneActive) {
+      // Silver+ can sell up to 10 extra widgets at 70% price
+      const isSilverPlus = ['silver','gold','black'].includes(card.tier);
+      if (isSilverPlus && !card.silverMarketExtraUsedToday) {
+        const extraSold = state.widgetsSoldToday - state.demand;
+        const extraLeft = 10 - extraSold;
+        if (extraLeft > 0 && state.player.inventory.widgets > 0) {
+          const extraN = Math.min(n, extraLeft, state.player.inventory.widgets);
+          if (extraN > 0) {
+            const discPrice = Math.round(state.marketPrice * 0.70 * 10) / 10;
+            const earned = Math.round(extraN * discPrice * 10) / 10;
+            state.player.credits += earned;
+            state.player.inventory.widgets -= extraN;
+            state.lifetimeCreditsEarned   += earned;
+            state.widgetsSoldToday        += extraN;
+            state.stats.revenueToday       = Math.round((state.stats.revenueToday + earned) * 10) / 10;
+            addLog(`Silver perk: sold ${extraN} extra widget${extraN!==1?'s':''} at 70% for ${formatCredits(earned)}cr.`, '#aaaaaa');
+            if (extraSold + extraN >= 10) card.silverMarketExtraUsedToday = true;
+            drawStatusBar();
+          }
+          return;
+        }
+      }
       if (!state.demandMetLogged) {
         addLog("The market has taken all it will take today.", '#ff9933');
         state.demandMetLogged = true;
       }
       return;
     }
-    n = Math.min(n, remaining);
+    if (!immuneActive) n = Math.min(n, remaining);
   }
   const isFirstSale = state.lifetimeCreditsEarned === 0;
   const price  = state.marketPrice;
@@ -2572,9 +2655,17 @@ function openMarketMenu() {
       irow(BOX_Y + 19, `Dawn in:  ${secsLeft}s`, '#cc66cc');
       arow(BOX_Y + 20, '1. Cancel', '', '#555555');
     } else if (cantSell) {
+      const isBlack = state.bank.card.tier === 'black';
+      const immuneAvail = isBlack && !state.bank.card.demandImmunityUsedThisWeek;
       irow(BOX_Y + 17, demandMet ? 'Daily demand satisfied. No more sales.' : 'Nothing to sell.', '#555555');
       irow(BOX_Y + 18, '', BRIGHT_WHITE);
-      irow(BOX_Y + 19, '', BRIGHT_WHITE);
+      if (isBlack && !state._demandImmunityActiveToday) {
+        arow(BOX_Y + 19, `2. Use Black Card: unlimited sales today`, '-500cr', immuneAvail ? '#f0f0f0' : '#333333');
+      } else if (state._demandImmunityActiveToday) {
+        irow(BOX_Y + 19, '  Demand immunity active — sell freely.', CARD_TIERS.black.labelColor);
+      } else {
+        irow(BOX_Y + 19, '', BRIGHT_WHITE);
+      }
       arow(BOX_Y + 20, '1. Cancel', '', '#555555');
     } else {
       arow(BOX_Y + 17, '1. Sell 1', `+${formatCredits(price)}cr`, '#66cc66');
@@ -2631,7 +2722,21 @@ function openMarketMenu() {
       : widgets;
     const cantSell = avail === 0 || demandMet;
 
-    if (cantSell) { if (e.key === '1') closeMT(); return; }
+    if (cantSell) {
+      if (e.key === '1') { closeMT(); return; }
+      if (e.key === '2' && state.bank.card.tier === 'black' && !state.bank.card.demandImmunityUsedThisWeek && !state._demandImmunityActiveToday) {
+        const immuneCost = 500;
+        const avail2 = Math.max(0, state.bank.card.limit - state.bank.card.balance);
+        if (avail2 >= immuneCost) {
+          state.bank.card.balance = Math.round((state.bank.card.balance + immuneCost) * 10) / 10;
+          state.bank.card.demandImmunityUsedThisWeek = true;
+          state._demandImmunityActiveToday = true;
+          addLog('> Black card: demand immunity activated. Sell freely today.', CARD_TIERS.black.labelColor);
+          drawStatusBar(); redraw();
+        } else { addLog('Insufficient card credit for demand immunity.', '#ff5555'); }
+      }
+      return;
+    }
 
     if (e.key === '1') { sellWidgets(1); redraw(); return; }
     if (e.key === '2') { sellWidgets(avail); redraw(); return; }
@@ -3559,7 +3664,8 @@ function pickStampMsg() {
 }
 
 function awardStamp(amount, announce) {
-  state.player.stamps += amount;
+  const actual = state.bank.card.tier === 'black' ? amount * 2 : amount;
+  state.player.stamps += actual;
   if (announce) addLog(pickStampMsg(), COLOR_STAMPS);
   if (state.gameState === 'inventory' && inventoryRedrawFn) inventoryRedrawFn();
 }
@@ -4265,29 +4371,61 @@ function showNumericPrompt(title, maxVal, onConfirm, onCancel) {
 
 // ── Bank credit rating system (§5.4) ─────────────────────────────────────────
 
-const RATING_TIERS = ['F','D','C','B','BB','BBB','A','AA','AAA'];
-const RATING_INFO = [
-  { tier:'F',   cardLimit:0    },
-  { tier:'D',   cardLimit:0    },
-  { tier:'C',   cardLimit:0    },
-  { tier:'B',   cardLimit:0    },
-  { tier:'BB',  cardLimit:0    },
-  { tier:'BBB', cardLimit:200  },
-  { tier:'A',   cardLimit:400  },
-  { tier:'AA',  cardLimit:800  },
-  { tier:'AAA', cardLimit:1600 },
-];
+// 11-tier rating scale. Score 0–10 maps to index 0–10.
+const RATING_TIERS = ['F','D','C','CC','B','BB','BBB','A','AA','AAA','S'];
+// index:              0    1   2   3    4   5    6     7   8    9    10
+
+const CARD_TIERS = {
+  bronze: {
+    requiresScore: 3, limit: 500,   interestRate: 0.20, cycle: 10,
+    color: '#cc7733', labelColor: '#ffaa55',
+    tagline: 'Start your financial journey.',
+    perks: ['5% discount on RM purchases', 'Free overdraft: 50cr once per cycle', 'Spend at any station'],
+  },
+  silver: {
+    requiresScore: 5, limit: 2000,  interestRate: 0.10, cycle: 10,
+    color: '#aaaaaa', labelColor: '#dddddd',
+    tagline: 'For the serious producer.',
+    perks: ['Auto RM purchase at dawn if storage low', 'Sell 10 extra widgets/day above demand cap at 30% discount', 'Workers 10% faster when payroll on card'],
+  },
+  gold: {
+    requiresScore: 8, limit: 8000,  interestRate: 0.04, cycle: 12,
+    color: '#ffd633', labelColor: '#ffe980',
+    tagline: 'Preferred. Premium. Proven.',
+    perks: ['Headlines delivered to log at dawn', 'Balance rollover grace: 2 days once per cycle', 'Bulk RM: buy 50 at 15% discount', 'Derivatives margin requirements -20%'],
+  },
+  black: {
+    requiresScore: 10, limit: 50000, interestRate: 0.01, cycle: 15,
+    color: '#333333', labelColor: '#f0f0f0',
+    tagline: null,
+    perks: ['Demand immunity once per week', 'Derivatives insurance up to 10,000cr', 'Double stamps on all activities', 'Exclusive Auction House access'],
+  },
+};
+
+const CARD_TIER_ORDER = ['bronze', 'silver', 'gold', 'black'];
 
 function getBankRatingIdx() {
-  return Math.round(Math.max(0, Math.min(8, state.bank.creditRatingScore)));
+  return Math.round(Math.max(0, Math.min(10, state.bank.creditRatingScore)));
 }
 function getRatingColor(tier) {
-  const map = { F:'#ff5555', D:'#ff7733', C:'#ffaa44', B:'#f0f0f0', BB:'#aaddff', BBB:'#66ccff', A:'#66cc66', AA:'#aaffaa', AAA:'#ffd633' };
-  return map[tier] ?? '#f0f0f0';
+  return RATING_COLORS[tier] ?? '#f0f0f0';
 }
+function getMaxEligibleCardTier(score) {
+  // Returns the highest CARD_TIER the player qualifies for at given score, or null
+  let best = null;
+  for (const t of CARD_TIER_ORDER) {
+    if (score >= CARD_TIERS[t].requiresScore) best = t;
+  }
+  return best;
+}
+function getCardTierColor(tier) {
+  if (!tier) return '#555555';
+  return CARD_TIERS[tier]?.color ?? '#555555';
+}
+
 function changeRating(delta, reason) {
   const prevIdx = getBankRatingIdx();
-  state.bank.creditRatingScore = Math.max(0, Math.min(8, state.bank.creditRatingScore + delta));
+  state.bank.creditRatingScore = Math.max(0, Math.min(10, state.bank.creditRatingScore + delta));
   const newIdx  = getBankRatingIdx();
   const newTier = RATING_TIERS[newIdx];
   state.bank.creditRating = newTier;
@@ -4297,11 +4435,18 @@ function changeRating(delta, reason) {
     if (state.bank.ratingHistory.length >= 20) state.bank.ratingHistory.shift();
     state.bank.ratingHistory.push({ day: state.day, from: prevTier, to: newTier, reason });
     addLog(`Credit rating: ${prevTier} → ${newTier}. ${reason}.`, up ? '#66cc66' : '#ff5555');
-    if (up && state.bank.card.owned) {
-      const newLimit = RATING_INFO[newIdx].cardLimit;
-      if (newLimit > state.bank.card.limit) {
-        state.bank.card.limit = newLimit;
-        addLog(`Card credit limit raised to ${newLimit}cr.`, '#66ccff');
+    // Check card upgrade eligibility on upward tier change
+    if (up) {
+      const eligibleTier = getMaxEligibleCardTier(state.bank.creditRatingScore);
+      for (const t of CARD_TIER_ORDER) {
+        if (!eligibleTier) break;
+        const tIdx = CARD_TIER_ORDER.indexOf(t);
+        const currentTIdx = state.bank.card.tier ? CARD_TIER_ORDER.indexOf(state.bank.card.tier) : -1;
+        if (tIdx > currentTIdx && state.bank.creditRatingScore >= CARD_TIERS[t].requiresScore
+            && !state.bank.card.upgradeNotified[t]) {
+          state.bank.card.upgradeNotified[t] = true;
+          addLog(`> [BANK] Your credit rating qualifies you for a ${t.toUpperCase()} card. Visit the Bank to upgrade.`, CARD_TIERS[t].color);
+        }
       }
     }
   }
@@ -4314,145 +4459,123 @@ function openBankMenu() {
   if (!state.stations.bank || !state.stations.bank.unlocked) return;
   state.gameState = 'menu';
 
-  const TC      = '#66cc66';
-  const CC      = '#66ccff';
-  const DC      = '#333333';
-  const LC      = '#ffffff';
-  const BOX_W   = 54;
-  const IW      = 52;
-  const AW      = 14;
-  const IPW     = 37;
-  const IPI     = IPW - 2; // inner section box width (35)
-  const BOX_H   = 32;
-  const BOX_X   = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
-  const BOX_Y   = Math.max(1, Math.floor((WORLD_ROWS - BOX_H) / 2));
-  const RPX     = BOX_X + 1 + AW + 1;
-  const DIVX    = BOX_X + 1 + AW;
+  let bkTab      = 'account'; // 'account' | 'cards'
+  let cardPage   = 0;         // 0-3 for bronze/silver/gold/black
+
+  const TC  = '#66cc66';
+  const CC  = '#66ccff';
+  const DC  = '#333333';
+  const LC  = '#ffffff';
+  const BOX_W = 60;
+  const IW    = 58;
+  const AW    = 16;
+  const RPW   = 41;
+  const IPI   = RPW - 2; // inner section width
+  const BOX_H = 32;
+  const BOX_X = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
+  const BOX_Y = Math.max(1, Math.floor((WORLD_ROWS - BOX_H) / 2));
+  const DIVX  = BOX_X + 1 + AW;
+  const RPX   = BOX_X + 1 + AW + 1;
 
   const BK_ART = [
-    '  +--------+  ',
-    '  | BANK   |  ',
-    '  |--------|  ',
-    '  | $    $ |  ',
-    '  |   $$   |  ',
-    '  | $    $ |  ',
-    '  |--------|  ',
-    '  | VAULT  |  ',
-    '  +--------+  ',
-    '              ',
-    ' .----------. ',
-    ' | *WIDGETR*| ',
-    ' | 4892 301 | ',
-    " '----------' ",
+    '  +----------+  ',
+    '  | T H E    |  ',
+    '  |  B A N K |  ',
+    '  |----------|  ',
+    '  | $      $ |  ',
+    '  |    $$    |  ',
+    '  | $      $ |  ',
+    '  |----------|  ',
+    '  |  V A U L T  ',
+    '  +----------+  ',
   ];
 
   function border(ay) {
     display.draw(BOX_X, ay, '║', TC, BG);
     display.draw(BOX_X + BOX_W - 1, ay, '║', TC, BG);
   }
-
-  function drawArtRow(r, ay) {
-    const card = state.bank.card;
-    const s    = BK_ART[r] || '              ';
-    const animTick = Math.floor(state.dayTick / 6) % 2;
-    const dollarColor = card.owned ? (animTick === 0 ? '#ffd633' : '#aaffaa') : '#ffd633';
-    const cardFrac    = card.owned && card.limit > 0 ? card.balance / card.limit : 0;
-    const cardBorder  = card.owned
-      ? (cardFrac > 0.8 ? '#ff5555' : cardFrac > 0.5 ? '#ff9933' : '#aaaaaa')
-      : '#333333';
-
-    for (let i = 0; i < AW; i++) {
-      const ch = s[i] || ' ';
-      let fg = BRIGHT_WHITE;
-      if (r <= 8) {
+  function irow(ay, text, fg) {
+    border(ay);
+    const p = menuPad(text, IW);
+    for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, p[i] || ' ', fg, BG);
+  }
+  function rowLeft(ay, artRow) {
+    if (artRow !== undefined && artRow < 10) {
+      const s = BK_ART[artRow] || '                ';
+      const card = state.bank.card;
+      const animTick = Math.floor(state.dayTick / 6) % 2;
+      const cardOwned = !!card.tier;
+      const dollarColor = cardOwned ? (animTick === 0 ? '#ffd633' : (getCardTierColor(card.tier))) : '#ffd633';
+      for (let i = 0; i < AW; i++) {
+        const ch = s[i] || ' ';
+        let fg = BRIGHT_WHITE;
         if (ch === '+' || ch === '-') fg = TC;
         else if (ch === '|') fg = TC;
-        else if (r === 1 && i >= 4 && i <= 7) fg = '#aaffaa';   // BANK
-        else if (r === 7 && i >= 4 && i <= 8) fg = '#aaffaa';   // VAULT
-        else if ((r === 2 || r === 6) && ch === '-') fg = '#aaaaaa';
-        else if (r >= 3 && r <= 5 && ch === '$') fg = dollarColor;
-      } else if (r >= 10 && r <= 13) {
-        if (!card.owned) { display.draw(BOX_X + 1 + i, ay, ' ', BRIGHT_WHITE, BG); continue; }
-        if (r === 11) {
-          if (i === 1 || i === 12) fg = cardBorder;         // | border
-          else if (i >= 3 && i <= 11) fg = '#ffd633';        // *WIDGETR*
-          else fg = BRIGHT_WHITE;
-        } else if (r === 12) {
-          if (i === 1 || i === 12) fg = cardBorder;
-          else if (ch >= '0' && ch <= '9') fg = '#555555';
-          else fg = BRIGHT_WHITE;
-        } else {
-          if (ch === '.' || ch === '-' || ch === '\'') fg = cardBorder;
-          else fg = BRIGHT_WHITE;
-        }
+        else if ((artRow === 1) && i >= 4 && i <= 8) fg = '#aaffaa';   // T H E
+        else if ((artRow === 2) && i >= 5 && i <= 12) fg = '#aaffaa';  // B A N K
+        else if ((artRow === 3 || artRow === 7) && ch === '-') fg = '#aaaaaa';
+        else if (artRow >= 4 && artRow <= 6 && ch === '$') fg = dollarColor;
+        else if (artRow === 8 && i >= 4 && i <= 12) fg = '#aaffaa';   // V A U L T
+        display.draw(BOX_X + 1 + i, ay, ch, fg, BG);
       }
-      display.draw(BOX_X + 1 + i, ay, ch, fg, BG);
+    } else if (artRow === 10) {
+      // blank row
+      for (let i = 0; i < AW; i++) display.draw(BOX_X + 1 + i, ay, ' ', BRIGHT_WHITE, BG);
+    } else if (artRow === 11) {
+      // CREDIT SCORE label
+      const lbl = ' CREDIT SCORE   ';
+      for (let i = 0; i < AW; i++) display.draw(BOX_X + 1 + i, ay, lbl[i] || ' ', DC, BG);
+    } else if (artRow === 12) {
+      // Score bar
+      const rIdx = getBankRatingIdx();
+      const rCol = getRatingColor(RATING_TIERS[rIdx]);
+      const fill = Math.round(rIdx / 10 * 12);
+      let c = BOX_X + 1;
+      display.draw(c++, ay, ' ', BRIGHT_WHITE, BG); display.draw(c++, ay, ' ', BRIGHT_WHITE, BG);
+      for (let i = 0; i < 12; i++) display.draw(c++, ay, i < fill ? '█' : '░', i < fill ? rCol : '#222222', BG);
+      display.draw(c++, ay, ' ', BRIGHT_WHITE, BG); display.draw(c++, ay, ' ', BRIGHT_WHITE, BG);
+    } else if (artRow === 13) {
+      // current tier → next tier
+      const rIdx = getBankRatingIdx();
+      const cur  = RATING_TIERS[rIdx];
+      const nxt  = rIdx < 10 ? RATING_TIERS[rIdx + 1] : null;
+      const curC = getRatingColor(cur);
+      const nxtC = nxt ? getRatingColor(nxt) : '#ffd633';
+      let c = BOX_X + 1;
+      display.draw(c++, ay, ' ', BRIGHT_WHITE, BG); display.draw(c++, ay, ' ', BRIGHT_WHITE, BG);
+      for (const ch of cur)  { display.draw(c++, ay, ch, curC, BG); }
+      display.draw(c++, ay, ' ', BRIGHT_WHITE, BG); display.draw(c++, ay, '→', DC, BG); display.draw(c++, ay, ' ', BRIGHT_WHITE, BG);
+      if (nxt) { for (const ch of nxt) { display.draw(c++, ay, ch, nxtC, BG); } }
+      else { display.draw(c++, ay, '★', '#ffd633', BG); display.draw(c++, ay, 'M', '#ffd633', BG); display.draw(c++, ay, 'A', '#ffd633', BG); display.draw(c++, ay, 'X', '#ffd633', BG); }
+      while (c < BOX_X + 1 + AW) display.draw(c++, ay, ' ', BRIGHT_WHITE, BG);
+    } else {
+      for (let i = 0; i < AW; i++) display.draw(BOX_X + 1 + i, ay, ' ', BRIGHT_WHITE, BG);
     }
-  }
-
-  function rowLeft(ay, artRow) {
-    // Draw left pane (art or blank) + divider
-    if (artRow !== undefined) drawArtRow(artRow, ay);
-    else for (let i = 0; i < AW; i++) display.draw(BOX_X + 1 + i, ay, ' ', BRIGHT_WHITE, BG);
     display.draw(DIVX, ay, '│', DC, BG);
   }
-
-  // Draw one right-pane section box row: │ + padded text + │
   function srow(ay, text, fg, artRow) {
     border(ay);
     rowLeft(ay, artRow);
     display.draw(RPX, ay, '│', DC, BG);
     const p = menuPad(text, IPI);
     for (let i = 0; i < IPI; i++) display.draw(RPX + 1 + i, ay, p[i] || ' ', fg, BG);
-    display.draw(RPX + IPW - 1, ay, '│', DC, BG);
+    display.draw(RPX + RPW - 1, ay, '│', DC, BG);
   }
-
-  // Top/bottom of right-pane section box
   function sbox_top(ay, artRow) {
-    border(ay);
-    rowLeft(ay, artRow);
+    border(ay); rowLeft(ay, artRow);
     display.draw(RPX, ay, '┌', DC, BG);
-    for (let i = 1; i < IPW - 1; i++) display.draw(RPX + i, ay, '─', DC, BG);
-    display.draw(RPX + IPW - 1, ay, '┐', DC, BG);
+    for (let i = 1; i < RPW - 1; i++) display.draw(RPX + i, ay, '─', DC, BG);
+    display.draw(RPX + RPW - 1, ay, '┐', DC, BG);
   }
   function sbox_bot(ay, artRow) {
-    border(ay);
-    rowLeft(ay, artRow);
+    border(ay); rowLeft(ay, artRow);
     display.draw(RPX, ay, '└', DC, BG);
-    for (let i = 1; i < IPW - 1; i++) display.draw(RPX + i, ay, '─', DC, BG);
-    display.draw(RPX + IPW - 1, ay, '┘', DC, BG);
+    for (let i = 1; i < RPW - 1; i++) display.draw(RPX + i, ay, '─', DC, BG);
+    display.draw(RPX + RPW - 1, ay, '┘', DC, BG);
   }
-
-  // Gap row: border + left pane + blank right pane (no section box)
   function gap(ay, artRow) {
-    border(ay);
-    rowLeft(ay, artRow);
-    for (let i = 0; i < IPW; i++) display.draw(RPX + i, ay, ' ', BRIGHT_WHITE, BG);
-  }
-
-  // Rating bar row inside a section box
-  function ratingRow(ay) {
-    border(ay);
-    rowLeft(ay);
-    display.draw(RPX, ay, '│', DC, BG);
-    const rIdx = getBankRatingIdx();
-    const rTier = RATING_TIERS[rIdx];
-    const rCol  = getRatingColor(rTier);
-    const fill  = Math.round(rIdx / 8 * 10);
-    let cx = RPX + 1;
-    const prefix = ' Rating:  ';
-    for (let i = 0; i < prefix.length; i++) display.draw(cx++, ay, prefix[i], DC, BG);
-    const tierPad = rTier.padEnd(3, ' ');
-    for (let i = 0; i < tierPad.length; i++) display.draw(cx++, ay, tierPad[i], rCol, BG);
-    display.draw(cx++, ay, ' ', DC, BG);
-    display.draw(cx++, ay, ' ', DC, BG);
-    for (let i = 0; i < 10; i++) display.draw(cx++, ay, i < fill ? '█' : '░', i < fill ? rCol : '#333333', BG);
-    display.draw(cx++, ay, ' ', DC, BG);
-    display.draw(cx++, ay, ' ', DC, BG);
-    const scoreStr = `${rIdx}/8`;
-    for (let i = 0; i < scoreStr.length; i++) display.draw(cx++, ay, scoreStr[i], rCol, BG);
-    while (cx < RPX + IPW - 1) display.draw(cx++, ay, ' ', BRIGHT_WHITE, BG);
-    display.draw(RPX + IPW - 1, ay, '│', DC, BG);
+    border(ay); rowLeft(ay, artRow);
+    for (let i = 0; i < RPW; i++) display.draw(RPX + i, ay, ' ', BRIGHT_WHITE, BG);
   }
 
   function redraw() {
@@ -4465,123 +4588,238 @@ function openBankMenu() {
 
     // Row 1: header
     { const ay = BOX_Y + 1; border(ay);
-      const title = 'THE BANK', hint = 'press esc to exit';
+      const title = `THE BANK [${bkTab === 'account' ? 'ACCOUNT' : 'CARDS'}]`, hint = 'esc to exit';
       for (let i = 0; i < IW; i++) {
         const ch = i < title.length ? title[i] : (i >= IW - hint.length ? hint[i-(IW-hint.length)] : ' ');
-        const fg = i < title.length ? '#f0f0f0' : (i >= IW - hint.length ? DC : BRIGHT_WHITE);
+        const fg = i < title.length ? LC : (i >= IW - hint.length ? DC : BRIGHT_WHITE);
         display.draw(BOX_X + 1 + i, ay, ch, fg, BG);
       }
     }
-
     // Row 2: ═
     { const ay = BOX_Y + 2; border(ay);
       for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '═', DC, BG); }
 
-    const dep  = state.bank.deposit;
-    const card = state.bank.card;
-    const rIdx = getBankRatingIdx();
-    const rTier = RATING_TIERS[rIdx];
-    const rCol  = getRatingColor(rTier);
-
-    // Rows 3–16: art + DEPOSITS section in right pane
-    sbox_top(BOX_Y +  3, 0);
-    srow(BOX_Y +  4, ' DEPOSITS', TC, 1);
-    srow(BOX_Y +  5, '', BRIGHT_WHITE, 2);
-    { const availDep = Math.max(0, state.player.credits - 10);
-      srow(BOX_Y +  6, ` Balance:  ${formatCredits(dep)}cr`, dep > 0 ? '#ffd633' : DC, 3);
-      srow(BOX_Y +  7, '', BRIGHT_WHITE, 4);
-      srow(BOX_Y +  8, ' Interest:  10.0% / day', TC, 5);
-      const projected = Math.round(dep * 0.10 * 10) / 10;
-      srow(BOX_Y +  9, ` Tomorrow: +${formatCredits(projected)}cr projected`, dep > 0 ? TC : DC, 6);
-      srow(BOX_Y + 10, '', BRIGHT_WHITE, 7);
-      srow(BOX_Y + 11, ` 1. Deposit all  ${availDep > 0 ? `[+${formatCredits(availDep)}cr]` : '[need >10cr]'}`, availDep > 0 ? TC : '#555555', 8);
-      srow(BOX_Y + 12, ` 2. Deposit custom  ${availDep > 0 ? '[enter]' : '[need >10cr]'}`, availDep > 0 ? TC : '#555555', 9);
-      srow(BOX_Y + 13, ` 3. Withdraw all  ${dep > 0 ? `[${formatCredits(dep)}cr]` : '[no deposit]'}`, dep > 0 ? TC : '#555555', 10);
-    }
-    sbox_bot(BOX_Y + 14, 11);
-    gap(BOX_Y + 15, 12);
-    // Row 16: card section top (art row 13)
-    sbox_top(BOX_Y + 16, 13);
-
-    // Rows 17–28: CREDIT CARD section (no art below row 16)
-    srow(BOX_Y + 17, ' CREDIT CARD', TC);
-    srow(BOX_Y + 18, '', BRIGHT_WHITE);
-    ratingRow(BOX_Y + 19);
-    srow(BOX_Y + 20, '', BRIGHT_WHITE);
-
-    // Card content (rows 21–27): 7 lines
-    if (!card.owned) {
-      const canApply = rIdx >= 5; // BBB+
-      if (!canApply) {
-        srow(BOX_Y + 21, ' Status:  NOT ELIGIBLE', '#555555');
-        srow(BOX_Y + 22, ' Reach BBB to apply.', '#555555');
-        srow(BOX_Y + 23, '', BRIGHT_WHITE);
-        srow(BOX_Y + 24, '', BRIGHT_WHITE);
-        srow(BOX_Y + 25, ` Current rating: ${rTier}`, '#555555');
-        srow(BOX_Y + 26, ' Need: BBB', '#555555');
-        srow(BOX_Y + 27, '', BRIGHT_WHITE);
-      } else {
-        const lim = RATING_INFO[rIdx].cardLimit;
-        srow(BOX_Y + 21, ' Status:  PRE-APPROVED v', TC);
-        srow(BOX_Y + 22, '', BRIGHT_WHITE);
-        srow(BOX_Y + 23, ` Limit:   ${lim}cr available`, '#aaffaa');
-        srow(BOX_Y + 24, ' Rate:    2% / cycle on balance', '#aaffaa');
-        srow(BOX_Y + 25, '', BRIGHT_WHITE);
-        srow(BOX_Y + 26, ' 4. Apply now — free', TC);
-        srow(BOX_Y + 27, '', BRIGHT_WHITE);
+    // Row 3: tab bar
+    { const ay = BOX_Y + 3; border(ay);
+      const tabBar = '      [ ACCOUNT ]           │         [ CARDS ]         ';
+      const acS = 6, acE = 17, cdS = 32, cdE = 43;
+      for (let i = 0; i < IW; i++) {
+        const ch = tabBar[i] || ' ';
+        let fg = DC;
+        if (bkTab === 'account' && i >= acS && i <= acE) fg = TC;
+        if (bkTab === 'cards'   && i >= cdS && i <= cdE) fg = TC;
+        display.draw(BOX_X + 1 + i, ay, ch, fg, BG);
       }
-    } else {
-      const pct    = card.limit > 0 ? card.balance / card.limit : 0;
-      const balFg  = pct > 0.8 ? '#ff5555' : pct > 0.5 ? '#ff9933' : '#ffd633';
-      const avail  = Math.max(0, card.limit - card.balance);
-      const minPay = card.minimumPaymentDue;
-      if (card.balance <= 0) {
-        srow(BOX_Y + 21, ' Status:  ACTIVE v', TC);
-        srow(BOX_Y + 22, ` Limit:   ${card.limit}cr`, CC);
-        srow(BOX_Y + 23, ' Balance: 0.0cr  (clear)', TC);
-        srow(BOX_Y + 24, '', BRIGHT_WHITE);
-        srow(BOX_Y + 25, ' No payment due.', DC);
-        srow(BOX_Y + 26, '', BRIGHT_WHITE);
-        srow(BOX_Y + 27, '', BRIGHT_WHITE);
-      } else {
-        const usedPct = Math.round(pct * 100);
-        srow(BOX_Y + 21, ' Status:  ACTIVE', '#aaffaa');
-        srow(BOX_Y + 22, ` Limit:   ${card.limit}cr`, CC);
-        srow(BOX_Y + 23, ` Balance: ${formatCredits(card.balance)}cr  (${usedPct}% used)`, balFg);
-        if (minPay > 0) {
-          srow(BOX_Y + 24, ` Due:     ${formatCredits(minPay)}cr by day ${card.paymentDueDay}`, state.day >= card.paymentDueDay ? '#ff5555' : '#555555');
+    }
+
+    if (bkTab === 'account') {
+      // Row 4: ═
+      { const ay = BOX_Y + 4; border(ay);
+        for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '═', DC, BG); }
+
+      const dep  = state.bank.deposit;
+      const card = state.bank.card;
+      const rIdx = getBankRatingIdx();
+      const rTier = RATING_TIERS[rIdx];
+      const rCol  = getRatingColor(rTier);
+
+      // RATING section (rows 5-12)
+      sbox_top(BOX_Y + 5, 0);
+      { const hist = state.bank.ratingHistory;
+        const last2 = hist.slice(-2);
+        srow(BOX_Y + 6,  ` Rating: ${rTier.padEnd(5)} Score: ${state.bank.creditRatingScore.toFixed(1)}/10`, rCol, 1);
+        const statusWord = rIdx >= 9 ? 'EXCELLENT' : rIdx >= 7 ? 'GOOD' : rIdx >= 5 ? 'FAIR' : rIdx >= 3 ? 'BUILDING' : 'POOR';
+        srow(BOX_Y + 7,  ` Status: ${statusWord}`, rCol, 2);
+        srow(BOX_Y + 8,  '', BRIGHT_WHITE, 3);
+        srow(BOX_Y + 9,  ' Recent history:', DC, 4);
+        if (last2.length === 0) {
+          srow(BOX_Y + 10, ' No history yet.', DC, 5);
+          srow(BOX_Y + 11, '', BRIGHT_WHITE, 6);
         } else {
-          srow(BOX_Y + 24, '', BRIGHT_WHITE);
+          last2.forEach((e, i) => {
+            const up = RATING_TIERS.indexOf(e.to) > RATING_TIERS.indexOf(e.from);
+            const delta = (up ? '+' : '') + (e.reason.match(/[+-]\d/) || [''])[0];
+            srow(BOX_Y + 10 + i, `  D${e.day}: ${e.reason.substring(0,20).padEnd(20)} ${e.from}→${e.to}`, up ? TC : '#ff5555', 5 + i);
+          });
+          if (last2.length < 2) srow(BOX_Y + 11, '', BRIGHT_WHITE, 6);
         }
-        srow(BOX_Y + 25, '', BRIGHT_WHITE);
+      }
+      sbox_bot(BOX_Y + 12, 7);
+
+      // DEPOSITS section (rows 13-20)
+      sbox_top(BOX_Y + 13, 8);
+      { const availDep = Math.max(0, state.player.credits - 10);
+        const projected = Math.round(dep * 0.10 * 10) / 10;
+        srow(BOX_Y + 14, ` Balance:  ${formatCredits(dep)}cr`, dep > 0 ? '#ffd633' : DC, 9);
+        srow(BOX_Y + 15, ' Rate:     10.0% / day', TC, 10);
+        srow(BOX_Y + 16, ` Tomorrow: +${formatCredits(projected)}cr projected`, dep > 0 ? TC : DC, 11);
+        srow(BOX_Y + 17, '', BRIGHT_WHITE, 12);
+        srow(BOX_Y + 18, ` 1. Deposit all  ${availDep > 0 ? `[+${formatCredits(availDep)}cr]` : '[need >10cr]'}`, availDep > 0 ? TC : DC, 13);
+        srow(BOX_Y + 19, ` 2. Custom amount  3. Withdraw all`, dep > 0 ? TC : DC);
+      }
+      sbox_bot(BOX_Y + 20);
+
+      // CARD STATUS section (rows 21-28)
+      sbox_top(BOX_Y + 21);
+      if (!card.tier) {
+        srow(BOX_Y + 22, ' No card. See CARDS tab to apply.', DC);
+        for (let r = 23; r <= 27; r++) srow(BOX_Y + r, '', BRIGHT_WHITE);
+      } else {
+        const tierDef = CARD_TIERS[card.tier];
+        const tCol    = getCardTierColor(card.tier);
+        const pct     = card.limit > 0 ? Math.round(card.balance / card.limit * 100) : 0;
+        const balFg   = pct > 80 ? '#ff5555' : pct > 50 ? '#ff9933' : '#ffd633';
+        srow(BOX_Y + 22, ` Card:    ${card.tier.toUpperCase()} ACTIVE`, tCol);
+        srow(BOX_Y + 23, ` Balance: ${formatCredits(card.balance)}cr / ${card.limit}cr  (${pct}%)`, balFg);
+        const minPay = card.minimumPaymentDue;
+        if (minPay > 0) {
+          srow(BOX_Y + 24, ` Due:     ${formatCredits(minPay)}cr by day ${card.paymentDueDay}`, state.day >= card.paymentDueDay ? '#ff5555' : DC);
+        } else {
+          srow(BOX_Y + 24, ' No payment due.', DC);
+        }
         const can4 = minPay > 0 && state.player.credits >= minPay;
         const can5 = card.balance > 0 && state.player.credits > 0;
-        srow(BOX_Y + 26, ` 4. Pay minimum  (${formatCredits(minPay)}cr)`, can4 ? TC : (minPay > 0 ? '#ff5555' : '#555555'));
-        srow(BOX_Y + 27, ` 5. Pay in full  (${formatCredits(Math.min(card.balance, state.player.credits))}cr)`, can5 ? TC : '#555555');
+        srow(BOX_Y + 25, '', BRIGHT_WHITE);
+        srow(BOX_Y + 26, ` 4. Pay minimum (${formatCredits(minPay)}cr)  5. Pay in full`, can4 ? tCol : DC);
+        srow(BOX_Y + 27, ' → Press → for CARDS tab details', DC);
       }
-    }
-    sbox_bot(BOX_Y + 28);
+      sbox_bot(BOX_Y + 28);
 
-    // Row 29: ═ separator
-    { const ay = BOX_Y + 29; border(ay);
-      for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '═', DC, BG); }
+      // Row 29: ═
+      { const ay = BOX_Y + 29; border(ay);
+        for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '═', DC, BG); }
 
-    // Row 30: status message
-    { const ay = BOX_Y + 30; border(ay);
-      const msgs = [
-        [8, 'Your credit is impeccable.',                     '#ffd633'],
-        [7, 'You are a preferred customer.',                  '#aaffaa'],
-        [6, 'You are a preferred customer.',                  '#aaffaa'],
-        [5, 'Your account is in good standing.',              TC],
-        [4, 'Your account is in good standing.',              TC],
-        [3, 'Build your history to unlock better terms.',     '#555555'],
-        [2, 'Build your history to unlock better terms.',     '#555555'],
-        [1, 'Your rating needs attention.',                   '#ff9933'],
-        [0, 'No services available at this time.',            '#ff5555'],
-      ];
-      const [, txt, fc] = msgs.find(([min]) => rIdx >= min) ?? msgs[msgs.length - 1];
-      const pad = menuPad(' '.repeat(Math.floor((IW - txt.length) / 2)) + txt, IW);
-      for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, pad[i] || ' ', fc, BG);
+      // Row 30: status
+      { const ay = BOX_Y + 30; border(ay);
+        const msgs = [
+          [10, 'You have reached the pinnacle.',              '#ffffff'],
+          [9,  'Your credit is impeccable.',                  '#ffd633'],
+          [8,  'You are a preferred customer.',               '#aaffaa'],
+          [7,  'Your account is in good standing.',           TC],
+          [6,  'Your account is in good standing.',           TC],
+          [5,  'Your account is in good standing.',           TC],
+          [4,  'Build your history for better products.',     DC],
+          [3,  'Build your history to access products.',      DC],
+          [2,  'Your rating needs attention.',                '#ff9933'],
+          [1,  'Your rating needs attention.',                '#ff9933'],
+          [0,  'No services available at this time.',         '#ff5555'],
+        ];
+        const [, txt, fc] = msgs.find(([min]) => rIdx >= min) ?? msgs[msgs.length - 1];
+        const pad = menuPad(' '.repeat(Math.floor((IW - txt.length) / 2)) + txt, IW);
+        for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, pad[i] || ' ', fc, BG);
+      }
+
+    } else {
+      // CARDS tab
+
+      // Row 4: card page navigator
+      { const ay = BOX_Y + 4; border(ay);
+        let cx = BOX_X + 1;
+        const labels = ['BRONZE','SILVER','GOLD','BLACK'];
+        const prefix = '[ < '; const suffix = ' > ]';
+        for (const ch of prefix) { display.draw(cx++, ay, ch, DC, BG); }
+        labels.forEach((lbl, i) => {
+          const sep = i > 0 ? '   ' : '';
+          for (const ch of sep) display.draw(cx++, ay, ch, DC, BG);
+          const col = i === cardPage ? getCardTierColor(CARD_TIER_ORDER[i]) : DC;
+          for (const ch of lbl) display.draw(cx++, ay, ch, col, BG);
+        });
+        for (const ch of suffix) { display.draw(cx++, ay, ch, DC, BG); }
+        while (cx < BOX_X + 1 + IW) display.draw(cx++, ay, ' ', BRIGHT_WHITE, BG);
+      }
+
+      // Card page content (rows 5-28)
+      const tierName = CARD_TIER_ORDER[cardPage];
+      const tierDef  = CARD_TIERS[tierName];
+      const tCol     = tierDef.color;
+      const tLbl     = tierDef.labelColor;
+      const rScore   = state.bank.creditRatingScore;
+      const qualified = rScore >= tierDef.requiresScore;
+      const dimc = (c) => qualified ? c : DC;
+
+      // Card art (rows 5-11, centered, 32 wide)
+      const ART_W   = 32;
+      const ART_OFF = Math.floor((IW - ART_W) / 2);
+      const artBorder = qualified ? tCol : '#222222';
+      const artText   = qualified ? tLbl : '#333333';
+      { const rows = [
+          '.' + '─'.repeat(30) + '.',
+          `│  ★  W I D G E T E R         │`,
+          `│     ${tierName.toUpperCase().padEnd(6)} CARD             │`,
+          '│                              │',
+          '│  **** **** **** 4892         │',
+          '│  VALID THRU  ∞  WIDGETR      │',
+          "'" + '─'.repeat(30) + "'",
+        ];
+        rows.forEach((row, ri) => {
+          const ay = BOX_Y + 5 + ri;
+          border(ay);
+          for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, ' ', BRIGHT_WHITE, BG);
+          for (let i = 0; i < ART_W && i < row.length; i++) {
+            const ch = row[i];
+            let fg = artBorder;
+            if (ri >= 1 && ri <= 5 && i > 0 && i < ART_W - 1) {
+              if (ri === 1 && i >= 5 && i <= 20) fg = artText; // WIDGETER
+              else if (ri === 2 && i >= 5 && i <= 20) fg = artText; // tier name
+              else if (ri === 4 && i >= 3) fg = '#555555';          // card number
+              else if (ri === 5) fg = '#555555';                     // valid thru
+              else fg = artBorder;
+            }
+            if (ch === '│' || ch === '.' || ch === "'" || ch === '─') fg = artBorder;
+            display.draw(BOX_X + 1 + ART_OFF + i, ay, ch, fg, BG);
+          }
+        });
+      }
+
+      // Special: Black card when not at S
+      if (tierName === 'black' && rScore < 10) {
+        for (let r = 12; r <= 28; r++) irow(BOX_Y + r, '', BRIGHT_WHITE);
+        irow(BOX_Y + 18, 'By invitation only.', DC);
+      } else {
+        // Card details (rows 12-28)
+        const sepLine = '─'.repeat(IW);
+        irow(BOX_Y + 12, tierName.toUpperCase() + ' CARD', dimc(tLbl));
+        irow(BOX_Y + 13, sepLine, DC);
+        if (tierDef.tagline) irow(BOX_Y + 14, `"${tierDef.tagline}"`, dimc(DC));
+        else irow(BOX_Y + 14, '', BRIGHT_WHITE);
+        irow(BOX_Y + 15, '', BRIGHT_WHITE);
+        irow(BOX_Y + 16, `Credit Limit:    ${tierDef.limit}cr`, dimc(BRIGHT_WHITE));
+        irow(BOX_Y + 17, `Interest Rate:   ${(tierDef.interestRate * 100).toFixed(0)}% per statement`, dimc(BRIGHT_WHITE));
+        irow(BOX_Y + 18, `Statement Cycle: Every ${tierDef.cycle} days`, dimc(BRIGHT_WHITE));
+        irow(BOX_Y + 19, `Min. Rating:     ${RATING_TIERS[tierDef.requiresScore]}`, dimc(BRIGHT_WHITE));
+        irow(BOX_Y + 20, '', BRIGHT_WHITE);
+        irow(BOX_Y + 21, 'PERKS:', dimc(tCol));
+        const perkGlyph = tierName === 'black' ? '▪' : '✦';
+        tierDef.perks.forEach((p, i) => {
+          irow(BOX_Y + 22 + i, `${perkGlyph} ${p}`, dimc('#aaaaaa'));
+        });
+        for (let r = 22 + tierDef.perks.length; r <= 26; r++) irow(BOX_Y + r, '', BRIGHT_WHITE);
+
+        // Action button (row 27)
+        const curTIdx = state.bank.card.tier ? CARD_TIER_ORDER.indexOf(state.bank.card.tier) : -1;
+        const thisTIdx = CARD_TIER_ORDER.indexOf(tierName);
+        let actionText, actionColor;
+        if (!qualified) {
+          actionText = `[REQUIRES ${RATING_TIERS[tierDef.requiresScore]} RATING]`; actionColor = DC;
+        } else if (curTIdx === thisTIdx) {
+          actionText = '[ACTIVE ✓]'; actionColor = TC;
+        } else if (curTIdx > thisTIdx) {
+          actionText = '[DOWNGRADE — N/A]'; actionColor = DC;
+        } else {
+          actionText = curTIdx < 0 ? '[4. APPLY — FREE]' : '[4. UPGRADE — CONFIRM]';
+          actionColor = tCol;
+        }
+        irow(BOX_Y + 27, actionText, actionColor);
+        irow(BOX_Y + 28, '', BRIGHT_WHITE);
+      }
+
+      // Row 29: ═
+      { const ay = BOX_Y + 29; border(ay);
+        for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '═', DC, BG); }
+
+      // Row 30: status
+      const statusTxt = !qualified ? `Unlock at ${RATING_TIERS[tierDef.requiresScore]} rating.` : `← → to browse  4 to apply/upgrade`;
+      irow(BOX_Y + 30, ' '.repeat(Math.floor((IW - statusTxt.length) / 2)) + statusTxt, qualified ? DC : '#444444');
     }
 
     // Row 31: ╚═╝
@@ -4603,71 +4841,105 @@ function openBankMenu() {
 
   function bankKeyHandler(e) {
     if (e.key === 'Escape') { closeBank(); return; }
-    const card = state.bank.card;
-
-    if (e.key === '1') {
-      const amt = Math.max(0, state.player.credits - 10);
-      if (amt <= 0) return;
-      state.bank.deposit   = Math.round((state.bank.deposit + amt) * 10) / 10;
-      state.player.credits = 10;
-      addLog(`Deposited ${formatCredits(amt)}cr.`, TC);
-      drawStatusBar(); redraw(); return;
-    }
-    if (e.key === '2') {
-      const maxDep = Math.max(0, state.player.credits - 10);
-      if (maxDep <= 0) return;
-      window.removeEventListener('keydown', bankKeyHandler);
-      bankMenuRedrawFn = null;
-      showNumericPrompt('Deposit Amount', maxDep,
-        (val) => { state.bank.deposit = Math.round((state.bank.deposit + val) * 10) / 10; state.player.credits -= val; addLog(`Deposited ${formatCredits(val)}cr.`, TC); drawStatusBar(); openBankMenu(); },
-        () => openBankMenu());
+    if (e.key === 'ArrowLeft')  {
+      if (bkTab === 'cards') { cardPage = (cardPage - 1 + 4) % 4; redraw(); }
+      else                   { bkTab = 'cards'; redraw(); }
       return;
     }
-    if (e.key === '3') {
-      if (state.bank.deposit <= 0) return;
-      const amt = state.bank.deposit;
-      state.player.credits = Math.round((state.player.credits + amt) * 10) / 10;
-      state.bank.deposit   = 0;
-      addLog(`Withdrew ${formatCredits(amt)}cr.`, TC);
-      drawStatusBar(); redraw(); return;
+    if (e.key === 'ArrowRight') {
+      if (bkTab === 'account') { bkTab = 'cards'; redraw(); }
+      else                     { cardPage = (cardPage + 1) % 4; redraw(); }
+      return;
     }
-    if (e.key === '4') {
-      const rIdx = getBankRatingIdx();
-      if (!card.owned) {
-        if (rIdx < 5) return;
-        const limit = RATING_INFO[rIdx].cardLimit;
-        if (limit <= 0) return;
-        card.owned = true; card.limit = limit; card.balance = 0;
-        card.lastStatementDay = state.day; card.minimumPaymentDue = 0; card.paymentDueDay = 0;
-        addLog(`WIDGETR card approved. Limit: ${limit}cr.`, CC);
-        changeRating(+0.25, 'Credit card opened');
-        drawStatusBar(); redraw();
-      } else if (card.minimumPaymentDue > 0) {
-        const pay = Math.min(card.minimumPaymentDue, state.player.credits);
+
+    const dep  = state.bank.deposit;
+    const card = state.bank.card;
+
+    if (bkTab === 'account') {
+      if (e.key === '1') {
+        const amt = Math.max(0, state.player.credits - 10);
+        if (amt <= 0) return;
+        state.bank.deposit   = Math.round((state.bank.deposit + amt) * 10) / 10;
+        state.player.credits = 10;
+        addLog(`Deposited ${formatCredits(amt)}cr.`, TC);
+        drawStatusBar(); redraw(); return;
+      }
+      if (e.key === '2') {
+        const maxDep = Math.max(0, state.player.credits - 10);
+        if (maxDep <= 0) return;
+        window.removeEventListener('keydown', bankKeyHandler);
+        bankMenuRedrawFn = null;
+        showNumericPrompt('Deposit Amount', maxDep,
+          (val) => { state.bank.deposit = Math.round((state.bank.deposit + val) * 10) / 10; state.player.credits -= val; addLog(`Deposited ${formatCredits(val)}cr.`, TC); drawStatusBar(); openBankMenu(); },
+          () => openBankMenu());
+        return;
+      }
+      if (e.key === '3') {
+        if (dep <= 0) return;
+        state.player.credits = Math.round((state.player.credits + dep) * 10) / 10;
+        state.bank.deposit   = 0;
+        addLog(`Withdrew ${formatCredits(dep)}cr.`, TC);
+        drawStatusBar(); redraw(); return;
+      }
+      if (e.key === '4' && card.tier) {
+        const minPay = card.minimumPaymentDue;
+        if (minPay <= 0) return;
+        const pay = Math.min(minPay, state.player.credits);
         if (pay <= 0) return;
         state.player.credits   = Math.round((state.player.credits - pay) * 10) / 10;
         card.balance           = Math.round((card.balance - pay) * 10) / 10;
         card.minimumPaymentDue = Math.max(0, Math.round((card.minimumPaymentDue - pay) * 10) / 10);
-        addLog(`Card payment: ${formatCredits(pay)}cr paid.`, CC);
-        if (card.minimumPaymentDue === 0) changeRating(+0.5, 'Card payment made on time');
+        if (card.minimumPaymentDue === 0) {
+          if (card.tier === 'gold' || card.tier === 'black') {
+            card.consecutiveGoldPayments = (card.consecutiveGoldPayments || 0) + 1;
+            if (card.consecutiveGoldPayments >= 3) {
+              changeRating(+1.0, 'Three consecutive Gold payments');
+              card.consecutiveGoldPayments = 0;
+            }
+          }
+          changeRating(+0.5, 'Card payment made on time');
+        }
+        addLog(`Card payment: ${formatCredits(pay)}cr paid.`, getCardTierColor(card.tier));
+        drawStatusBar(); redraw(); return;
+      }
+      if (e.key === '5' && card.tier) {
+        if (card.balance <= 0 || state.player.credits <= 0) return;
+        const pay = Math.min(card.balance, state.player.credits);
+        state.player.credits = Math.round((state.player.credits - pay) * 10) / 10;
+        card.balance         = Math.round((card.balance - pay) * 10) / 10;
+        if (card.minimumPaymentDue > 0 && card.balance <= 0) {
+          card.minimumPaymentDue = 0;
+          changeRating(+0.5, 'Card balance paid in full');
+        }
+        addLog(`Card payment: ${formatCredits(pay)}cr. Remaining: ${formatCredits(card.balance)}cr.`, getCardTierColor(card.tier));
+        drawStatusBar(); redraw(); return;
+      }
+    } else {
+      // CARDS tab
+      const tierName = CARD_TIER_ORDER[cardPage];
+      const tierDef  = CARD_TIERS[tierName];
+      if (e.key === '4') {
+        const rScore   = state.bank.creditRatingScore;
+        if (rScore < tierDef.requiresScore) return;
+        const curTIdx  = card.tier ? CARD_TIER_ORDER.indexOf(card.tier) : -1;
+        const thisTIdx = CARD_TIER_ORDER.indexOf(tierName);
+        if (curTIdx >= thisTIdx) return; // can't downgrade or re-apply
+        // Apply or upgrade
+        card.tier         = tierName;
+        card.limit        = tierDef.limit;
+        card.interestRate = tierDef.interestRate;
+        card.statementCycle = tierDef.cycle;
+        if (curTIdx < 0) card.lastStatementDay = state.day; // fresh card
+        if (tierName === 'black') card.insuranceBalance = 10000;
+        card.upgradeNotified[tierName] = false; // reset so future upgrades still notify
+        addLog(`${tierName.toUpperCase()} card issued. Limit: ${tierDef.limit}cr. Interest: ${(tierDef.interestRate*100).toFixed(0)}%/statement.`, tierDef.color);
+        if (curTIdx >= 0) changeRating(+0.5, `Upgraded to ${tierName.toUpperCase()} card`);
         drawStatusBar(); redraw();
       }
-      return;
-    }
-    if (e.key === '5') {
-      if (!card.owned || card.balance <= 0 || state.player.credits <= 0) return;
-      const pay = Math.min(card.balance, state.player.credits);
-      state.player.credits = Math.round((state.player.credits - pay) * 10) / 10;
-      card.balance         = Math.round((card.balance - pay) * 10) / 10;
-      if (card.minimumPaymentDue > 0 && card.balance <= 0) {
-        card.minimumPaymentDue = 0;
-        changeRating(+0.5, 'Card balance paid in full');
-      }
-      addLog(`Card payment: ${formatCredits(pay)}cr. Remaining: ${formatCredits(card.balance)}cr.`, CC);
-      drawStatusBar(); redraw(); return;
     }
   }
   window.addEventListener('keydown', bankKeyHandler);
+
 }
 
 // ── Bankruptcy screen (§5.4) ─────────────────────────────────────────────────
@@ -4883,7 +5155,8 @@ function openFuturesMenu() {
     line(5, `Open futures:   ${totalContracts} contracts (${totalContracts * 10} widgets notional)`, BRIGHT_WHITE);
     line(6, `Margin held:    ${totalMargin}cr`, '#ffd633');
     for (let i = 0; i < CONT_W; i++) display.draw(CONT_X + i, BOX_Y + 8, '.', WC, BG);
-    const initMargin = Math.round(state.marketPrice * 10 * 0.20 * 10) / 10;
+    const _goldMargin = ['gold','black'].includes(state.bank.card.tier) ? 0.80 : 1.0;
+    const initMargin = Math.round(state.marketPrice * 10 * 0.20 * _goldMargin * 10) / 10;
     const canOpen = state.player.credits >= initMargin;
     line(9,  `1. Buy 1 contract (long — profit if price rises)  ${canOpen ? '[AVAILABLE]' : '[Need ' + initMargin + 'cr]'}`, canOpen ? MC : '#ff5555');
     line(10, `2. Sell 1 contract (short — profit if price falls) ${canOpen ? '[AVAILABLE]' : '[Need ' + initMargin + 'cr]'}`, canOpen ? MC : '#ff5555');
@@ -4903,7 +5176,8 @@ function openFuturesMenu() {
 
   function futKeyHandler(e) {
     if (e.key === 'Escape' || e.key === '4') { closeF(); openDerivativesMenu(); return; }
-    const initMargin = Math.round(state.marketPrice * 10 * 0.20 * 10) / 10;
+    const _goldMargin = ['gold','black'].includes(state.bank.card.tier) ? 0.80 : 1.0;
+    const initMargin = Math.round(state.marketPrice * 10 * 0.20 * _goldMargin * 10) / 10;
     if ((e.key === '1' || e.key === '2') && state.player.credits >= initMargin) {
       const type = e.key === '1' ? 'long' : 'short';
       state.player.credits = Math.round((state.player.credits - initMargin) * 10) / 10;
@@ -5458,11 +5732,12 @@ function openDerivativesMenu() {
         rSep(CY+12);
         drp(CY+13, 'Enter: confirm   ESC: cancel', WC);
       } else if (tradeInst === 'futures') {
-        const margin = r10(spot * 10 * 0.20);
+        const _gfm  = ['gold','black'].includes(state.bank.card.tier) ? 0.80 : 1.0;
+        const margin = r10(spot * 10 * 0.20 * _gfm);
         const canOpen = state.player.credits >= margin;
         drp(CY+3, 'FUTURES CONTRACT', BRIGHT_WHITE);
         rSep(CY+4);
-        drp(CY+5, `Entry: ${formatCredits(spot)}cr    Margin: ${formatCredits(margin)}cr  (20%)`, WC);
+        drp(CY+5, `Entry: ${formatCredits(spot)}cr    Margin: ${formatCredits(margin)}cr  (${_gfm < 1 ? '16' : '20'}%)`, WC);
         rSep(CY+6);
         drp(CY+7, tradeForm.focus===0 ? `> Direction: [ ${tradeForm.dir.toUpperCase()} ]   1=Long 2=Short` : `  Direction: [ ${tradeForm.dir.toUpperCase()} ]`, tradeForm.focus===0 ? BRIGHT_WHITE : WC);
         drp(CY+8, tradeForm.focus===1 ? `> Contracts: [ ${tradeForm.contracts} ]   +/- to adjust` : `  Contracts: [ ${tradeForm.contracts} ]`, tradeForm.focus===1 ? BRIGHT_WHITE : WC);
@@ -5708,11 +5983,12 @@ function openDerivativesMenu() {
           state.derivatives.forwards.push({ quantity: tradeForm.qty, lockedPrice: sp, settlementDay: state.day+1 });
           addLog(`Forward: ${tradeForm.qty} widgets @ ${formatCredits(sp)}cr, day ${state.day+1}.`, TC);
         } else if (tradeInst === 'futures') {
-          const margin = r10(sp * 10 * 0.20 * tradeForm.contracts);
+          const _gm = ['gold','black'].includes(state.bank.card.tier) ? 0.80 : 1.0;
+          const margin = r10(sp * 10 * 0.20 * _gm * tradeForm.contracts);
           if (state.player.credits < margin) { addLog('Insufficient credits for margin.', '#ff5555'); return; }
           state.player.credits = r10(state.player.credits - margin);
           for (let i = 0; i < tradeForm.contracts; i++)
-            state.derivatives.futures.push({ type: tradeForm.dir, quantity:10, entryPrice:sp, lastSettlementPrice:sp, openDay:state.day, marginHeld:r10(sp*10*0.20) });
+            state.derivatives.futures.push({ type: tradeForm.dir, quantity:10, entryPrice:sp, lastSettlementPrice:sp, openDay:state.day, marginHeld:r10(sp*10*0.20*_gm) });
           addLog(`Opened ${tradeForm.contracts}× ${tradeForm.dir} future @ ${formatCredits(sp)}cr.`, TC);
         } else {
           const parts = tradeInst.split('_');
@@ -6553,13 +6829,13 @@ function handleInteract() {
 
 function showInventory() {
   state.gameState = 'inventory';
-  let tab           = 'stocks'; // 'stocks' | 'ops' | 'skills'
+  let tab           = 'stocks'; // 'stocks' | 'ops' | 'skills' | 'card'
   let workerScroll  = 0;
   let selectedSkill = null; // null | 'endurance' | 'aquatics' | 'interfacing'
   let skillErrMsg   = null;
   let skillErrTimer = null;
 
-  const TABS    = ['stocks', 'ops', 'skills'];
+  const TABS    = ['stocks', 'ops', 'skills', 'card'];
   const BOX_W   = 54;
   const BOX_H   = 25; // rows 0–24
   const BOX_X   = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
@@ -6573,9 +6849,9 @@ function showInventory() {
   const CONT_X  = BOX_X + 1; // left edge of inner content
 
   // Tab bar string exactly 52 chars
-  const TAB_BAR = '    [ STOCKS ]  │  [ OPERATIONS ]  │  [ SKILLS ]    ';
-  const TAB_RANGES = { stocks: [4,13], ops: [19,32], skills: [38,47] };
-  const TAB_NAMES  = { stocks: 'STOCKS', ops: 'OPERATIONS', skills: 'SKILLS' };
+  const TAB_BAR = ' [STOCKS] │ [OPERATIONS] │ [SKILLS] │ [CARD]        ';
+  const TAB_RANGES = { stocks: [1,8], ops: [12,23], skills: [27,33], card: [37,42] };
+  const TAB_NAMES  = { stocks: 'STOCKS', ops: 'OPERATIONS', skills: 'SKILLS', card: 'CARD' };
 
   const SKILL_DEFS = [
     { key: 'endurance',   name: 'ENDURANCE',   maxPips: 3, costs: [500, 5000, 50000],
@@ -6886,12 +7162,79 @@ function showInventory() {
     redraw();
   }
 
+  // ── CARD tab ────────────────────────────────────────────────────────────────
+  function redrawCard() {
+    const card    = state.bank.card;
+    const tCol    = getCardTierColor(card.tier);
+    if (!card.tier) {
+      irow(BOX_Y+6,  '', BRIGHT_WHITE);
+      irow(BOX_Y+7,  'No card on file.', WC);
+      irow(BOX_Y+8,  '', BRIGHT_WHITE);
+      irow(BOX_Y+9,  'Visit the Bank to apply.', WC);
+      irow(BOX_Y+10, 'Requires CC credit rating.', WC);
+      for (let r = 4; r <= 21; r++) if (r < 7 || r > 10) irow(BOX_Y+r, '', BRIGHT_WHITE);
+      irow(BOX_Y+23, 'No card. Visit Bank.', WC);
+      return;
+    }
+    const tierDef = CARD_TIERS[card.tier];
+    const pct  = card.limit > 0 ? card.balance / card.limit : 0;
+    const pctP = Math.round(pct * 100);
+    const balFg = pct > 0.8 ? '#ff5555' : pct > 0.5 ? '#ff9933' : '#ffd633';
+    const minPay = card.minimumPaymentDue;
+    // Card art (centered, rows 4-10)
+    const ART_W = 32, aOff = Math.floor((IW - ART_W) / 2);
+    const artBorder = tCol, artText = tierDef.labelColor;
+    const artRows = [
+      '.' + '─'.repeat(30) + '.',
+      '│  ★  W I D G E T E R         │',
+      '│     ' + card.tier.toUpperCase().padEnd(6) + ' CARD             │',
+      '│                              │',
+      '│  **** **** **** 4892         │',
+      '│  VALID THRU  ∞  WIDGETR      │',
+      "'" + '─'.repeat(30) + "'",
+    ];
+    artRows.forEach((row, ri) => {
+      const ay = BOX_Y + 4 + ri;
+      border(ay); for (let i=0;i<IW;i++) display.draw(BOX_X+1+i,ay,' ',BRIGHT_WHITE,BG);
+      for (let i = 0; i < ART_W && i < row.length; i++) {
+        const ch = row[i];
+        let fg = artBorder;
+        if (ri >= 1 && ri <= 5 && i > 0 && i < ART_W-1) {
+          if (ri === 1 && i >= 5 && i <= 20) fg = artText;
+          else if (ri === 2 && i >= 5 && i <= 20) fg = artText;
+          else if (ri === 4 || ri === 5) fg = '#555555';
+          else fg = artBorder;
+        }
+        if (ch === '│' || ch === '.' || ch === "'" || ch === '─') fg = artBorder;
+        display.draw(BOX_X+1+aOff+i, ay, ch, fg, BG);
+      }
+    });
+    // Card details
+    irow(BOX_Y+11, card.tier.toUpperCase() + ' CARD    Limit: ' + formatCredits(card.limit) + 'cr', tCol);
+    irow(BOX_Y+12, 'Balance: ' + formatCredits(card.balance) + 'cr        Used: ' + pctP + '%', balFg);
+    irow(BOX_Y+13, 'Interest: ' + (tierDef.interestRate*100).toFixed(0) + '%/statement   Accruing: +' + formatCredits(Math.round(card.balance*tierDef.interestRate*10)/10) + 'cr', card.balance > 0 ? '#ff5555' : WC);
+    irow(BOX_Y+14, '─'.repeat(IW), DC);
+    irow(BOX_Y+15, 'PERKS ACTIVE:', tCol);
+    const pg = card.tier === 'black' ? '▪' : '✦';
+    tierDef.perks.forEach((p, i) => irow(BOX_Y+16+i, pg + ' ' + p.substring(0,IW-2), WC));
+    for (let r = 16+tierDef.perks.length; r <= 19; r++) irow(BOX_Y+r, '', BRIGHT_WHITE);
+    irow(BOX_Y+20, '─'.repeat(IW), DC);
+    irow(BOX_Y+21, 'Next statement: day ' + (card.lastStatementDay + card.statementCycle) + '   Cycle: every ' + card.statementCycle + ' days', BRIGHT_WHITE);
+    if (minPay > 0) {
+      irow(BOX_Y+22, 'Payment due: ' + formatCredits(minPay) + 'cr  Due by day ' + card.paymentDueDay, state.day >= card.paymentDueDay ? '#ff5555' : BRIGHT_WHITE);
+    } else {
+      irow(BOX_Y+22, 'No balance. Nothing due.', '#66cc66');
+    }
+    irow(BOX_Y+23, 'Auto-RM threshold: ' + (card.autoRMThreshold > 0 ? card.autoRMThreshold + ' RM' : 'disabled'), WC);
+  }
+
   // ── Main redraw ───────────────────────────────────────────────────────────
   function redraw() {
     drawFrame();
     if (tab === 'stocks') redrawStocks();
     else if (tab === 'ops') redrawOps();
-    else redrawSkills();
+    else if (tab === 'skills') redrawSkills();
+    else redrawCard();
   }
 
   inventoryRedrawFn = redraw;
@@ -7210,7 +7553,8 @@ function tickApprentices() {
   const wbDef  = STATION_DEFS.find(s => s.label === 'WB');
   const rmDoor = { x: rmDef.x + 1, y: rmDef.y + 2 };  // (10, 4)
   const wbDoor = { x: wbDef.x + 1, y: wbDef.y + 2 };  // (35, 10)
-  const speed    = Math.max(1, Math.round(WORKER_SPEEDS[state.skills.workerSpeedLevel || 0]));
+  const _silverPlus = ['silver','gold','black'].includes(state.bank.card.tier);
+  const speed    = Math.max(1, Math.round(WORKER_SPEEDS[state.skills.workerSpeedLevel || 0] * (_silverPlus ? 1.10 : 1.0)));
   const carryMax = WORKER_CARRY_CAPS[state.skills.workerCarryLevel || 0];
 
   for (const w of state.workers.apprentices) {
@@ -7718,7 +8062,7 @@ setInterval(() => {
 
   state.tick++;
   state.dayTick++;
-  if (state.dayTick >= 240) { state.dayTick = 0; state.day++; state.bellFiredToday = false; state.widgetsSoldToday = 0; state.demandMetLogged = false; state.stats.widgetsMadeToday = 0; state.stats.revenueToday = 0; state.stats.costsToday = 0; }
+  if (state.dayTick >= 240) { state.dayTick = 0; state.day++; state.bellFiredToday = false; state.widgetsSoldToday = 0; state.demandMetLogged = false; state._demandImmunityActiveToday = false; state.stats.widgetsMadeToday = 0; state.stats.revenueToday = 0; state.stats.costsToday = 0; }
   const prevMarketOpen = state.marketOpen;
   state.marketOpen = state.dayTick < 180;
   if (state.marketOpen !== prevMarketOpen) startDayNightFlash(state.marketOpen ? 'open' : 'close');
@@ -7780,7 +8124,14 @@ setInterval(() => {
         } else {
           const shortfall = f.quantity - totalWidgets;
           const penalty   = Math.round(actualPrice * shortfall * 10) / 10;
-          state.player.credits       = Math.round((state.player.credits - penalty) * 10) / 10;
+          let covered = 0;
+          if (state.bank.card.tier === 'black' && state.bank.card.insuranceBalance > 0 && state.player.credits - penalty < 0) {
+            const deficit = Math.abs(state.player.credits - penalty);
+            covered = Math.min(deficit, state.bank.card.insuranceBalance);
+            state.bank.card.insuranceBalance = Math.round((state.bank.card.insuranceBalance - covered) * 10) / 10;
+            addLog(`> Card insurance covered ${formatCredits(covered)}cr deficit. Insurance remaining: ${formatCredits(state.bank.card.insuranceBalance)}cr.`, '#f0f0f0');
+          }
+          state.player.credits       = Math.round((state.player.credits - penalty + covered) * 10) / 10;
           state.derivatives.pnlToday = Math.round((state.derivatives.pnlToday - penalty) * 10) / 10;
           state.derivatives.totalPnL = Math.round((state.derivatives.totalPnL - penalty) * 10) / 10;
           addLog(`Short delivery on forward. Penalty: ${penalty}cr.`, '#ff5555');
@@ -7852,23 +8203,84 @@ setInterval(() => {
     }
     state.bank.creditNegativeLogged = false; // reset per-day flag at dawn
 
-    // Card billing cycle
-    if (state.bank.card.owned) {
+    // Card billing cycle and dawn card checks
+    if (state.bank.card.tier) {
       const card = state.bank.card;
+      const tierDef = CARD_TIERS[card.tier];
+
+      // Card demotion check
+      if (tierDef && state.bank.creditRatingScore < tierDef.requiresScore) {
+        if (!card.demotionWarningDay) {
+          card.demotionWarningDay = state.day;
+          addLog(`> [BANK] Your credit rating has fallen below your card tier requirements. You have 3 days to improve.`, '#ff9933');
+        } else if (state.day - card.demotionWarningDay >= 3) {
+          const oldTier = card.tier;
+          const newEligible = getMaxEligibleCardTier(state.bank.creditRatingScore);
+          const newTierDef  = newEligible ? CARD_TIERS[newEligible] : null;
+          card.tier          = newEligible;
+          card.limit         = newTierDef ? newTierDef.limit : 0;
+          card.interestRate  = newTierDef ? newTierDef.interestRate : 0;
+          card.statementCycle = newTierDef ? newTierDef.cycle : 10;
+          card.demotionWarningDay = null;
+          addLog(`> [BANK] Your ${oldTier.toUpperCase()} card has been revoked. Your credit tier has been adjusted.`, '#ff5555');
+        }
+      } else if (card.demotionWarningDay) {
+        card.demotionWarningDay = null;
+        addLog(`> [BANK] Your rating has recovered. Card status maintained.`, '#66cc66');
+      }
+
+      // Missed payment check
       if (state.day === card.paymentDueDay && card.minimumPaymentDue > 0) {
         card.missedPayments++;
+        card.consecutiveGoldPayments = 0;
         changeRating(-2.0, 'Missed card payment');
         addLog('Card: missed minimum payment. Credit score hit.', '#ff5555');
         card.minimumPaymentDue = 0;
       }
-      if (card.balance > 0 && state.day >= card.lastStatementDay + card.cycleLength) {
-        const interest = Math.round(card.balance * card.interestRate * 10) / 10;
-        card.balance   = Math.round((card.balance + interest) * 10) / 10;
-        card.minimumPaymentDue = Math.round(Math.max(5, card.balance * 0.1) * 10) / 10;
-        card.paymentDueDay   = state.day + 5;
-        card.lastStatementDay = state.day;
-        addLog(`Card statement: ${card.balance.toFixed(1)}cr balance, min payment ${card.minimumPaymentDue.toFixed(1)}cr due day ${card.paymentDueDay}.`, '#66ccff');
+
+      // Statement close
+      if (state.day >= card.lastStatementDay + card.statementCycle) {
+        if (card.balance > 0) {
+          const interest = Math.round(card.balance * card.interestRate * 10) / 10;
+          card.balance   = Math.round((card.balance + interest) * 10) / 10;
+        }
+        card.minimumPaymentDue    = card.balance > 0 ? Math.round(Math.max(5, card.balance * 0.1) * 10) / 10 : 0;
+        card.paymentDueDay        = state.day + 5;
+        card.lastStatementDay     = state.day;
+        card.overdraftUsedThisCycle = false;
+        card.graceUsedThisCycle     = false;
+        if (card.balance > 0)
+          addLog(`Card statement: ${formatCredits(card.balance)}cr balance, min ${formatCredits(card.minimumPaymentDue)}cr due day ${card.paymentDueDay}.`, getCardTierColor(card.tier));
       }
+
+      // Silver: auto-RM purchase at dawn
+      if ((card.tier === 'silver' || card.tier === 'gold' || card.tier === 'black') && card.autoRMThreshold > 0) {
+        const rmSpace = state.storage.rmCap - state.storage.rm;
+        if (state.storage.rm < card.autoRMThreshold && rmSpace > 0) {
+          const needed  = Math.min(card.autoRMThreshold - state.storage.rm, rmSpace);
+          const cost    = needed * 3;
+          const avail   = Math.max(0, card.limit - card.balance);
+          const autoBuy = Math.min(needed, Math.floor(avail / 3));
+          if (autoBuy > 0) {
+            card.balance    = Math.round((card.balance + autoBuy * 3) * 10) / 10;
+            state.storage.rm += autoBuy;
+            addLog(`> Auto-purchase: ${autoBuy} RM bought. Charged to card.`, '#aaaaaa');
+          }
+        }
+      }
+
+      // Gold: extra newspaper forecast at dawn
+      if ((card.tier === 'gold' || card.tier === 'black') && state.phase >= 3 && state.newspaper.tomorrowForecastLabel) {
+        addLog(`> [GOLD CARD] Tomorrow's forecast: ${state.newspaper.tomorrowForecastLabel}.`, CARD_TIERS.gold.color);
+      }
+
+      // Silver: reset extra market sales
+      card.silverMarketExtraUsedToday = false;
+    }
+
+    // Weekly demand immunity reset (Black card)
+    if (state.day % 7 === 0 && state.bank.card.tier === 'black') {
+      state.bank.card.demandImmunityUsedThisWeek = false;
     }
 
   }
