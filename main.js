@@ -856,9 +856,9 @@ function playSound(name) {
 loadSound('bought',  'sounds/bought.wav');
 loadSound('click',   'sounds/click.wav');
 loadSound('crafted', 'sounds/crafted.wav');
-loadSound('newgame', 'sounds/new or continue.wav');
+loadSound('newgame', 'sounds/neworcontinue.wav');
 loadSound('sold',    'sounds/sold.wav');
-loadSound('start',   'sounds/start game.wav');
+loadSound('start',   'sounds/startgame.wav');
 function drawTitleBottomText() {
   const CHLABEL = 'press c for changelog';
   for (let i = 0; i < CREDIT.length;   i++) display.draw(77 - CREDIT.length   + i, 45, CREDIT[i],   '#555555', BG);
