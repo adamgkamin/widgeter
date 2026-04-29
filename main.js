@@ -3716,90 +3716,114 @@ function awardStamp(amount, announce) {
   if (state.gameState === 'inventory' && inventoryRedrawFn) inventoryRedrawFn();
 }
 
-function handlePonder() {
+function getPonderHint() {
   const inv = state.player.inventory;
-  let hint;
-  // Phase 5 — rocket hints
-  if (state.phase >= 5) {
-    const rw = state.rocketWidgets;
-    if (rw >= 50000) { hint = 'The rocket is ready. [launch sequence coming soon]'; }
-    else if (state.courierDestination === 'market') { hint = 'The rocket waits. Credits won\'t matter where it\'s going.'; }
-    else if (rw >= 45000) { hint = 'Almost. Everything you built was for this.'; }
-    else if (rw >= 25000) { hint = 'Over halfway. You can feel something building.'; }
-    else if (rw >= 5000)  { hint = 'You are committed now.'; }
-    else                   { hint = 'The rocket is loading. This will take time.'; }
-    wrapLog(hint, '#ff5555'); return;
+  const px = state.player.x, py = state.player.y;
+
+  function near(label, dist) {
+    const s = STATION_DEFS.find(sd => sd.label === label);
+    if (!s) return false;
+    return Math.abs(px - (s.x + 2)) + Math.abs(py - (s.y + 1)) <= dist;
   }
-  // Phase 4 derivative hints
-  if (state.phase >= 4) {
-    const fwds = state.derivatives.forwards;
-    if (fwds.length === 0) {
-      hint = 'The terminal is waiting. A forward costs nothing to enter.';
-      wrapLog(hint, '#cc66cc'); return;
-    }
-    const unrealized = fwds.reduce((s, f) => s + (f.lockedPrice - state.marketPrice) * f.quantity, 0);
-    if (unrealized > 0) {
-      hint = 'Your forward looks good. The market moved your way.';
-    } else {
-      hint = "The market didn't cooperate. You'll owe the difference at settlement.";
-    }
-    wrapLog(hint, '#cc66cc'); return;
+  function nearPond(dist) {
+    return Math.abs(px - 22) + Math.abs(py - 25) <= dist;
   }
 
-  // Newspaper hints (§13)
-  if (state.phase >= 3 && state.stations.newspaper?.unlocked) {
-    const np = state.stations.newspaper;
-    if (np.pendingManipulation) {
-      wrapLog('> Tomorrow\'s headline is already written.', COLOR_NP_FRAME); return;
-    } else if (state.skills.plantStory) {
-      const onCooldown = (state.day - np.lastManipulationDay) < 3;
-      if (!onCooldown) { wrapLog('> The press is ready. The market is listening.', COLOR_NP_FRAME); return; }
-    } else {
-      wrapLog('> The paper prints what it\'s given. For now.', COLOR_NP_FRAME); return;
-    }
-  }
+  const checks = [
+    // Category 1: Position-based (within 5 Manhattan distance of station)
+    { cond: () => near('RM', 5) && inv.rm === 0 && state.player.credits >= 3,
+      text: '> You\'re near the shed. Buy materials and start crafting.', color: '#ff9933' },
+    { cond: () => near('RM', 5) && inv.rm >= state.player.inventoryCaps.rm,
+      text: '> Your pockets are full. Head to the workbench.', color: '#ff9933' },
+    { cond: () => near('WB', 5) && inv.rm > 0 && inv.widgets < state.player.inventoryCaps.widgets,
+      text: '> The workbench is right here. Press space to craft.', color: '#cc3300' },
+    { cond: () => near('WB', 5) && inv.rm === 0,
+      text: '> You need raw materials first. Visit the shed.', color: '#cc3300' },
+    { cond: () => near('MT', 5) && inv.widgets > 0 && state.marketOpen,
+      text: '> The market is open. Sell what you\'ve made.', color: '#ffd633' },
+    { cond: () => near('MT', 5) && inv.widgets > 0 && !state.marketOpen,
+      text: '> Market\'s closed. Wait for the bell.', color: '#ffd633' },
+    { cond: () => near('MT', 5) && inv.widgets === 0,
+      text: '> Nothing to sell. Craft some widgets first.', color: '#ffd633' },
+    { cond: () => near('OF', 5) && state.phase >= 2,
+      text: '> Check the office for upgrades. Arrows swap tabs.', color: '#ffffff' },
+    { cond: () => near('BK', 5) && state.phase >= 3 && state.bank.deposit > 0,
+      text: '> Your deposit is earning 10% daily. Let it grow.', color: '#66cc66' },
+    { cond: () => near('BK', 5) && state.phase >= 3 && !state.bank.card.tier,
+      text: '> You might qualify for a credit card.', color: '#66cc66' },
+    { cond: () => near('TR', 5) && state.phase >= 4,
+      text: '> Try a forward contract to start. No cost to enter.', color: '#cc66cc' },
+    { cond: () => near('LF', 5) && state.phase >= 5,
+      text: '> The rocket needs widgets. Toggle couriers inside.', color: '#ff5555' },
+    { cond: () => near('GS', 5) && state.phase >= 2,
+      text: '> The shop sells cosmetics for stamps.', color: '#aa66ff' },
+    { cond: () => near('NP', 5) && state.phase >= 3,
+      text: '> Read today\'s headline. Or write tomorrow\'s.', color: COLOR_NP_FRAME },
+    { cond: () => nearPond(5) && !state.skills.aquatics?.purchased,
+      text: '> The pond is deep. The aquatics skill would help.', color: '#1a6a8a' },
+    { cond: () => nearPond(5) && state.skills.aquatics?.purchased && state.lakeEasterEgg?.discovered,
+      text: '> Fish here. Stand in the center, press space.', color: '#1a6a8a' },
+    // Category 2: Urgency
+    { cond: () => !!state.bank.card?.tier && (state.bank.card.missedPayments ?? 0) > 0,
+      text: '> Card payment overdue. Visit the bank now.', color: '#ff5555' },
+    { cond: () => !!state.bank.card?.tier && state.bank.card.balance > state.bank.card.limit * 0.8,
+      text: '> Card nearly maxed. Consider paying it down.', color: '#ff9933' },
+    { cond: () => state.phase >= 2 && state.storage.widgets >= state.storage.widgetCap,
+      text: '> Storage full. Production halted. Sell or expand.', color: '#ff5555' },
+    { cond: () => state.player.credits < 0,
+      text: '> You\'re in the red. Sell widgets or visit the bank.', color: '#ff5555' },
+    { cond: () => !state.marketOpen && inv.widgets > 0,
+      text: '> Market\'s closed. Craft, deposit, or wait for dawn.', color: '#555555' },
+    { cond: () => state.phase >= 3 && state.demand < 20,
+      text: '> Demand collapsed. Hold production or short it.', color: '#ff9933' },
+    { cond: () => !!state.bank.card?.tier && getBankRatingIdx() <= 2,
+      text: '> Credit rating at risk. Your card could be revoked.', color: '#ff5555' },
+    { cond: () => state.phase >= 5 && state.courierDestination === 'market' && state.rocketWidgets < 50000,
+      text: '> Couriers selling at market. Toggle to the rocket?', color: '#ff5555' },
+    // Category 3: Phase guidance
+    { cond: () => state.phase === 1 && state.lifetimeCreditsEarned < 20,
+      text: '> Buy materials. Craft widgets. Sell at the market.', color: '#66ccff' },
+    { cond: () => state.phase === 1 && state.lifetimeCreditsEarned >= 20 && state.lifetimeCreditsEarned < 60,
+      text: '> Keep the loop going. Credits add up.', color: '#66ccff' },
+    { cond: () => state.phase === 1 && state.lifetimeCreditsEarned >= 60 && state.lifetimeCreditsEarned < 100,
+      text: '> Almost there. The office looks less dusty.', color: '#66ccff' },
+    { cond: () => state.phase === 2 && state.skills.apprenticeCount === 0,
+      text: '> You can hire workers now. Visit the office.', color: '#66ccff' },
+    { cond: () => state.phase === 2 && state.skills.apprenticeCount > 0 && state.skills.courierCount === 0,
+      text: '> Workers make, but can\'t sell. Build a courier.', color: '#66ccff' },
+    { cond: () => state.phase === 2 && state.skills.apprenticeCount > 0 && state.skills.courierCount > 0,
+      text: '> Automation running. Watch, tune, save for Phase 3.', color: '#66ccff' },
+    { cond: () => state.phase === 3 && !state.bank.card?.tier && getBankRatingIdx() >= 3,
+      text: '> The bank is open. Consider a credit card.', color: '#66ccff' },
+    { cond: () => state.phase === 3 && !state.skills.plantStory,
+      text: '> The newspaper publishes forecasts. The office sells influence.', color: '#66ccff' },
+    { cond: () => state.phase === 3 && state.demand > 60,
+      text: '> Demand is high. Sell everything you can.', color: '#66ccff' },
+    { cond: () => state.phase === 4 && state.derivatives.forwards.length === 0,
+      text: '> The terminal is waiting. Forwards are free.', color: '#66ccff' },
+    { cond: () => state.phase === 4 && state.derivatives.totalPnL > 0,
+      text: '> Trades profitable. Consider scaling up.', color: '#66ccff' },
+    { cond: () => state.phase === 4 && state.derivatives.totalPnL < 0,
+      text: '> Positions underwater. Cut losses or wait.', color: '#66ccff' },
+    { cond: () => state.phase === 5 && state.rocketWidgets === 0,
+      text: '> Toggle couriers to start loading the rocket.', color: '#66ccff' },
+    { cond: () => state.phase === 5 && state.rocketWidgets > 0 && state.rocketWidgets < 25000,
+      text: '> Keep loading. Not even halfway.', color: '#66ccff' },
+    { cond: () => state.phase === 5 && state.rocketWidgets >= 25000 && state.rocketWidgets < 45000,
+      text: '> Over halfway. The market barely matters.', color: '#66ccff' },
+    { cond: () => state.phase === 5 && state.rocketWidgets >= 45000,
+      text: '> Almost. Everything you built was for this.', color: '#66ccff' },
+  ];
 
-  // Phase 3 urgent hints first
-  if (state.phase >= 3 && state.bank.card?.owned && state.bank.card.missedPayments > 0) {
-    hint = 'The bank noted a missed payment. It won\'t forget.';
-  } else if (state.phase >= 3 && state.bank.card?.owned && state.bank.card.balance > state.bank.card.limit * 0.8) {
-    hint = 'The card is nearly maxed. Every day you carry it, interest compounds.';
-  } else if (state.phase >= 3 && getBankRatingIdx() <= 2) {
-    hint = 'Your credit record is showing strain. The bank has noticed.';
-  } else if (state.phase >= 3 && getBankRatingIdx() >= 6) {
-    hint = 'Strong fundamentals. Your deposit compounds fast at this rating.';
-  } else if (state.phase >= 3 && state.debt > 0) {
-    hint = 'You owe more than you have. The bank may help — or make things worse.';
-  } else if (state.phase >= 3 && state.demand < 20) {
-    hint = 'The market is weak today. Holding widgets costs you. Consider your options.';
-  } else if (state.phase >= 3 && state.storage.widgets > state.storage.widgetCap * 0.8) {
-    hint = 'Your storage is getting heavy. Every widget in there costs you at dusk.';
-  } else if (state.lifetimeCreditsEarned === 0) {
-    hint = 'The shed to the north sells raw materials. The workbench crafts them.';
-  } else if (inv.rm > 0 && inv.widgets === 0) {
-    hint = "Those materials won't shape themselves. The workbench is waiting.";
-  } else if (inv.widgets > 0 && state.marketOpen) {
-    hint = 'The market is open. Someone out there wants what you\'ve made.';
-  } else if (inv.widgets > 0 && !state.marketOpen) {
-    hint = 'The market is dark. Wait for dawn, or use the time wisely.';
-  } else if (state.lifetimeCreditsEarned >= 100 && state.phase === 1) {
-    hint = "You're finding a rhythm. The Office door looks less dusty than it did.";
-  } else if (state.player.credits >= 500 && !(state.skills.endurance?.pips) && !(state.skills.aquatics?.purchased) && !(state.skills.interfacing?.pips)) {
-    hint = 'You wonder if there\'s more to you than widgets.';
-  } else if (state.cottage.owned && !state.cottage.visited) {
-    hint = 'Your cottage is waiting. The door is open.';
-    wrapLog(hint, '#aa66ff'); return;
-  } else if (state.phase >= 2 && state.player.color === '#f0f0f0' && state.player.credits >= 100) {
-    hint = 'The shop on the south-west corner has its light on.';
-    wrapLog(hint, '#aa66ff'); return;
-  } else if (state.skills.aquatics?.purchased && (state.stats.pondStepsWalked || 0) === 0) {
-    hint = 'The pond looks different now.';
-  } else if ((state.skills.interfacing?.pips || 0) >= 3) {
-    hint = 'The workbench is a formality at this point.';
-  } else {
-    hint = 'Keep working. The numbers will move.';
+  for (const c of checks) {
+    if (c.cond()) return { text: c.text, color: c.color };
   }
-  wrapLog(hint, '#66ccff');
+  return { text: '> Keep working. Something will happen.', color: '#555555' };
+}
+
+function handlePonder() {
+  const result = getPonderHint();
+  wrapLog(result.text, result.color);
 }
 
 // ── Interior state (§4.2) ────────────────────────────────────────────────────
