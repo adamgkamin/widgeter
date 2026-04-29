@@ -829,7 +829,7 @@ drawArt(0);
 drawPrompt(true);
 
 const CREDIT  = "Created by Adam A.";
-const VERSION = "alpha 1.01.01";
+const VERSION = "alpha 1.01.02";
 for (let i = 0; i < CREDIT.length;  i++) display.draw(77 - CREDIT.length  + i, 46, CREDIT[i],  '#555555', BG);
 for (let i = 0; i < VERSION.length; i++) display.draw(77 - VERSION.length + i, 47, VERSION[i], '#555555', BG);
 requestAnimationFrame(titleAnimLoop);
@@ -1684,7 +1684,7 @@ function showNewGameConfirm() {
   const BOX_W = INNER_W + 4;
   const BOX_H = 8;
   const BOX_X = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
-  const BOX_Y = Math.max(25, Math.floor((DISPLAY_HEIGHT - BOX_H) / 2));
+  const BOX_Y = PROMPT_Y + 5;
   const CX = BOX_X + 2;
   display.draw(BOX_X, BOX_Y, '+', WC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y, '+', WC, BG);
   for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, BOX_Y, '-', WC, BG);
