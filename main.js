@@ -2784,7 +2784,7 @@ const SELLER_ADJ = ['Rusty','Thin','Old','Crooked','Dusty','Slick','Tall','Quiet
 const SELLER_NOUN = ['Pete','Margaret','Bones','Sullivan','Sawdust','Wheels','Copper','Finch','Tobacco','Gravel','Needles','Pudding','Decker','Spool','Morrow'];
 
 function generateBuyOffers() {
-  const basePrice = state.phase >= 3 ? state.marketPrice : 8.0;
+  const basePrice = state.marketPrice;
   const usedAdj = new Set(), usedNoun = new Set(), usedPortrait = new Set();
   state.marketBuyOffers = [0, 1].map(() => {
     let adj, noun;
@@ -2815,7 +2815,7 @@ function openMarketMenu(initialTab = 'sell') {
   const BOX_X = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
   const BOX_Y = Math.max(1, Math.floor((WORLD_ROWS - BOX_H) / 2));
   const RPX   = BOX_X + 1 + AW + 1;
-  let marketTab = state.phase >= 3 ? initialTab : 'sell';
+  let marketTab = initialTab;
 
   const MT_ART = [
     '  _________   ',
@@ -2892,7 +2892,7 @@ function openMarketMenu(initialTab = 'sell') {
     // Row 1: header — shows active tab label
     { const ay = BOX_Y + 1;
       border(ay);
-      const tabLbl = state.phase >= 3 ? (marketTab === 'sell' ? '[SELL]' : '[BUY]') : '';
+      const tabLbl = marketTab === 'sell' ? '[SELL]' : '[BUY]';
       const title = `Widget Market ${tabLbl}`.trim(), hint = 'press esc to exit';
       for (let i = 0; i < IW; i++) {
         const ch = i < title.length ? title[i] : (i >= IW - hint.length ? hint[i-(IW-hint.length)] : ' ');
@@ -2905,9 +2905,8 @@ function openMarketMenu(initialTab = 'sell') {
     { const ay = BOX_Y + 2; border(ay);
       for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '═', DC, BG); }
 
-    // Row 3: tab bar (phase 3+ only) or plain ─ separator
-    if (state.phase >= 3) {
-      const ay = BOX_Y + 3; border(ay);
+    // Row 3: tab bar (always visible)
+    { const ay = BOX_Y + 3; border(ay);
       const HALF = Math.floor(IW / 2);
       const center = (s, w) => { const p = Math.max(0, w - s.length); const l = Math.floor(p/2); return ' '.repeat(l) + s + ' '.repeat(p-l); };
       const sellLbl = center(marketTab === 'sell' ? '>> [ SELL ] <<' : '[ SELL ]', HALF);
@@ -2917,15 +2916,12 @@ function openMarketMenu(initialTab = 'sell') {
         const ch = (inLeft ? sellLbl : buyLbl)[inLeft ? i : i - HALF] || ' ';
         display.draw(BOX_X + 1 + i, ay, ch, (inLeft && marketTab === 'sell') || (!inLeft && marketTab === 'buy') ? '#ffffff' : '#555555', BG);
       }
-      // Row 4: ─ separator
-      { const ay2 = BOX_Y + 4; border(ay2);
-        for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay2, '─', DC, BG); }
-    } else {
-      const ay = BOX_Y + 3; border(ay);
-      for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '─', DC, BG);
     }
+    // Row 4: ─ separator
+    { const ay = BOX_Y + 4; border(ay);
+      for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '─', DC, BG); }
 
-    const artBase = state.phase >= 3 ? BOX_Y + 5 : BOX_Y + 4; // art pane start row
+    const artBase = BOX_Y + 5; // art pane start row
 
     if (marketTab === 'sell') {
       // ── SELL tab ──────────────────────────────────────────────────────────────
@@ -3135,13 +3131,11 @@ function openMarketMenu(initialTab = 'sell') {
   function mtKeyHandler(e) {
     if (e.key === 'Escape') { closeMT(); return; }
 
-    // Tab switching (phase 3+ only)
-    if (state.phase >= 3) {
-      if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
-        e.preventDefault();
-        marketTab = marketTab === 'sell' ? 'buy' : 'sell';
-        redraw(); return;
-      }
+    // Tab switching
+    if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+      e.preventDefault();
+      marketTab = marketTab === 'sell' ? 'buy' : 'sell';
+      redraw(); return;
     }
 
     // ── BUY tab ─────────────────────────────────────────────────────────────
