@@ -227,6 +227,7 @@ const state = {
     catY:     7,
     matLoggedThisVisit: false,
   },
+  garden: {},
   bookshelfLog: [],
   officeUnlocked:      false,
   officeTab:           'workers',  // 'workers' | 'upgrades' | 'info'
@@ -387,6 +388,7 @@ function saveGame() {
     skills:               state.skills,
     craftingTimeRemote:   state.craftingTimeRemote,
     cottage:              state.cottage,
+    garden:               state.garden,
     bookshelfLog:         state.bookshelfLog,
     stamps:               state.player.stamps,
     stampWalkCounter:     state.player.stampWalkCounter,
@@ -571,6 +573,7 @@ function loadGame() {
     state.cottage.catX      = state.cottage.catX      ?? 9;
     state.cottage.catY      = state.cottage.catY      ?? 7;
     state.cottage.matLoggedThisVisit = state.cottage.matLoggedThisVisit ?? false;
+    state.garden = data.garden ?? {};
     state.bookshelfLog = data.bookshelfLog ?? [];
     // Stamps (§13)
     state.player.stamps            = data.stamps            ?? 0;
@@ -834,7 +837,7 @@ drawArt(0);
 drawPrompt(true);
 
 const CREDIT  = "Created by Adam A.";
-const VERSION = "alpha 1.02.08";
+const VERSION = "alpha 1.03.01";
 function drawTitleBottomText() {
   const CHLABEL = 'press c for changelog';
   for (let i = 0; i < CREDIT.length;   i++) display.draw(77 - CREDIT.length   + i, 45, CREDIT[i],   '#555555', BG);
@@ -1362,6 +1365,7 @@ function buildTileMap() {
 
   // Cottage — §4.2
   if (state.cottage.owned) placeCottageTiles();
+  if (state.cottage.owned) placeGardenTiles();
 
   // Border — §4.1 (overwrites edge floor)
   for (let x = 0; x < DISPLAY_WIDTH; x++) {
@@ -1485,6 +1489,23 @@ function buildTileMap() {
 // Inject cottage tiles into the live tileMap and mark them dirty.
 // Called from buildTileMap() and immediately after purchase so the cottage
 // appears without waiting for the next full drawWorld() call.
+const GARDEN_DEFS = [
+  // Flowers — cosmetic
+  { key: 'sunflower', name: 'Sunflower', price:  5, glyph: '*', fg: '#ffd633', type: 'flower' },
+  { key: 'rose',      name: 'Rose',      price:  8, glyph: '*', fg: '#ff5555', type: 'flower' },
+  { key: 'tulip',     name: 'Tulip',     price:  6, glyph: '*', fg: '#ff66aa', type: 'flower' },
+  { key: 'daisy',     name: 'Daisy',     price:  4, glyph: '*', fg: '#ffffff', type: 'flower' },
+  { key: 'lavender',  name: 'Lavender',  price:  7, glyph: '*', fg: '#aa66cc', type: 'flower' },
+  { key: 'bluebell',  name: 'Bluebell',  price:  5, glyph: '*', fg: '#6688cc', type: 'flower' },
+  // Vegetables — edible (eaten removes them)
+  { key: 'tomato',  name: 'Tomato',  price:  6, glyph: 'o', fg: '#ff4444', type: 'veggie' },
+  { key: 'carrot',  name: 'Carrot',  price:  4, glyph: '!', fg: '#ff8833', type: 'veggie' },
+  { key: 'pumpkin', name: 'Pumpkin', price: 10, glyph: 'O', fg: '#ff8800', type: 'veggie' },
+  { key: 'corn',    name: 'Corn',    price:  5, glyph: '|', fg: '#ccaa33', type: 'veggie' },
+  { key: 'potato',  name: 'Potato',  price:  3, glyph: '·', fg: '#aa8855', type: 'veggie' },
+  { key: 'cabbage', name: 'Cabbage', price:  4, glyph: '@', fg: '#44aa44', type: 'veggie' },
+];
+
 function placeCottageTiles() {
   const cx = state.cottage.mapX, cy = state.cottage.mapY;
   const RC = '#cc3333', WC_COT = '#886633', DC_COT = '#aa6633';
@@ -1514,6 +1535,64 @@ function placeCottageTiles() {
   for (let dx = 0; dx < 6; dx++)
     for (let dy = 0; dy < 4; dy++)
       markDirty(cx + dx, cy + dy);
+}
+
+function placeGardenTiles() {
+  if (!state.cottage.owned) return;
+  const mk = (g, fg, w) => ({ glyph: g, fg, bg: BG, walkable: w });
+  const FENCE = '#886633';
+  const SOIL  = '#2a2a1a';
+  // Garden: 6 wide × 5 tall fence. Origin = (mapX-7, mapY-1) = (33, 20)
+  const gx = state.cottage.mapX - 7; // 33
+  const gy = state.cottage.mapY - 1; // 20
+  const GW = 6, GH = 5;
+  const GARDEN_INNER_X = gx + 1; // 34
+  const GARDEN_INNER_Y = gy + 1; // 21
+
+  // Fence border
+  for (let x = gx; x < gx + GW; x++) {
+    const topTile = mk('═', FENCE, false); topTile.description = 'A low wooden fence around the garden.';
+    const botTile = mk('═', FENCE, false); botTile.description = 'A low wooden fence around the garden.';
+    tileMap[x][gy]        = topTile;
+    tileMap[x][gy + GH-1] = botTile;
+  }
+  for (let y = gy; y < gy + GH; y++) {
+    const leftTile = mk('║', FENCE, false); leftTile.description = 'A low wooden fence around the garden.';
+    const rightTile = mk('║', FENCE, false); rightTile.description = 'A low wooden fence around the garden.';
+    tileMap[gx][y]        = leftTile;
+    tileMap[gx + GW-1][y] = rightTile;
+  }
+  const mkCorner = (g) => { const t = mk(g, FENCE, false); t.description = 'A low wooden fence around the garden.'; return t; };
+  tileMap[gx][gy]             = mkCorner('╔');
+  tileMap[gx + GW-1][gy]     = mkCorner('╗');
+  tileMap[gx][gy + GH-1]     = mkCorner('╚');
+  tileMap[gx + GW-1][gy + GH-1] = mkCorner('╝');
+  // Gate in bottom fence (centre column) — walkable opening
+  const gateTile = mk('_', FENCE, true); gateTile.description = 'A gap in the garden fence. You can step through.';
+  tileMap[gx + 2][gy + GH - 1] = gateTile;
+
+  // Interior: 4 wide × 3 tall = 12 plot tiles
+  for (let i = 0; i < GARDEN_DEFS.length; i++) {
+    const item = GARDEN_DEFS[i];
+    const px = GARDEN_INNER_X + (i % 4);
+    const py = GARDEN_INNER_Y + Math.floor(i / 4);
+    if (state.garden[item.key]) {
+      const t = mk(item.glyph, item.fg, true);
+      t.description = item.type === 'veggie'
+        ? `A ${item.name}. Looks ripe. Press Space to eat.`
+        : `A ${item.name} grows here.`;
+      tileMap[px][py] = t;
+    } else {
+      const t = mk('·', SOIL, true);
+      t.description = 'Tilled soil. Ready for planting.';
+      tileMap[px][py] = t;
+    }
+  }
+
+  // Mark all garden tiles dirty
+  for (let dx = 0; dx < GW; dx++)
+    for (let dy = 0; dy < GH; dy++)
+      markDirty(gx + dx, gy + dy);
 }
 
 // ── §3.4 Phase-in transition ──────────────────────────────────────────────────
@@ -1865,6 +1944,7 @@ function resetState() {
   state.fishing = { totalCatches: 0, catchesToday: 0, dailyLimit: 5, currentPhase: 'menu', fishTimer: 0, biteTimer: 0, fishX: 0, animTick: 0 };
   state.lakeEasterEgg = { discovered: false };
   state.cottage = { owned: false, mapX: 40, mapY: 21, playerX: 10, playerY: 5, furniture: {}, visited: false, catX: 9, catY: 7, matLoggedThisVisit: false };
+  state.garden = {};
   state.bookshelfLog = [];
   state.officeAnim = { apprenticeFlash: 0, courierFlash: 0 };
   state.player.stamps            = 0;
@@ -4828,7 +4908,7 @@ function openGeneralStoreMenu() {
   const BOX_Y = Math.max(1, Math.floor((WORLD_ROWS - BOX_H) / 2));
   const RPX   = BOX_X + 1 + AW + 1;
 
-  let gsTab = 'clothing'; // 'clothing' | 'home_goods'
+  let gsTab = 'clothing'; // 'clothing' | 'home_goods' | 'garden'
 
   const GS_ART = [
     '  +--------+  ', ' /  GENERAL\\ ', '/    STORE  \\ ',
@@ -4883,6 +4963,29 @@ function openGeneralStoreMenu() {
     }
   }
 
+  function drawGardenCell(cx, ay, item, letter) {
+    const planted    = !!state.garden[item.key];
+    const noCottage  = !state.cottage.owned;
+    const canAfford  = state.player.stamps >= item.price;
+    const letterFg   = planted ? '#888888' : (noCottage ? '#444444' : (canAfford ? TC : '#555555'));
+    display.draw(cx,  ay, letter,      letterFg,    BG);
+    display.draw(cx+1,ay, ')',         '#555555',   BG);
+    display.draw(cx+2,ay, ' ',         BRIGHT_WHITE,BG);
+    display.draw(cx+3,ay, item.glyph,  planted ? item.fg : (noCottage ? '#444444' : '#555555'), BG);
+    display.draw(cx+4,ay, ' ',         BRIGHT_WHITE,BG);
+    const name11 = item.name.padEnd(11).slice(0,11);
+    const nameFg = planted ? '#888888' : (noCottage ? '#444444' : (canAfford ? '#aaaaaa' : '#666666'));
+    for (let i=0;i<11;i++) display.draw(cx+5+i,ay,name11[i]||' ',nameFg,BG);
+    if (planted) {
+      display.draw(cx+16,ay,'✓','#66cc66',BG);
+      for(let i=1;i<7;i++) display.draw(cx+16+i,ay,' ',BRIGHT_WHITE,BG);
+    } else {
+      const priceStr = (item.price+' ·').padStart(7);
+      const priceFg  = noCottage ? '#444444' : (canAfford ? '#66cc66' : '#ff5555');
+      for(let i=0;i<7;i++) display.draw(cx+16+i,ay,priceStr[i]||' ',priceFg,BG);
+    }
+  }
+
   function redraw() {
     for(let r=1;r<BOX_H-1;r++) for(let x=1;x<BOX_W-1;x++) display.draw(BOX_X+x,BOX_Y+r,' ',BRIGHT_WHITE,BG);
     // Row 0
@@ -4894,13 +4997,15 @@ function openGeneralStoreMenu() {
       for(let i=0;i<IW;i++){const ch=i<title.length?title[i]:(i>=IW-hint.length?hint[i-(IW-hint.length)]:'');const fg=i<title.length?LC:(i>=IW-hint.length?DC:BRIGHT_WHITE);display.draw(BOX_X+1+i,ay,ch||' ',fg,BG);} }
     // Row 2: ═
     { const ay=BOX_Y+2; border(ay); for(let i=0;i<IW;i++) display.draw(BOX_X+1+i,ay,'═',DC,BG); }
-    // Row 3: tab bar
+    // Row 3: tab bar — three tabs: CLOTHING (17) | HOME GOODS (17) | GARDEN (16) = 52
     { const ay=BOX_Y+3; border(ay);
-      const LEFT='[ CLOTHING ]',RIGHT='[ HOME GOODS ]';
-      const lp=Math.floor((25-LEFT.length)/2), rp=Math.floor((26-RIGHT.length)/2);
-      for(let i=0;i<25;i++){const ci=i-lp;const ch=(ci>=0&&ci<LEFT.length)?LEFT[ci]:' ';const fg=(gsTab==='clothing'&&ch!==' ')?TC:DC;display.draw(BOX_X+1+i,ay,ch,fg,BG);}
-      display.draw(BOX_X+26,ay,'│',DC,BG);
-      for(let i=0;i<26;i++){const ci=i-rp;const ch=(ci>=0&&ci<RIGHT.length)?RIGHT[ci]:' ';const fg=(gsTab==='home_goods'&&ch!==' ')?TC:DC;display.draw(BOX_X+27+i,ay,ch,fg,BG);}
+      const T1='[ CLOTHING ]', T2='[ HOME GOODS ]', T3='[ GARDEN ]';
+      const lp1=Math.floor((17-T1.length)/2), lp2=Math.floor((17-T2.length)/2), lp3=Math.floor((16-T3.length)/2);
+      for(let i=0;i<17;i++){const ci=i-lp1;const ch=(ci>=0&&ci<T1.length)?T1[ci]:' ';display.draw(BOX_X+1+i,ay,ch,(gsTab==='clothing'&&ch!==' ')?TC:DC,BG);}
+      display.draw(BOX_X+18,ay,'│',DC,BG);
+      for(let i=0;i<17;i++){const ci=i-lp2;const ch=(ci>=0&&ci<T2.length)?T2[ci]:' ';display.draw(BOX_X+19+i,ay,ch,(gsTab==='home_goods'&&ch!==' ')?TC:DC,BG);}
+      display.draw(BOX_X+36,ay,'│',DC,BG);
+      for(let i=0;i<16;i++){const ci=i-lp3;const ch=(ci>=0&&ci<T3.length)?T3[ci]:' ';display.draw(BOX_X+37+i,ay,ch,(gsTab==='garden'&&ch!==' ')?TC:DC,BG);}
     }
     // Row 4: ─
     { const ay=BOX_Y+4; border(ay); for(let i=0;i<IW;i++) display.draw(BOX_X+1+i,ay,'─',DC,BG); }
@@ -4915,12 +5020,18 @@ function openGeneralStoreMenu() {
       drp(BOX_Y+9,'Each item: 10 stamps','#555555'); drp(BOX_Y+11,'Current look:','#555555');
       { const ay=BOX_Y+12; const cn=(state.player.colorName==='DEFAULT')?'default white':state.player.colorName.toLowerCase();
         drp(ay,`@ ${cn}`,'#555555'); display.draw(RPX,ay,'@',state.player.color||BRIGHT_WHITE,BG); }
-    } else {
+    } else if(gsTab==='home_goods'){
       drp(BOX_Y+6,'HOME GOODS',TC); drp(BOX_Y+7,'Items for a life well-built.','#555555');
       drp(BOX_Y+9,'Buy items A–L below.','#555555');
       drp(BOX_Y+10,'Cottage required for B–L.','#555555');
       if(state.cottage.owned) drp(BOX_Y+12,'Cottage: OWNED','#66cc66');
       else drp(BOX_Y+12,'Cottage: not yet','#555555');
+    } else {
+      drp(BOX_Y+6,'GARDEN SHOP',TC); drp(BOX_Y+7,'Grow something beautiful.','#555555');
+      drp(BOX_Y+9,'Flowers are forever.','#555555');
+      drp(BOX_Y+10,'Vegetables can be eaten.','#555555');
+      if(state.cottage.owned) drp(BOX_Y+12,'Cottage: OWNED','#66cc66');
+      else drp(BOX_Y+12,'Need a cottage first.','#555555');
     }
     // Rows 15-20: shopkeeper note in left pane only (shared between both tabs)
     { const NOTE = [
@@ -4951,7 +5062,7 @@ function openGeneralStoreMenu() {
         while(cx<BOX_X+1+IW) display.draw(cx++,ay,' ',BRIGHT_WHITE,BG);
       }
       { const ay=BOX_Y+27; border(ay); for(let i=0;i<IW;i++) display.draw(BOX_X+1+i,ay,' ',BRIGHT_WHITE,BG); }
-    } else {
+    } else if(gsTab==='home_goods'){
       for(let row=0;row<6;row++){
         const ay=BOX_Y+22+row; border(ay);
         const li=row*2, ri=row*2+1;
@@ -4959,12 +5070,20 @@ function openGeneralStoreMenu() {
         if(li<FURNITURE_DEFS.length) drawHGCell(BOX_X+3,ay,FURNITURE_DEFS[li],letters[li]);
         if(ri<FURNITURE_DEFS.length) drawHGCell(BOX_X+28,ay,FURNITURE_DEFS[ri],letters[ri]);
       }
+    } else {
+      for(let row=0;row<6;row++){
+        const ay=BOX_Y+22+row; border(ay);
+        const li=row*2, ri=row*2+1;
+        for(let i=0;i<IW;i++) display.draw(BOX_X+1+i,ay,' ',BRIGHT_WHITE,BG);
+        if(li<GARDEN_DEFS.length) drawGardenCell(BOX_X+3,ay,GARDEN_DEFS[li],letters[li]);
+        if(ri<GARDEN_DEFS.length) drawGardenCell(BOX_X+28,ay,GARDEN_DEFS[ri],letters[ri]);
+      }
     }
     // Row 28: ═
     { const ay=BOX_Y+28; border(ay); for(let i=0;i<IW;i++) display.draw(BOX_X+1+i,ay,'═',DC,BG); }
     // Row 29: footer
     { const ay=BOX_Y+29; border(ay);
-      const txt=gsTab==='clothing'?'a–j: buy/equip  →: home goods  ESC: exit':'a–l: buy/visit  ←: clothing  ESC: exit';
+      const txt=gsTab==='clothing'?'a–j: buy/equip  →: home goods  ESC: exit':gsTab==='home_goods'?'a–l: buy/visit  ←→: switch tab  ESC: exit':'a–l: plant  ←: home goods  ESC: exit';
       const pad=' '.repeat(Math.max(0,Math.floor((IW-txt.length)/2)));
       const padded=menuPad(pad+txt,IW);
       for(let i=0;i<IW;i++) display.draw(BOX_X+1+i,ay,padded[i]||' ','#555555',BG); }
@@ -4987,8 +5106,35 @@ function openGeneralStoreMenu() {
 
   function gsKeyHandler(e) {
     if (e.key === 'Escape') { closeGS(); return; }
-    if (e.key === 'ArrowRight') { e.preventDefault(); if (gsTab === 'clothing') { gsTab = 'home_goods'; redraw(); } return; }
-    if (e.key === 'ArrowLeft')  { e.preventDefault(); if (gsTab === 'home_goods') { gsTab = 'clothing'; redraw(); } return; }
+    if (e.key === 'ArrowRight') {
+      e.preventDefault();
+      if (gsTab === 'clothing') { gsTab = 'home_goods'; redraw(); }
+      else if (gsTab === 'home_goods') { gsTab = 'garden'; redraw(); }
+      return;
+    }
+    if (e.key === 'ArrowLeft') {
+      e.preventDefault();
+      if (gsTab === 'home_goods') { gsTab = 'clothing'; redraw(); }
+      else if (gsTab === 'garden') { gsTab = 'home_goods'; redraw(); }
+      return;
+    }
+
+    if (gsTab === 'garden') {
+      const idx = 'abcdefghijkl'.indexOf(e.key);
+      if (idx < 0 || !GARDEN_DEFS[idx]) return;
+      const item = GARDEN_DEFS[idx];
+      if (!state.cottage.owned) { addLog('You need a cottage first.', '#555555'); return; }
+      if (state.garden[item.key]) { addLog('Already growing.', '#555555'); return; }
+      if (state.player.stamps < item.price) { addLog(`You need ${item.price - state.player.stamps} more stamps.`, '#ff5555'); return; }
+      state.player.stamps -= item.price;
+      state.garden[item.key] = true;
+      placeGardenTiles();
+      renderDirty();
+      display.draw(state.player.x, state.player.y, '@', state.player.color || BRIGHT_WHITE, BG);
+      addLog(`${item.name} planted in your garden.`, item.fg);
+      drawStatusBar(); redraw();
+      return;
+    }
 
     if (gsTab === 'home_goods') {
       const idx = 'abcdefghijkl'.indexOf(e.key);
@@ -5007,6 +5153,7 @@ function openGeneralStoreMenu() {
       if (isCottage) {
         state.cottage.owned = true;
         placeCottageTiles();
+        placeGardenTiles();
         renderDirty();
         logHistory('Bought a cottage.');
         addLog('You purchase the cottage. The deed changes hands.', '#ddcc99');
@@ -7332,6 +7479,7 @@ function renderLargeNumber(display, x, y, numberString, color, availableWidth) {
 // ── Launch Facility menu (§9) ─────────────────────────────────────────────────
 
 const CHANGELOG = [
+  { version: '1.03.01', summary: 'Garden tab in General Store. Plant flowers and veggies. Eat veggies from your garden.' },
   { version: '1.02.08', summary: 'Desert expanded 30%. Dense jungle west of pond.' },
   { version: '1.02.07', summary: 'Changelog entries now word-wrap to multiple lines instead of being cut off.' },
   { version: '1.02.06', summary: 'Snow moved to top-right corner, added snowman.' },
@@ -8439,6 +8587,22 @@ function handleInteract() {
   // Fishing: pond center (22, 25) with Aquatics
   if (px === 22 && py === 25 && state.skills.aquatics?.purchased) {
     openFishingMenu(); return;
+  }
+  // Garden veggie eating — player standing on a planted veggie plot
+  if (state.cottage.owned) {
+    const gix = state.cottage.mapX - 6; // GARDEN_INNER_X = 34
+    const giy = state.cottage.mapY;     // GARDEN_INNER_Y = 21
+    for (let i = 0; i < GARDEN_DEFS.length; i++) {
+      const item = GARDEN_DEFS[i];
+      const gpx = gix + (i % 4), gpy = giy + Math.floor(i / 4);
+      if (px === gpx && py === gpy && state.garden[item.key] && item.type === 'veggie') {
+        delete state.garden[item.key];
+        placeGardenTiles(); markDirty(gpx, gpy); renderDirty();
+        display.draw(px, py, '@', state.player.color || BRIGHT_WHITE, BG);
+        addLog(`> You eat the ${item.name.toLowerCase()}. Not bad.`, item.fg);
+        return;
+      }
+    }
   }
   // Casino
   const cs = state.stations.casino;
@@ -10236,11 +10400,12 @@ function devUnlockEverything() {
   state.shinyRocks.blue.collected = true;
   state.stations.casino.unlocked = true;
 
-  // Cottage with all furniture
+  // Cottage with all furniture and full garden
   state.cottage.owned = true;
   for (const f of FURNITURE_DEFS) {
     if (f.key !== 'cottage') state.cottage.furniture[f.key] = true;
   }
+  for (const g of GARDEN_DEFS) state.garden[g.key] = true;
 
   // Stamps
   state.player.stamps = 500;
