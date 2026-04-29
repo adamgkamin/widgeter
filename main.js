@@ -7734,7 +7734,7 @@ function openCasinoMenu() {
 
   state.gameState = 'casino';
 
-  const BOX_W  = 60, INNER_W = 58, LP_W = 16, RP_W = 41;
+  const BOX_W  = 60, INNER_W = 58, LP_W = 18, RP_W = 39;
   const BOX_H  = 24;
   const BOX_X  = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
   const BOX_Y  = Math.max(1, Math.floor((WORLD_ROWS - BOX_H) / 2));
@@ -7753,23 +7753,40 @@ function openCasinoMenu() {
   let finalReels = [null, null, null];
   let resultType = null;
   let payout     = 0;
+  let confetti   = [];
 
-  // Machine art: 14 rows × 16 chars.  Row 6 reels drawn programmatically.
+  function spawnConfetti(count) {
+    const chars  = ['*', '+', '·', '◆', '■', '♦'];
+    const colors = ['#ffd633', '#ff5555', '#66cc66', '#ff9933', '#66ccff', '#cc66cc'];
+    for (let i = 0; i < count; i++) {
+      confetti.push({
+        x:     BOX_X + 1 + Math.floor(Math.random() * (BOX_W - 2)),
+        y:     BOX_Y + 1,
+        fy:    BOX_Y + 1,
+        vy:    0.3 + Math.random() * 0.4,
+        char:  chars[Math.floor(Math.random() * chars.length)],
+        color: colors[Math.floor(Math.random() * colors.length)],
+        life:  60 + Math.floor(Math.random() * 40),
+      });
+    }
+  }
+
+  // Machine art: 14 rows × 18 chars.  Rows 5-7 overdrawn by reel frames.
   const MA = [
-    '  .----------.  ',
-    '  |          |  ',
-    '  |    $     |  ',
-    '  |          |  ',
-    '  |----------|  ',
-    '  |          |  ',
-    '  |  ? ? ?   |  ', // reel row — overdrawn below
-    '  |          |  ',
-    '  |----------|  ',
-    '  |          |  ',
-    '  |  ████    |  ', // lever (████)
-    '  |          |  ',
-    '  |          |  ',
-    "  '----------'  ",
+    '  .------------.  ',
+    '  |            |  ',
+    '  |     $      |  ',
+    '  |            |  ',
+    '  |------------|  ',
+    '  |            |  ',  // rAy-1 — overdrawn by reel frame top
+    '  |            |  ',  // rAy   — overdrawn by reel symbol
+    '  |            |  ',  // rAy+1 — overdrawn by reel frame bottom
+    '  |------------|  ',
+    '  |            |  ',
+    '  |  ████      |  ',  // lever
+    '  |            |  ',
+    '  |            |  ',
+    "  '------------'  ",
   ];
 
   function artCharFg(ch) {
@@ -7838,28 +7855,35 @@ function openCasinoMenu() {
       const row = (MA[ri] || '').padEnd(LP_W);
       for (let i = 0; i < LP_W; i++) {
         const ch = row[i] || ' ';
-        const fg = ri === 6 ? BC : artCharFg(ch); // reel row drawn separately
+        const fg = (ri >= 5 && ri <= 7) ? BC : artCharFg(ch); // reel rows overdrawn below
         display.draw(BOX_X + 1 + i, ay, ch, fg, BG);
       }
       display.draw(DIVX, ay, '│', DC, BG);
     }
-    // Reel row (row 6 of art = BOX_Y+9)
-    const rAy = BOX_Y + 3 + 6;
-    // base row
-    const baseRow = '  |          |  '.padEnd(LP_W);
-    for (let i = 0; i < LP_W; i++) display.draw(BOX_X + 1 + i, rAy, baseRow[i], BC, BG);
-    // draw 3 symbols at fixed positions within art width
-    const rPos = [4, 7, 10]; // positions within 0-15
+    // Reel frames — 3 rows centred on rAy (art rows 5/6/7)
+    const rAy  = BOX_Y + 3 + 6;
+    const rPos = [2, 6, 10]; // x-offsets within inner LP area
     const spinSym = () => SUITS[Math.floor(Math.random() * 4)];
     for (let ri = 0; ri < 3; ri++) {
       const x = BOX_X + 1 + rPos[ri];
+      // top frame row
+      display.draw(x,     rAy - 1, '┌', BC, BG);
+      display.draw(x + 1, rAy - 1, '─', BC, BG);
+      display.draw(x + 2, rAy - 1, '┐', BC, BG);
+      // middle: borders + symbol
+      display.draw(x,     rAy, '│', BC, BG);
       if (reels[ri]) {
-        display.draw(x, rAy, reels[ri], reelColor(reels[ri], oc), BG);
+        display.draw(x + 1, rAy, reels[ri], reelColor(reels[ri], oc), BG);
       } else if (spinState === 'spinning') {
-        display.draw(x, rAy, spinSym(), '#888888', BG);
+        display.draw(x + 1, rAy, spinSym(), '#888888', BG);
       } else {
-        display.draw(x, rAy, '?', WC, BG);
+        display.draw(x + 1, rAy, '?', WC, BG);
       }
+      display.draw(x + 2, rAy, '│', BC, BG);
+      // bottom frame row
+      display.draw(x,     rAy + 1, '└', BC, BG);
+      display.draw(x + 1, rAy + 1, '─', BC, BG);
+      display.draw(x + 2, rAy + 1, '┘', BC, BG);
     }
     display.draw(DIVX, rAy, '│', DC, BG);
   }
@@ -7902,23 +7926,7 @@ function openCasinoMenu() {
     rrow(12, '', '#f0f0f0');
     rsep(13);
     rrow(14, '', '#f0f0f0');
-    // Reels display row
-    { const ay = BOX_Y + 3 + 15;
-      for (let i = 0; i < RP_W; i++) display.draw(RPX + i, ay, ' ', '#f0f0f0', BG);
-      let cx = RPX + 2;
-      for (let ri = 0; ri < 3; ri++) {
-        const sym = reels[ri] || '?';
-        const fg  = reels[ri] ? reelColor(reels[ri], oc) : WC;
-        const block = `[  ${sym}  ]`;
-        for (let j = 0; j < block.length; j++) {
-          const ch = block[j];
-          const charFg = (ch === '[' || ch === ']') ? WC : (ch !== ' ' && ch !== '?' ? fg : WC);
-          display.draw(cx + j, ay, ch, charFg, BG);
-        }
-        cx += block.length;
-        if (ri < 2) { display.draw(cx, ay, ' ', '#f0f0f0', BG); cx++; }
-      }
-    }
+    rrow(15, '', '#f0f0f0');
     rrow(16, '', '#f0f0f0');
     const [sTxt, sFg] = statusLine();
     rrow(17, sTxt, sFg);
@@ -7969,10 +7977,10 @@ function openCasinoMenu() {
     const anyPair = a===b || b===c || a===c;
     const aB = BLACK_SUITS.has(a), bB = BLACK_SUITS.has(b), cB = BLACK_SUITS.has(c);
     const sameColor = (aB&&bB&&cB) || (!aB&&!bB&&!cB);
-    if (allSame)      { resultType = 'jackpot'; payout = Math.round(betSize * 2 * 10) / 10; }
-    else if (anyPair) { resultType = 'pair';    payout = Math.round(betSize * 1.25 * 10) / 10; }
-    else if (sameColor){ resultType = 'color';  payout = Math.round(betSize * 1.5 * 10) / 10; }
-    else               { resultType = 'loss';   payout = 0; }
+    if (allSame)       { resultType = 'jackpot'; payout = Math.round(betSize * 2 * 10) / 10;    spawnConfetti(50); }
+    else if (anyPair)  { resultType = 'pair';    payout = Math.round(betSize * 1.25 * 10) / 10; spawnConfetti(12); }
+    else if (sameColor){ resultType = 'color';   payout = Math.round(betSize * 1.5 * 10) / 10;  spawnConfetti(25); }
+    else               { resultType = 'loss';    payout = 0; }
     if (payout > 0) { state.player.credits = Math.round((state.player.credits + payout) * 10) / 10; drawStatusBar(); }
     if (resultType === 'loss') { cs.lossesTonight = Math.round(((cs.lossesTonight || 0) + betSize) * 10) / 10; }
     if (resultType === 'jackpot') {
@@ -8012,6 +8020,21 @@ function openCasinoMenu() {
   ;(function casinoLoop() {
     if (state.gameState !== 'casino') return;
     requestAnimationFrame(casinoLoop);
+    // Confetti render — always runs regardless of spin state
+    for (let i = confetti.length - 1; i >= 0; i--) {
+      const p = confetti[i];
+      if (p.y >= BOX_Y + 1 && p.y < BOX_Y + BOX_H - 1) {
+        display.draw(Math.floor(p.x), Math.floor(p.y), ' ', '#f0f0f0', BG);
+      }
+      p.fy = (p.fy || p.y) + p.vy;
+      p.y = Math.floor(p.fy);
+      p.life--;
+      if (p.life <= 0 || p.y >= BOX_Y + BOX_H - 1) {
+        confetti.splice(i, 1);
+      } else {
+        display.draw(Math.floor(p.x), p.y, p.char, p.color, BG);
+      }
+    }
     if (spinState !== 'spinning') return;
     spinFrame++;
     // Update reel cycling display every 2 frames
@@ -8022,21 +8045,6 @@ function openCasinoMenu() {
         reels[2] || null,
       ];
       drawMachine();
-      // Update right pane reels row
-      const ay = BOX_Y + 3 + 15;
-      for (let i = 0; i < RP_W; i++) display.draw(RPX + i, ay, ' ', '#f0f0f0', BG);
-      let cx = RPX + 2;
-      for (let ri = 0; ri < 3; ri++) {
-        const sym = reels[ri] || SUITS[Math.floor(Math.random()*4)];
-        const fg  = reels[ri] ? SUIT_COLORS[reels[ri]] : '#888888';
-        const block = `[  ${sym}  ]`;
-        for (let j = 0; j < block.length; j++) {
-          const ch = block[j];
-          display.draw(cx+j, ay, ch, (ch==='['||ch===']') ? WC : (ch!==' '?fg:WC), BG);
-        }
-        cx += block.length;
-        if (ri < 2) { display.draw(cx, ay, ' ', '#f0f0f0', BG); cx++; }
-      }
       // Update credits and spend lines
       rrow(3, 'Credits: ' + formatCredits(state.player.credits) + 'cr', '#ffd633');
     }
@@ -8048,11 +8056,9 @@ function openCasinoMenu() {
       spinState = 'result';
       calcPayout();
       redraw();
-    }
-    // After result shown (frame 150), player can spin again
-    if (spinFrame >= 150 && spinState === 'result') {
-      spinState = 'idle';
-      redraw();
+      setTimeout(() => {
+        if (spinState === 'result') { spinState = 'idle'; redraw(); }
+      }, 1200);
     }
   })();
 }
