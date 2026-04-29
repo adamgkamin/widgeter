@@ -203,6 +203,12 @@ const state = {
     storage:         { unlocked: false },
     general_store:   { unlocked: false },
     newspaper:       { unlocked: false, lastManipulationDay: -99, manipulationCooldownDays: 3, pendingManipulation: null },
+    casino:          { id: 'CS', x: 71, y: 11, unlocked: false, visible: false, spunToday: 0, dailyBetTotal: 0 },
+  },
+  shinyRocks: {
+    red:    { collected: false, blinkTick: -1, x: 5,  y: 12 },
+    yellow: { collected: false, blinkTick: -1, x: 42, y: 8  },
+    blue:   { collected: false, blinkTick: -1, x: 74, y: 36 },
   },
   newspaper: { todayHeadline: '', tomorrowForecastLabel: '', animTick: 0 },
   rocketWidgets:       0,
@@ -389,6 +395,7 @@ function saveGame() {
     fishingCatchesToday:   state.fishing.catchesToday,
     fishingDailyLimit:     state.fishing.dailyLimit,
     lakeEasterEggDiscovered: state.lakeEasterEgg.discovered,
+    shinyRocks: state.shinyRocks,
   };
   localStorage.setItem(SAVE_KEY, JSON.stringify(data));
 }
@@ -586,6 +593,23 @@ function loadGame() {
     state.fishing.biteTimer     = 0;
     state.fishing.fishX         = 0;
     state.fishing.animTick      = 0;
+    // Casino (§4.2)
+    { const _cs = state.stations.casino = state.stations.casino ?? {};
+      _cs.id              = 'CS';
+      _cs.x               = 71;
+      _cs.y               = 11;
+      _cs.unlocked        = _cs.unlocked        ?? false;
+      _cs.visible         = _cs.visible         ?? false;
+      _cs.spunToday       = _cs.spunToday       ?? 0;
+      _cs.dailyBetTotal   = _cs.dailyBetTotal   ?? 0;
+    }
+    // Shiny rocks (§4.2)
+    { const _sr = state.shinyRocks = data.shinyRocks ?? {};
+      _sr.red    = _sr.red    ?? { collected: false, x: 5,  y: 12 };
+      _sr.yellow = _sr.yellow ?? { collected: false, x: 42, y: 8  };
+      _sr.blue   = _sr.blue   ?? { collected: false, x: 74, y: 36 };
+      _sr.red.blinkTick = -1; _sr.yellow.blinkTick = -1; _sr.blue.blinkTick = -1;
+    }
   } catch (_) {
     // corrupt save — start fresh
   }
@@ -816,7 +840,8 @@ function buildTileMap() {
                     || (x >= 33 && x <= 38 && y >= 7  && y <= 11)
                     || (x >= 60 && x <= 65 && y >= 22 && y <= 26)
                     || (x >= 22 && x <= 27 && y >= 16 && y <= 20)
-                    || (x >= 64 && x <= 71 && y >= 32 && y <= 38); // LF clearance
+                    || (x >= 64 && x <= 71 && y >= 32 && y <= 38) // LF clearance
+                    || (x >= 70 && x <= 75 && y >= 10 && y <= 14); // CS clearance
       if (!reserved && ((x * 1664525 + y * 1013904223) >>> 16) % 100 < 8)
         tileMap[x][y] = mk('Y', '#2d5a2d', true);
     }
@@ -1023,6 +1048,9 @@ function buildTileMap() {
     }
   }
   // Surrounding pond tile descriptions are in descriptions.json tiles["21,25"] etc.
+
+  // Casino (§4.2) — stamp footprint if visible
+  if (state.stations.casino?.visible) stampCasino(!state.stations.casino.unlocked);
 }
 
 // Inject cottage tiles into the live tileMap and mark them dirty.
@@ -1328,6 +1356,12 @@ function resetState() {
   state.stations = {
     launch_facility: { unlocked: false }, storage: { unlocked: false }, general_store: { unlocked: false },
     newspaper: { unlocked: false, lastManipulationDay: -99, manipulationCooldownDays: 3, pendingManipulation: null },
+    casino:    { id: 'CS', x: 71, y: 11, unlocked: false, visible: false, spunToday: 0, dailyBetTotal: 0 },
+  };
+  state.shinyRocks = {
+    red:    { collected: false, blinkTick: -1, x: 5,  y: 12 },
+    yellow: { collected: false, blinkTick: -1, x: 42, y: 8  },
+    blue:   { collected: false, blinkTick: -1, x: 74, y: 36 },
   };
   state.newspaper = { todayHeadline: '', tomorrowForecastLabel: '', animTick: 0 };
   const gsDef = STATION_DEFS.find(s => s.label === 'GS');
@@ -2379,6 +2413,38 @@ function colorInStation(label, wc, lc, dc) {
   display.draw(state.player.x, state.player.y, '@', state.player.color || BRIGHT_WHITE, BG);
   for (const w of state.workers.apprentices) display.draw(w.x, w.y, 'a', '#66ccff', BG);
   for (const c of state.workers.couriers)    display.draw(c.x, c.y, 'c', '#cc66cc', BG);
+}
+
+// Stamp or re-stamp the Casino footprint. Called from buildTileMap and on unlock/visibility trigger.
+function stampCasino(locked) {
+  const cs = state.stations.casino;
+  const wc  = locked ? '#555555' : '#2244aa';
+  const lc  = locked ? '#555555' : '#5577cc';
+  const l0  = locked ? '?' : 'C', l1 = locked ? '?' : 'S';
+  const wallDesc = locked
+    ? 'A run-down building. Cracked windows. Something inside is waiting.'
+    : 'The Casino. Velvet inside. Velvet smell outside.';
+  const doorDesc = locked
+    ? 'A boarded door. The lock has three coloured slots — red, yellow, blue.'
+    : 'The casino door. Open after dark. The Black card opens it any time.';
+  const labelDesc = locked
+    ? "Whatever this was, it isn’t anymore. Or maybe it never was."
+    : 'The Casino. Open after dark.';
+  const mk = (g, fg, walk, desc) => ({ glyph: g, fg, bg: BG, walkable: walk, description: desc });
+  const x = cs.x, y = cs.y;
+  tileMap[x  ][y  ] = mk('+', wc, false, wallDesc);
+  tileMap[x+1][y  ] = mk('-', wc, false, wallDesc);
+  tileMap[x+2][y  ] = mk('-', wc, false, wallDesc);
+  tileMap[x+3][y  ] = mk('+', wc, false, wallDesc);
+  tileMap[x  ][y+1] = mk('|', wc, false, wallDesc);
+  tileMap[x+1][y+1] = mk(l0,  lc, false, labelDesc);
+  tileMap[x+2][y+1] = mk(l1,  lc, false, labelDesc);
+  tileMap[x+3][y+1] = mk('|', wc, false, wallDesc);
+  tileMap[x  ][y+2] = mk('+', wc, false, wallDesc);
+  tileMap[x+1][y+2] = mk('.', wc, true,  doorDesc);
+  tileMap[x+2][y+2] = mk('-', wc, false, wallDesc);
+  tileMap[x+3][y+2] = mk('+', wc, false, wallDesc);
+  for (let dx = 0; dx <= 3; dx++) for (let dy = 0; dy <= 2; dy++) markDirty(x + dx, y + dy);
 }
 
 function checkPhase2Trigger() {
@@ -3829,6 +3895,10 @@ function getPonderHint() {
       text: '> Credit rating at risk. Your card could be revoked.', color: '#ff5555' },
     { cond: () => state.phase >= 5 && state.courierDestination === 'market' && state.rocketWidgets < 50000,
       text: '> Couriers selling at market. Toggle to the rocket?', color: '#ff5555' },
+    { cond: () => state.stations.casino?.unlocked && !state.marketOpen,
+      text: '> The casino is open.', color: '#aa3333' },
+    { cond: () => state.stations.casino?.unlocked && state.bank.card?.tier === 'black',
+      text: '> The casino is open. Always, for you.', color: '#2244aa' },
     // Category 3: Phase guidance
     { cond: () => state.phase === 1 && state.lifetimeCreditsEarned < 20,
       text: '> Buy materials. Craft widgets. Sell at the market.', color: '#66ccff' },
@@ -3862,6 +3932,13 @@ function getPonderHint() {
       text: '> Over halfway. The market barely matters.', color: '#66ccff' },
     { cond: () => state.phase === 5 && state.rocketWidgets >= 45000,
       text: '> Almost. Everything you built was for this.', color: '#66ccff' },
+    // Rock and casino discovery hints
+    { cond: () => state.stations.casino?.visible && !state.stations.casino.unlocked && Object.values(state.shinyRocks).every(r => !r.collected),
+      text: '> Three coloured stones, hidden by day. They blink, briefly. Be patient.', color: '#888888' },
+    { cond: () => { const n = Object.values(state.shinyRocks).filter(r => r.collected).length; return n >= 1 && n <= 2 && !state.stations.casino?.unlocked; },
+      text: '> Find the rest. They appear, briefly, once a day each.', color: '#888888' },
+    { cond: () => Object.values(state.shinyRocks).every(r => r.collected) && !state.stations.casino?.unlocked,
+      text: '> The stones are warm. The casino has a lock with three slots.', color: '#aa3333' },
   ];
 
   for (const c of checks) {
@@ -7404,10 +7481,18 @@ function openFishingMenu() {
 }
 
 function handleInteract() {
+  const px = state.player.x, py = state.player.y;
+  // Shiny rock collection — Space on exact tile
+  for (const [color, rock] of Object.entries(state.shinyRocks)) {
+    if (!rock.collected && rock.x === px && rock.y === py) { collectRock(color, rock); return; }
+  }
   // Fishing: pond center (22, 25) with Aquatics
-  if (state.player.x === 22 && state.player.y === 25 && state.skills.aquatics?.purchased) {
+  if (px === 22 && py === 25 && state.skills.aquatics?.purchased) {
     openFishingMenu(); return;
   }
+  // Casino
+  const cs = state.stations.casino;
+  if (cs?.visible && isAdjacentToStation(cs)) { handleCasinoInteract(); return; }
   const rm = STATION_DEFS.find(s => s.label === 'RM');
   if (rm && isAdjacentToStation(rm)) { openRMShedMenu(); return; }
   const wb = STATION_DEFS.find(s => s.label === 'WB');
@@ -7441,6 +7526,48 @@ function handleInteract() {
   if ((state.skills.interfacing?.pips || 0) >= 1 && state.player.inventory.rm > 0) {
     openWorkbenchMenu(true); return;
   }
+}
+
+// ── Rock collection and casino interact (§4.2) ───────────────────────────────
+
+const ROCK_COLORS = { red: '#ff5555', yellow: '#ffd633', blue: '#66ccff' };
+
+function collectRock(color, rock) {
+  rock.collected = true;
+  addLog(`> You pick up a shiny ${color} stone. It's smaller than expected.`, ROCK_COLORS[color]);
+  markDirty(rock.x, rock.y);
+  renderDirty();
+  const allCollected = Object.values(state.shinyRocks).every(r => r.collected);
+  if (allCollected) setTimeout(() => addLog('> You hold three stones. They are warm in your hand.', '#f0f0f0'), 1000);
+}
+
+function handleCasinoUnlock() {
+  const cs = state.stations.casino;
+  const rocks = state.shinyRocks;
+  const have = Object.entries(rocks).filter(([, r]) => r.collected).map(([c]) => `1 ${c} stone`);
+  if (have.length < 3) {
+    const haveStr = have.length === 0 ? 'none' : have.join(', ');
+    wrapLog(`> The door is boarded shut. Heavy lock with three coloured slots. You have: ${haveStr}.`, '#555555');
+    return;
+  }
+  wrapLog('> You fit the red stone into the lock. It clicks.', '#ff5555');
+  setTimeout(() => wrapLog('> You fit the yellow stone. Another click.', '#ffd633'), 1000);
+  setTimeout(() => wrapLog('> You fit the blue stone. The boards fall away.', '#66ccff'), 2000);
+  setTimeout(() => wrapLog('> The door swings open. Behind it: red velvet, yellow lights, blue smoke.', '#2244aa'), 3000);
+  setTimeout(() => {
+    wrapLog("> A voice from inside: 'we've been waiting.'", '#aa3333');
+    cs.unlocked = true;
+    stampCasino(false);
+    renderDirty();
+    display.draw(state.player.x, state.player.y, '@', state.player.color || BRIGHT_WHITE, BG);
+  }, 4000);
+}
+
+function handleCasinoInteract() {
+  const cs = state.stations.casino;
+  if (!cs.unlocked) { handleCasinoUnlock(); return; }
+  // Placeholder until casino interior is implemented
+  addLog('> The casino is open after dark.', '#2244aa');
 }
 
 // ── Inventory screen (§3.9) ──────────────────────────────────────────────────
@@ -7600,6 +7727,30 @@ function showInventory() {
       irow(BOX_Y+15, `Remaining:      ${Math.max(0, state.demand-state.widgetsSoldToday)} widgets`, BRIGHT_WHITE);
     } else {
       irow(BOX_Y+11, 'MARKET REPORT — available in Phase 3', WC);
+    }
+    // Shiny stones — shown when 1+ collected and casino not yet unlocked
+    const anyRock = state.shinyRocks && Object.values(state.shinyRocks).some(r => r.collected);
+    const casinoUnlocked = state.stations.casino?.unlocked;
+    if (anyRock && !casinoUnlocked) {
+      const rDef = [
+        { key: 'red',    col: '#ff5555' },
+        { key: 'yellow', col: '#ffd633' },
+        { key: 'blue',   col: '#66ccff' },
+      ];
+      border(BOX_Y+16);
+      const label = menuPad('Shiny stones', 16);
+      let c = CONT_X;
+      for (let i = 0; i < 16; i++) display.draw(c++, BOX_Y+16, label[i], WC, BG);
+      for (let i = 0; i < 3; i++) {
+        const r = rDef[i];
+        const got = state.shinyRocks[r.key].collected;
+        display.draw(c++, BOX_Y+16, got ? '*' : '·', got ? r.col : '#333333', BG);
+        if (i < 2) display.draw(c++, BOX_Y+16, ' ', BRIGHT_WHITE, BG);
+      }
+      // Fill rest of row
+      while (c < CONT_X + IW) display.draw(c++, BOX_Y+16, ' ', BRIGHT_WHITE, BG);
+      const allRocks = Object.values(state.shinyRocks).every(r => r.collected);
+      if (allRocks) irow(BOX_Y+17, 'Take them somewhere they\'re wanted.', '#aaaaaa');
     }
     const ms  = state.marketOpen ? 'OPEN' : 'CLOSED';
     const mFg = state.marketOpen ? BRIGHT_YELLOW : WC;
@@ -8410,9 +8561,17 @@ function devJumpToPhase(n) {
   }
   // applyPhaseUnlocks sets all state.stations flags and colorInStation for each tier
   applyPhaseUnlocks(n);
+  // Casino dev unlock for phase 3+
+  if (n >= 3) {
+    state.stations.casino.visible = true;
+    state.shinyRocks.red.collected = true;
+    state.shinyRocks.yellow.collected = true;
+    state.shinyRocks.blue.collected = true;
+    state.stations.casino.unlocked = true;
+  }
   state.gameState = 'playing';
   clearScreen();
-  drawWorld();
+  drawWorld(); // drawWorld calls buildTileMap which stamps casino if visible
   addLog(`DEV: Jumped to Phase ${n}.`, '#ff5555');
 }
 
@@ -8663,10 +8822,11 @@ function showPauseMenu() {
       'Give Credits',
       'Give Widgets',
       'Make Credit Score S',
+      'Open Casino',
       'Back',
     ];
     devOpts.forEach((opt, idx) => optRow(5 + idx, idx + 1, opt, selOpt === idx));
-    for (let r = 13; r < PR; r++) rrow(r, '', BRIGHT_WHITE);
+    for (let r = 14; r < PR; r++) rrow(r, '', BRIGHT_WHITE);
   }
 
   // ── Main render ──────────────────────────────────────────────────────────────
@@ -8701,7 +8861,7 @@ function showPauseMenu() {
   function maxOpts() {
     if (screen === 'pause')    return 3;
     if (screen === 'settings') return 4;
-    if (screen === 'dev')      return 8;
+    if (screen === 'dev')      return 9;
     return 0;
   }
 
@@ -8783,6 +8943,17 @@ function showPauseMenu() {
         drawStatusBar();
         close();
       } else if (selOpt === 7) {
+        // Open Casino
+        state.stations.casino.visible = true;
+        state.shinyRocks.red.collected = true;
+        state.shinyRocks.yellow.collected = true;
+        state.shinyRocks.blue.collected = true;
+        state.stations.casino.unlocked = true;
+        stampCasino(false);
+        renderDirty();
+        addLog('> DEV: Casino unlocked.', '#ff5555');
+        close();
+      } else if (selOpt === 8) {
         screen = 'settings'; selOpt = 0; render();
       }
     }
@@ -8917,7 +9088,15 @@ setInterval(() => {
 
   state.tick++;
   state.dayTick++;
-  if (state.dayTick >= 240) { state.dayTick = 0; state.day++; state.bellFiredToday = false; state.widgetsSoldToday = 0; state.demandMetLogged = false; state._demandImmunityActiveToday = false; state.stats.widgetsMadeToday = 0; state.stats.revenueToday = 0; state.stats.costsToday = 0; state.fishing.catchesToday = 0; }
+  if (state.dayTick >= 240) {
+    state.dayTick = 0; state.day++; state.bellFiredToday = false; state.widgetsSoldToday = 0; state.demandMetLogged = false; state._demandImmunityActiveToday = false; state.stats.widgetsMadeToday = 0; state.stats.revenueToday = 0; state.stats.costsToday = 0; state.fishing.catchesToday = 0;
+    // Casino daily reset
+    if (state.stations.casino) { state.stations.casino.spunToday = 0; state.stations.casino.dailyBetTotal = 0; }
+    // Assign new random blink ticks for uncollected rocks
+    for (const rock of Object.values(state.shinyRocks)) {
+      if (!rock.collected) rock.blinkTick = Math.floor(Math.random() * 239) + 1;
+    }
+  }
   const prevMarketOpen = state.marketOpen;
   state.marketOpen = state.dayTick < 180;
   if (state.marketOpen !== prevMarketOpen) startDayNightFlash(state.marketOpen ? 'open' : 'close');
@@ -9470,6 +9649,28 @@ setInterval(() => {
     }
     renderDirty();
     display.draw(state.player.x, state.player.y, '@', state.player.color || BRIGHT_WHITE, BG);
+  }
+
+  // Casino visibility trigger — phase 2 + 1000cr lifetime
+  if (state.phase >= 2 && state.lifetimeCreditsEarned >= 1000 && !state.stations.casino.visible) {
+    state.stations.casino.visible = true;
+    stampCasino(true);
+    renderDirty();
+    display.draw(state.player.x, state.player.y, '@', state.player.color || BRIGHT_WHITE, BG);
+    setTimeout(() => wrapLog('> A boarded-up building catches your eye on the north-east corner. You hadn\'t noticed it before.', '#555555'), 2000);
+  }
+
+  // Shiny rock blink — each uncollected rock appears for 1 tick at its blinkTick
+  if (state.gameState === 'playing' || state.gameState === 'look') {
+    for (const [color, rock] of Object.entries(state.shinyRocks)) {
+      if (rock.collected) continue;
+      if (rock.blinkTick === state.dayTick) {
+        display.draw(rock.x, rock.y, '*', ROCK_COLORS[color], BG);
+      } else if (rock.blinkTick >= 0 && (rock.blinkTick + 1) % 240 === state.dayTick) {
+        markDirty(rock.x, rock.y);
+        renderDirty();
+      }
+    }
   }
 
   if (state.tick % 10 === 0) saveGame();

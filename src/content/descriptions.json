@@ -197,7 +197,10 @@
     "64,32": "The launch facility needs 50,000 widgets. Route couriers.",
     "70,36": "Toggle courier destination inside the facility menu.",
     "6,33": "Stamps buy cosmetics. Walk, observe, and fish for them.",
-    "18,24": "The aquatics skill lets you enter the pond. Worth it."
+    "18,24": "The aquatics skill lets you enter the pond. Worth it.",
+    "4,12": "Something glints between the trees. You catch it for a moment, then it's gone.",
+    "41,8": "A flash of yellow in the grass. Gone before you could focus.",
+    "73,36": "Something blue blinks here, sometimes. You can't predict when."
   },
   "locked": {
     "launch_facility": "A large structure in the corner, shrouded in canvas. Something tall is underneath. The canvas smells of grease and oxidizer.",
