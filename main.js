@@ -834,7 +834,7 @@ drawArt(0);
 drawPrompt(true);
 
 const CREDIT  = "Created by Adam A.";
-const VERSION = "alpha 1.02.05";
+const VERSION = "alpha 1.02.06";
 function drawTitleBottomText() {
   const CHLABEL = 'press c for changelog';
   for (let i = 0; i < CREDIT.length;   i++) display.draw(77 - CREDIT.length   + i, 45, CREDIT[i],   '#555555', BG);
@@ -1143,13 +1143,13 @@ function buildTileMap() {
     }
   }
 
-  // Snow/Frost Zone — north strip x=20-55, y=1-7 (§4.2)
-  for (let y = 1; y <= 7; y++) {
-    for (let x = 20; x <= 55; x++) {
+  // Snow/Frost Zone — top-right corner x=50-78, y=1-6 (§4.2)
+  for (let y = 1; y <= 6; y++) {
+    for (let x = 50; x <= 78; x++) {
       const t = tileMap[x][y];
       if (!t.walkable || t.glyph === ':' || t.glyph === 'Y') continue;
       if (isPathTile(x, y) || isStationTile(x, y)) continue;
-      const frostStrength = 1.0 - (y - 1) / 7;
+      const frostStrength = 1.0 - (y - 1) / 6;
       const noise = ((x * 1664525 + y * 1013904223) >>> 16) % 100;
       if (noise >= frostStrength * 85) continue;
       let glyph, fg, desc;
@@ -1163,11 +1163,24 @@ function buildTileMap() {
   }
   // Frozen trees in frost zone
   for (let y = 1; y <= 5; y++) {
-    for (let x = 20; x <= 55; x++) {
+    for (let x = 50; x <= 78; x++) {
       if (tileMap[x][y].glyph === 'Y') {
         tileMap[x][y] = { ...tileMap[x][y], fg: '#88aacc', description: 'A frozen tree. The bark is slick with ice.' };
       }
     }
+  }
+  // Snowman at (63, 2) — solid object in frost zone
+  const snowX = 63, snowY = 2;
+  if (!isPathTile(snowX, snowY) && !isStationTile(snowX, snowY)) {
+    const smHead = mk('o', '#ccddee', false);
+    smHead.description = "A snowman's head. Two pebble eyes stare back.";
+    tileMap[snowX][snowY] = smHead;
+    const smBody = mk('8', '#aabbcc', false);
+    smBody.description = "The snowman's body. Someone gave it a button.";
+    tileMap[snowX][snowY + 1] = smBody;
+    const smBase = mk('O', '#8899aa', false);
+    smBase.description = 'The base of a snowman. Wider than expected.';
+    tileMap[snowX][snowY + 2] = smBase;
   }
 
   // Rocky Outcrop — center-south x=32-46, y=35-41 (§4.2)
@@ -7259,6 +7272,7 @@ function renderLargeNumber(display, x, y, numberString, color, availableWidth) {
 // ── Launch Facility menu (§9) ─────────────────────────────────────────────────
 
 const CHANGELOG = [
+  { version: '1.02.06', summary: 'Snow moved to top-right corner, added snowman.' },
   { version: '1.02.05', summary: 'New biomes: snow, rocks, marsh, pond beach, mushrooms, blue flowers.' },
   { version: '1.02.04', summary: 'Changelog menu visual fix — solid background, cyan theme.' },
   { version: '1.02.03', summary: 'Added changelog.' },
