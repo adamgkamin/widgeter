@@ -206,9 +206,9 @@ const state = {
     casino:          { id: 'CS', x: 71, y: 11, unlocked: false, visible: true, spunToday: 0, dailyBetTotal: 0, lossesTonight: 0, jackpotLogged: false },
   },
   shinyRocks: {
-    red:    { collected: false, blinkTicks: [-1, -1, -1], x: 5,  y: 12 },
-    yellow: { collected: false, blinkTicks: [-1, -1, -1], x: 42, y: 8  },
-    blue:   { collected: false, blinkTicks: [-1, -1, -1], x: 74, y: 36 },
+    red:    { collected: false, blinkTicks: [-1, -1, -1], blinkFramesRemaining: 0, x: 5,  y: 12 },
+    yellow: { collected: false, blinkTicks: [-1, -1, -1], blinkFramesRemaining: 0, x: 42, y: 8  },
+    blue:   { collected: false, blinkTicks: [-1, -1, -1], blinkFramesRemaining: 0, x: 74, y: 36 },
   },
   newspaper: { todayHeadline: '', tomorrowForecastLabel: '', animTick: 0 },
   rocketWidgets:       0,
@@ -620,6 +620,7 @@ function loadGame() {
         } else if (!Array.isArray(rock.blinkTicks)) {
           rock.blinkTicks = [-1, -1, -1];
         }
+        rock.blinkFramesRemaining = 0; // transient — always reset on load
       }
     }
   } catch (_) {
@@ -1376,9 +1377,9 @@ function resetState() {
     casino:    { id: 'CS', x: 71, y: 11, unlocked: false, visible: true, spunToday: 0, dailyBetTotal: 0, lossesTonight: 0, jackpotLogged: false },
   };
   state.shinyRocks = {
-    red:    { collected: false, blinkTicks: [-1, -1, -1], x: 5,  y: 12 },
-    yellow: { collected: false, blinkTicks: [-1, -1, -1], x: 42, y: 8  },
-    blue:   { collected: false, blinkTicks: [-1, -1, -1], x: 74, y: 36 },
+    red:    { collected: false, blinkTicks: [-1, -1, -1], blinkFramesRemaining: 0, x: 5,  y: 12 },
+    yellow: { collected: false, blinkTicks: [-1, -1, -1], blinkFramesRemaining: 0, x: 42, y: 8  },
+    blue:   { collected: false, blinkTicks: [-1, -1, -1], blinkFramesRemaining: 0, x: 74, y: 36 },
   };
   state.newspaper = { todayHeadline: '', tomorrowForecastLabel: '', animTick: 0 };
   const gsDef = STATION_DEFS.find(s => s.label === 'GS');
@@ -7502,9 +7503,10 @@ function openFishingMenu() {
 
 function handleInteract() {
   const px = state.player.x, py = state.player.y;
-  // Shiny rock collection — Space on exact tile
-  for (const [color, rock] of Object.entries(state.shinyRocks)) {
-    if (!rock.collected && rock.x === px && rock.y === py) { collectRock(color, rock); return; }
+  // Shiny rock collection — Space on exact tile (first priority, always wins)
+  for (const color of ['red', 'yellow', 'blue']) {
+    const rock = state.shinyRocks[color];
+    if (!rock.collected && state.player.x === rock.x && state.player.y === rock.y) { collectRock(color, rock); return; }
   }
   // Fishing: pond center (22, 25) with Aquatics
   if (px === 22 && py === 25 && state.skills.aquatics?.purchased) {
@@ -7550,7 +7552,13 @@ function handleInteract() {
 
 // ── Rock collection and casino interact (§4.2) ───────────────────────────────
 
-const ROCK_COLORS = { red: '#ff5555', yellow: '#ffd633', blue: '#66ccff' };
+const ROCK_COLORS      = { red: '#ff5555', yellow: '#ffd633', blue: '#66ccff' };
+const ROCK_PEAK_COLORS = { red: '#ff7777', yellow: '#ffea44', blue: '#88ddff' };
+
+function dimColor(hex, factor) {
+  const r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
+  return '#' + [r,g,b].map(c => Math.round(c*factor).toString(16).padStart(2,'0')).join('');
+}
 
 function pickThreeBlinkTicks() {
   while (true) {
@@ -10050,17 +10058,10 @@ setInterval(() => {
     display.draw(state.player.x, state.player.y, '@', state.player.color || BRIGHT_WHITE, BG);
   }
 
-  // Shiny rock blink — each uncollected rock blinks 3 times per day
-  if (state.gameState === 'playing' || state.gameState === 'look') {
-    for (const [color, rock] of Object.entries(state.shinyRocks)) {
-      if (rock.collected) continue;
-      const ticks = rock.blinkTicks || [-1, -1, -1];
-      if (ticks.includes(state.dayTick)) {
-        display.draw(rock.x, rock.y, '*', ROCK_COLORS[color], BG);
-      } else if (ticks.some(t => t >= 0 && (t + 1) % 240 === state.dayTick)) {
-        markDirty(rock.x, rock.y);
-        renderDirty();
-      }
+  // Shiny rock blink — start a 60-frame blink window on matching tick (animation runs in effectsLoop)
+  for (const rock of Object.values(state.shinyRocks)) {
+    if (!rock.collected && (rock.blinkTicks || [-1,-1,-1]).includes(state.dayTick)) {
+      rock.blinkFramesRemaining = 60;
     }
   }
 
@@ -10091,6 +10092,27 @@ setInterval(() => {
 
   // Day/night slow wave advance (~60fps)
   _advanceDayNightWave();
+
+  // Shiny rock pulse animation — runs at 60fps, 1 second per blink
+  if (state.gameState === 'playing' || state.gameState === 'look') {
+    for (const color of ['red', 'yellow', 'blue']) {
+      const rock = state.shinyRocks[color];
+      if (rock.collected || rock.blinkFramesRemaining <= 0) continue;
+      const elapsed  = 60 - rock.blinkFramesRemaining;
+      const peak     = ROCK_PEAK_COLORS[color];
+      let glyph, fg;
+      if (elapsed < 15)      { glyph = '·'; fg = dimColor(peak, 0.5); }
+      else if (elapsed < 30) { glyph = '◦'; fg = dimColor(peak, 0.8); }
+      else if (elapsed < 45) { glyph = '●'; fg = peak; }
+      else                   { glyph = '◦'; fg = dimColor(peak, 0.6); }
+      display.draw(rock.x, rock.y, glyph, fg, BG);
+      rock.blinkFramesRemaining--;
+      if (rock.blinkFramesRemaining === 0) {
+        markDirty(rock.x, rock.y);
+        renderDirty();
+      }
+    }
+  }
 
   // Animate pause menu (gear spin + indicator lights) at ~10fps
   if (state.gameState === 'paused' && pauseMenuRedrawFn) {
