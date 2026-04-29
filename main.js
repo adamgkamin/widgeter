@@ -250,6 +250,7 @@ const state = {
   derivatives:          { forwards: [], futures: [], options: [], pnlToday: 0, totalPnL: 0, marginCallActive: false, marginCallDay: 0, nextSpreadId: 0 },
   volatility:           0.2,
   endingTriggered:      false,
+  devUnlocked:          false,
   widgetsMade:          0,
   peakCredits:          0,
   bank: {
@@ -370,6 +371,7 @@ function saveGame() {
     derivatives:          state.derivatives,
     volatility:           state.volatility,
     endingTriggered:      state.endingTriggered,
+    devUnlocked:          state.devUnlocked,
     widgetsMade:          state.widgetsMade,
     peakCredits:          state.peakCredits,
     bank:                 state.bank,
@@ -459,6 +461,7 @@ function loadGame() {
     state.derivatives.nextSpreadId     = state.derivatives.nextSpreadId     ?? 0;
     state.volatility                     = data.volatility                     ?? 0.2;
     state.endingTriggered                = data.endingTriggered                ?? false;
+    state.devUnlocked                    = data.devUnlocked                    ?? false;
     state.widgetsMade          = data.widgetsMade          ?? 0;
     state.peakCredits          = data.peakCredits          ?? 0;
     state.bank                 = data.bank                 ?? { deposit: 0 };
@@ -826,7 +829,7 @@ drawArt(0);
 drawPrompt(true);
 
 const CREDIT  = "Created by Adam A.";
-const VERSION = "alpha 1.00.07";
+const VERSION = "alpha 1.00.08";
 for (let i = 0; i < CREDIT.length;  i++) display.draw(77 - CREDIT.length  + i, 46, CREDIT[i],  '#555555', BG);
 for (let i = 0; i < VERSION.length; i++) display.draw(77 - VERSION.length + i, 47, VERSION[i], '#555555', BG);
 requestAnimationFrame(titleAnimLoop);
@@ -1623,6 +1626,7 @@ function resetState() {
   state.derivatives          = { forwards: [], futures: [], options: [], pnlToday: 0, totalPnL: 0, marginCallActive: false, marginCallDay: 0 };
   state.volatility           = 0.2;
   state.endingTriggered      = false;
+  state.devUnlocked          = false;
   state.widgetsMade          = 0;
   state.peakCredits          = 0;
   state.bank                 = {
@@ -1766,7 +1770,7 @@ function showTitleOptions() {
       if (e.key === 'Backspace') { devPwBuf = devPwBuf.slice(0, -1); renderOpts(); return; }
       if (e.key === 'Enter') {
         if (devPwBuf.toLowerCase() === DEV_PASSWORD) {
-          state.devMode = true;
+          state.devUnlocked = true;
           devPwMode = false; devPwBuf = '';
           window.removeEventListener('keydown', optsKeyHandler);
           showContinueMenu();
@@ -1788,8 +1792,14 @@ function showTitleOptions() {
       renderOpts(); return;
     }
     if (e.key === '3') {
-      devPwMode = true; devPwBuf = ''; devPwErr = false;
-      renderOpts(); return;
+      if (state.devUnlocked) {
+        window.removeEventListener('keydown', optsKeyHandler);
+        showContinueMenu();
+      } else {
+        devPwMode = true; devPwBuf = ''; devPwErr = false;
+        renderOpts();
+      }
+      return;
     }
     if (e.key === '4' || e.key === 'Escape') {
       window.removeEventListener('keydown', optsKeyHandler);
@@ -9486,6 +9496,97 @@ function devJumpToPhase(n) {
   addLog(`DEV: Jumped to Phase ${n}.`, '#ff5555');
 }
 
+function devUnlockEverything() {
+  resetState();
+  state.phase = 5;
+  state.player.credits = 25000;
+  state.lifetimeCreditsEarned = 50000;
+  state.devUnlocked = true;
+
+  // Workers: 5 apprentices, 4 couriers
+  state.skills.apprenticeCount = 5;
+  state.skills.courierCount = 4;
+  state.skills.workerCarryLevel = 5;
+  state.skills.workerSpeedLevel = 4;
+  state.skills.courierCarryLevel = 4;
+  state.skills.courierSpeedLevel = 4;
+  const ofDef = STATION_DEFS.find(s => s.label === 'OF');
+  if (ofDef) {
+    for (let i = 0; i < 5; i++)
+      state.workers.apprentices.push({ x: ofDef.x+1, y: ofDef.y+2, workerState: 'idle', carryRM: 0, carryWidgets: 0, target: {x:0,y:0}, craftTimer: 0, paused: false, nickname: '' });
+    for (let i = 0; i < 4; i++)
+      state.workers.couriers.push({ x: ofDef.x+1, y: ofDef.y+2, courierState: 'idle', carryWidgets: 0, target: {x:0,y:0}, nickname: '' });
+  }
+
+  // Storage maxed
+  state.skills.storageExp1 = 1; state.skills.storageExp2 = 1;
+  state.storage.widgetCap = 1000; state.storage.rmCap = 1000;
+  state.storage.widgets = 200; state.storage.rm = 100;
+
+  // All Office upgrades
+  state.skills.reducedCarry = 1; state.skills.discountDump = 1;
+  state.skills.demandHistory = 1; state.skills.forecast = 1;
+  state.skills.plantStory = 1; state.skills.smearCampaign = 1;
+  state.skills.futures = 1; state.skills.optionsBuy = 1;
+  state.skills.optionsWrite = 1; state.skills.volatilitySurface = 1;
+
+  // Player skills
+  state.skills.endurance = { pips: 3 };
+  state.skills.aquatics = { purchased: true };
+  state.skills.interfacing = { pips: 3 };
+
+  // Black card
+  state.bank.creditRating = 'AAA'; state.bank.creditRatingScore = 10.0;
+  state.bank.card = {
+    tier: 'black', limit: 50000, balance: 0, interestRate: 0.01,
+    statementCycle: 15, lastStatementDay: 0,
+    minimumPaymentDue: 0, paymentDueDay: 0, missedPayments: 0,
+    consecutiveGoldPayments: 0, demotionWarningDay: null,
+    upgradeNotified: { bronze: true, silver: true, gold: true, black: true },
+    overdraftUsedThisCycle: false, graceUsedThisCycle: false,
+    silverMarketExtraUsedToday: false, demandImmunityUsedThisWeek: false,
+    insuranceBalance: 10000, autoRMThreshold: 20,
+  };
+
+  // Casino unlocked
+  state.shinyRocks.red.collected = true;
+  state.shinyRocks.yellow.collected = true;
+  state.shinyRocks.blue.collected = true;
+  state.stations.casino.unlocked = true;
+
+  // Cottage with all furniture
+  state.cottage.owned = true;
+  for (const f of FURNITURE_DEFS) {
+    if (f.key !== 'cottage') state.cottage.furniture[f.key] = true;
+  }
+
+  // Stamps
+  state.player.stamps = 500;
+
+  // Rocket near-endgame
+  state.rocketWidgets = 49000;
+  state.courierDestination = 'market';
+
+  // Market and economy
+  calculateDailyDemand();
+  state.widgetsSoldToday = 0;
+  state.terminalUnlocked = true;
+  state.officeUnlocked = true;
+
+  // Inventory
+  state.player.inventory.rm = 5;
+  state.player.inventory.widgets = 5;
+  state.player.inventoryCaps = { rm: 10, widgets: 10 };
+
+  // Apply unlocks and enter game
+  applyPhaseUnlocks(5);
+  state.gameState = 'playing';
+  clearScreen();
+  drawWorld();
+  addLog('DEV: Everything unlocked. Rocket at 49K. Couriers set to market.', '#ff5555');
+  addLog('Toggle couriers to rocket when ready for the finale.', '#ff5555');
+}
+
 function showPauseMenu() {
   const prevState = state.gameState !== 'paused' ? state.gameState : 'playing';
   state.gameState = 'paused';
@@ -9734,6 +9835,7 @@ function showPauseMenu() {
       'Give Widgets',
       'Make Credit Score S',
       'Open Casino',
+      'Unlock Everything',
       'Back',
     ];
     devOpts.forEach((opt, idx) => optRow(5 + idx, idx + 1, opt, selOpt === idx));
@@ -9772,7 +9874,7 @@ function showPauseMenu() {
   function maxOpts() {
     if (screen === 'pause')    return 3;
     if (screen === 'settings') return 4;
-    if (screen === 'dev')      return 9;
+    if (screen === 'dev')      return 10;
     return 0;
   }
 
@@ -9806,7 +9908,10 @@ function showPauseMenu() {
     } else if (screen === 'settings') {
       if      (selOpt === 0) { state.audio.muted = !state.audio.muted; saveGame(); drawBorder(); render(); }
       else if (selOpt === 1) { setFullscreen(!state.settings.fullscreen); drawBorder(); render(); }
-      else if (selOpt === 2) { devPwBuf = ''; devPwErr = false; screen = 'devPassword'; render(); }
+      else if (selOpt === 2) {
+        if (state.devUnlocked) { screen = 'dev'; selOpt = 0; render(); }
+        else { devPwBuf = ''; devPwErr = false; screen = 'devPassword'; render(); }
+      }
       else if (selOpt === 3) { screen = 'pause'; selOpt = 0; render(); }
     } else if (screen === 'dev') {
       if (selOpt >= 0 && selOpt <= 3) {
@@ -9864,6 +9969,11 @@ function showPauseMenu() {
         addLog('> DEV: Casino unlocked.', '#ff5555');
         close();
       } else if (selOpt === 8) {
+        // Unlock Everything
+        pauseMenuRedrawFn = null;
+        window.removeEventListener('keydown', pauseKeyHandler);
+        devUnlockEverything();
+      } else if (selOpt === 9) {
         screen = 'settings'; selOpt = 0; render();
       }
     }
@@ -9879,6 +9989,7 @@ function showPauseMenu() {
       if (e.key === 'Backspace') { devPwBuf = devPwBuf.slice(0, -1); render(); return; }
       if (e.key === 'Enter') {
         if (devPwBuf.toLowerCase() === DEV_PASSWORD) {
+          state.devUnlocked = true;
           devPwBuf = ''; screen = 'dev'; selOpt = 0; render();
         } else {
           devPwErr = true; render();
