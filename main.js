@@ -834,7 +834,7 @@ drawArt(0);
 drawPrompt(true);
 
 const CREDIT  = "Created by Adam A.";
-const VERSION = "alpha 1.02.07";
+const VERSION = "alpha 1.02.08";
 function drawTitleBottomText() {
   const CHLABEL = 'press c for changelog';
   for (let i = 0; i < CREDIT.length;   i++) display.draw(77 - CREDIT.length   + i, 45, CREDIT[i],   '#555555', BG);
@@ -1098,16 +1098,59 @@ function buildTileMap() {
     }
   }
 
+  // Dense jungle west of pond — x=1-14, y=16-35 (§4.2)
+  for (let y = 16; y <= 35; y++) {
+    for (let x = 1; x <= 14; x++) {
+      if (isPathTile(x, y) || isStationTile(x, y)) continue;
+      const t = tileMap[x][y];
+      if (t.glyph === ':' || t.glyph === '~') continue;
+      const noise = ((x * 1664525 + y * 1013904223) >>> 16) % 100;
+      if (t.glyph !== 'Y' && noise < 20) {
+        const tile = mk('Y', '#1a4a1a', true);
+        tile.description = 'A jungle tree. The bark is slick with moisture.';
+        tileMap[x][y] = tile;
+        continue;
+      }
+      if (t.glyph === 'Y') {
+        const shade = noise % 4;
+        if (shade === 0)      t.fg = '#1a5a1a';
+        else if (shade === 1) t.fg = '#2a6a2a';
+        else if (shade === 2) t.fg = '#1a4a2a';
+        // shade 3: keep original color for variety
+        t.description = 'A jungle tree. The bark is slick with moisture.';
+        continue;
+      }
+      if (noise < 55) {
+        const ug = noise % 4;
+        let tile;
+        if (ug === 0) {
+          tile = mk('"', '#1a4a1a', true);
+          tile.description = 'Ferns crowd the forest floor.';
+        } else if (ug === 1) {
+          tile = mk('{', '#1a3a1a', true);
+          tile.description = 'Thick vines hang from the canopy.';
+        } else if (ug === 2) {
+          tile = mk('%', '#2a4a1a', true);
+          tile.description = 'A dense bush. Something could be hiding in there.';
+        } else {
+          tile = mk("'", '#1a3a1a', true);
+          tile.description = 'Low growth. The jungle presses in from all sides.';
+        }
+        tileMap[x][y] = tile;
+      }
+    }
+  }
+
   // Sandy desert biome — bottom-right corner around LF, gradient blend into grass (§4.2)
-  for (let y = 27; y <= WORLD_ROWS - 2; y++) {
-    for (let x = 57; x <= DISPLAY_WIDTH - 2; x++) {
+  for (let y = 24; y <= WORLD_ROWS - 2; y++) {
+    for (let x = 53; x <= DISPLAY_WIDTH - 2; x++) {
       const t = tileMap[x][y];
       if (!t.walkable) continue;
       if (t.glyph === ':' || t.glyph === 'Y') continue;
       if (isPathTile(x, y) || isStationTile(x, y)) continue;
 
-      const sandX = (x - 57) / (DISPLAY_WIDTH - 2 - 57);
-      const sandY = (y - 27) / (WORLD_ROWS - 2 - 27);
+      const sandX = (x - 53) / (DISPLAY_WIDTH - 2 - 53);
+      const sandY = (y - 24) / (WORLD_ROWS - 2 - 24);
       const sandStrength = sandX * sandY;
 
       const noise = ((x * 1664525 + y * 1013904223) >>> 16) % 100;
@@ -1126,15 +1169,15 @@ function buildTileMap() {
     }
   }
   // Sand ripple accents in deep desert zone
-  for (let y = 35; y <= WORLD_ROWS - 2; y++) {
-    for (let x = 68; x <= DISPLAY_WIDTH - 2; x++) {
+  for (let y = 32; y <= WORLD_ROWS - 2; y++) {
+    for (let x = 64; x <= DISPLAY_WIDTH - 2; x++) {
       const t = tileMap[x][y];
       if (!t.walkable) continue;
       if (t.glyph === ':' || t.glyph === 'Y') continue;
       if (isPathTile(x, y) || isStationTile(x, y)) continue;
       const noise = ((x * 1664525 + y * 1013904223) >>> 16) % 100;
-      const sandX = (x - 57) / (DISPLAY_WIDTH - 2 - 57);
-      const sandY = (y - 27) / (WORLD_ROWS - 2 - 27);
+      const sandX = (x - 53) / (DISPLAY_WIDTH - 2 - 53);
+      const sandY = (y - 24) / (WORLD_ROWS - 2 - 24);
       if (sandX * sandY > 0.7 && noise % 12 === 0) {
         const tile = mk('~', '#6a5830', true);
         tile.description = 'A ripple in the sand. You wonder what made it.';
@@ -7289,6 +7332,7 @@ function renderLargeNumber(display, x, y, numberString, color, availableWidth) {
 // ── Launch Facility menu (§9) ─────────────────────────────────────────────────
 
 const CHANGELOG = [
+  { version: '1.02.08', summary: 'Desert expanded 30%. Dense jungle west of pond.' },
   { version: '1.02.07', summary: 'Changelog entries now word-wrap to multiple lines instead of being cut off.' },
   { version: '1.02.06', summary: 'Snow moved to top-right corner, added snowman.' },
   { version: '1.02.05', summary: 'New biomes: snow, rocks, marsh, pond beach, mushrooms, blue flowers.' },
