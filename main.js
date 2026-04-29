@@ -837,7 +837,7 @@ drawArt(0);
 drawPrompt(true);
 
 const CREDIT  = "Created by Adam A.";
-const VERSION = "alpha 1.03.01";
+const VERSION = "alpha 1.03.02";
 
 // ── Sound system ──────────────────────────────────────────────────────────────
 const SOUNDS = {};
@@ -847,18 +847,19 @@ function loadSound(name, path) {
   SOUNDS[name] = audio;
 }
 function playSound(name) {
-  if (state.audio.muted) return;
+  if (state.audio?.muted) return;
   const s = SOUNDS[name];
   if (!s) return;
-  s.currentTime = 0;
-  s.play().catch(() => {});
+  const clone = s.cloneNode();
+  clone.volume = s.volume;
+  clone.play().catch(() => {});
 }
-loadSound('bought',      'sounds/bought.wav');
-loadSound('click',       'sounds/click.wav');
-loadSound('crafted',     'sounds/crafted.wav');
-loadSound('new_or_continue', 'sounds/new or continue.wav');
-loadSound('sold',        'sounds/sold.wav');
-loadSound('start_game',  'sounds/start game.wav');
+loadSound('bought',  'sounds/bought.wav');
+loadSound('click',   'sounds/click.wav');
+loadSound('crafted', 'sounds/crafted.wav');
+loadSound('newgame', 'sounds/new or continue.wav');
+loadSound('sold',    'sounds/sold.wav');
+loadSound('start',   'sounds/start game.wav');
 function drawTitleBottomText() {
   const CHLABEL = 'press c for changelog';
   for (let i = 0; i < CREDIT.length;   i++) display.draw(77 - CREDIT.length   + i, 45, CREDIT[i],   '#555555', BG);
@@ -2250,11 +2251,13 @@ function showContinueMenu() {
   function cmKeyHandler(e) {
     if (e.key === '1') {
       if (!saveExists) return;
+      playSound('newgame');
       window.removeEventListener('keydown', cmKeyHandler);
       state.gameState = 'playing';
       clearScreen();
       drawWorld();
     } else if (e.key === '2') {
+      playSound('newgame');
       window.removeEventListener('keydown', cmKeyHandler);
       if (!saveExists) {
         resetState();
@@ -2276,6 +2279,7 @@ function showContinueMenu() {
 }
 
 function onAnyKey() {
+  playSound('start');
   clearInterval(blinkInterval);
   window.removeEventListener('keydown', onAnyKey);
   // Apply fullscreen preference — browsers require a user gesture before requestFullscreen
@@ -2495,6 +2499,7 @@ window.addEventListener('keydown', (e) => {
   const d = DIRS[e.key];
   if (!d) return;
   e.preventDefault();
+  playSound('click');
   restoreLookTile();
   lookX = Math.max(0, Math.min(DISPLAY_WIDTH - 1, lookX + d[0]));
   lookY = Math.max(0, Math.min(WORLD_ROWS - 1,    lookY + d[1]));
@@ -2759,20 +2764,20 @@ function openRMShedMenu() {
     if (e.key === '1' && canBuy1) {
       state.player.credits -= effectiveCost; state.player.inventory.rm++;
       if (isBronzePlus2 && effectiveCost < COST) addLog(`> Card discount applied: -${COST - effectiveCost}cr.`, '#cc7733');
-      addLog('You buy 1 raw material.', '#ff9933'); drawStatusBar();
+      addLog('You buy 1 raw material.', '#ff9933'); playSound('bought'); drawStatusBar();
       { const rmD = STATION_DEFS.find(s => s.label === 'RM'); if (rmD) effectsManager.coinDrain(state.player.x, state.player.y, rmD.x+1, rmD.y+2, effectiveCost); }
       return;
     }
     if (e.key === '2' && maxBuy2 > 0 && canBuy1) {
       state.player.credits -= maxBuy2 * effectiveCost; state.player.inventory.rm += maxBuy2;
-      addLog(`You buy ${maxBuy2} raw material${maxBuy2 !== 1 ? 's' : ''}.`, '#ff9933'); drawStatusBar();
+      addLog(`You buy ${maxBuy2} raw material${maxBuy2 !== 1 ? 's' : ''}.`, '#ff9933'); playSound('bought'); drawStatusBar();
       return;
     }
     if (e.key === '3' && canBuy1) {
       window.removeEventListener('keydown', rmKeyHandler);
       showNumericPrompt(`Buy RM (max ${maxBuy2})`, maxBuy2,
         (n) => { state.player.credits -= n * effectiveCost; state.player.inventory.rm += n;
-                 addLog(`You buy ${n} raw material${n !== 1 ? 's' : ''}.`, '#ff9933'); drawStatusBar();
+                 addLog(`You buy ${n} raw material${n !== 1 ? 's' : ''}.`, '#ff9933'); playSound('bought'); drawStatusBar();
                  openRMShedMenu(); },
         () => openRMShedMenu()
       );
@@ -2784,7 +2789,7 @@ function openRMShedMenu() {
       if (avail < effectiveCost || rmSpace <= 0) return;
       card.balance = Math.round((card.balance + effectiveCost) * 10) / 10;
       state.player.inventory.rm++;
-      addLog(`You buy 1 RM on ${card.tier} card.`, getCardTierColor(card.tier)); drawStatusBar();
+      addLog(`You buy 1 RM on ${card.tier} card.`, getCardTierColor(card.tier)); playSound('bought'); drawStatusBar();
       { const rmD = STATION_DEFS.find(s => s.label === 'RM'); if (rmD) effectsManager.coinDrain(state.player.x, state.player.y, rmD.x+1, rmD.y+2, effectiveCost); }
       redraw();
     }
@@ -2794,6 +2799,7 @@ function openRMShedMenu() {
       if (state.player.credits >= bulkCost) {
         state.player.credits -= bulkCost; state.player.inventory.rm += 50;
         addLog(`Bulk purchase: 50 RM for ${bulkCost}cr (-15%).`, CARD_TIERS.gold.color);
+        playSound('bought');
       } else {
         const card3 = state.bank.card;
         const avail3 = Math.max(0, card3.limit - card3.balance);
@@ -2801,6 +2807,7 @@ function openRMShedMenu() {
           card3.balance = Math.round((card3.balance + bulkCost) * 10) / 10;
           state.player.inventory.rm += 50;
           addLog(`Bulk purchase: 50 RM for ${bulkCost}cr on card (-15%).`, CARD_TIERS.gold.color);
+          playSound('bought');
         } else { addLog('Insufficient credits or card limit for bulk purchase.', '#ff5555'); return; }
       }
       drawStatusBar(); redraw();
@@ -3336,6 +3343,7 @@ function sellWidgets(n) {
   if (state.phase >= 3) state.widgetsSoldToday += n;
   addLog(`Sold ${n} widget${n !== 1 ? 's' : ''} for ${formatCredits(earned)}cr.`, BRIGHT_CYAN);
   if (isFirstSale) { addLog('Congrats on your first sale.', '#cc66cc'); logHistory('Sold the first widget.'); }
+  playSound('sold');
   drawStatusBar();
   { const mtD = STATION_DEFS.find(s => s.label === 'MT'); if (mtD) effectsManager.creditRain(mtD.x + 1, mtD.y + 2, n, isFirstSale, earned); }
   checkPhase2Trigger();
@@ -3783,6 +3791,7 @@ function openMarketMenu(initialTab = 'sell') {
       state.storage.widgets += offer.size;
       offer.accepted = true;
       addLog(`> ${offer.name} accepts. ${offer.size} widgets delivered to storage.`, '#66cc66');
+      playSound('bought');
       drawStatusBar();
     } else {
       offer.rejected = true;
@@ -3798,7 +3807,7 @@ function openMarketMenu(initialTab = 'sell') {
     if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
       e.preventDefault();
       marketTab = marketTab === 'sell' ? 'buy' : 'sell';
-      redraw(); return;
+      playSound('click'); redraw(); return;
     }
 
     if (marketTab === 'sell') {
@@ -4562,13 +4571,13 @@ function showOfficeMenu() {
       e.preventDefault();
       const tabs = ['workers', 'upgrades', 'info'];
       state.officeTab = tabs[(tabs.indexOf(state.officeTab) + 1) % 3];
-      redraw(); return;
+      playSound('click'); redraw(); return;
     }
     if (e.key === 'ArrowLeft') {
       e.preventDefault();
       const tabs = ['workers', 'upgrades', 'info'];
       state.officeTab = tabs[(tabs.indexOf(state.officeTab) + 2) % 3];
-      redraw(); return;
+      playSound('click'); redraw(); return;
     }
 
     // ── INFO tab: worker navigation, pause, rename ────────────────────────────
@@ -4620,7 +4629,7 @@ function showOfficeMenu() {
         state.workers.apprentices.push({ x: ofDef.x+1, y: ofDef.y+2, workerState: 'idle', carryRM: 0, carryWidgets: 0, target: {x:0,y:0}, craftTimer: 0, paused: false, nickname: '' });
         addLog('Apprentice hired.', '#cc66cc');
         state.officeAnim.apprenticeFlash = 3;
-        drawStatusBar(); redraw(); return;
+        playSound('bought'); drawStatusBar(); redraw(); return;
       }
       if (e.key === '2') {
         const node = OFFICE_NODES.find(n => n.key === 'workerCarry');
@@ -4633,7 +4642,7 @@ function showOfficeMenu() {
         state.skills.workerCarryLevel = lv + 1;
         addLog(`> Increase Apprentice Inventory level ${lv + 1}.`, '#cc66cc');
         state.officeAnim.apprenticeFlash = 3;
-        drawStatusBar(); redraw(); return;
+        playSound('bought'); drawStatusBar(); redraw(); return;
       }
       if (e.key === '3') {
         const node = OFFICE_NODES.find(n => n.key === 'workerSpeed');
@@ -4646,7 +4655,7 @@ function showOfficeMenu() {
         state.skills.workerSpeedLevel = lv + 1;
         addLog(`> Train Apprentice Speed level ${lv + 1}.`, '#cc66cc');
         state.officeAnim.apprenticeFlash = 3;
-        drawStatusBar(); redraw(); return;
+        playSound('bought'); drawStatusBar(); redraw(); return;
       }
       if (e.key === '4') {
         const count = state.skills.courierCount;
@@ -4661,7 +4670,7 @@ function showOfficeMenu() {
         state.couriersOwned++;
         addLog(`> ${node.widgetCost} widgets consumed. Courier built.`, '#cc66cc');
         state.officeAnim.courierFlash = 3;
-        drawStatusBar(); redraw(); return;
+        playSound('bought'); drawStatusBar(); redraw(); return;
       }
       if (e.key === '5') {
         const node = OFFICE_NODES.find(n => n.key === 'courierCarry');
@@ -4674,7 +4683,7 @@ function showOfficeMenu() {
         state.skills.courierCarryLevel = lv + 1;
         addLog(`> ${cost} widgets consumed. Increase Courier Inventory purchased.`, '#cc66cc');
         state.officeAnim.courierFlash = 3;
-        drawStatusBar(); redraw(); return;
+        playSound('bought'); drawStatusBar(); redraw(); return;
       }
       if (e.key === '6') {
         const node = OFFICE_NODES.find(n => n.key === 'courierSpeed');
@@ -4687,7 +4696,7 @@ function showOfficeMenu() {
         state.skills.courierSpeedLevel = lv + 1;
         addLog(`> ${cost} widgets consumed. Overclock Courier Speed purchased.`, '#cc66cc');
         state.officeAnim.courierFlash = 3;
-        drawStatusBar(); redraw(); return;
+        playSound('bought'); drawStatusBar(); redraw(); return;
       }
       return;
     }
@@ -4707,7 +4716,7 @@ function showOfficeMenu() {
           if (item.nk === 'storageExp1') { state.storage.widgetCap = 100;  state.storage.rmCap = 100; }
           if (item.nk === 'storageExp2') { state.storage.widgetCap = 1000; state.storage.rmCap = 1000; }
           addLog(`${node.name} purchased.`, '#cc66cc');
-          drawStatusBar(); redraw(); return;
+          playSound('bought'); drawStatusBar(); redraw(); return;
         }
       }
     }
@@ -5129,14 +5138,14 @@ function openGeneralStoreMenu() {
     if (e.key === 'Escape') { closeGS(); return; }
     if (e.key === 'ArrowRight') {
       e.preventDefault();
-      if (gsTab === 'clothing') { gsTab = 'home_goods'; redraw(); }
-      else if (gsTab === 'home_goods') { gsTab = 'garden'; redraw(); }
+      if (gsTab === 'clothing') { gsTab = 'home_goods'; playSound('click'); redraw(); }
+      else if (gsTab === 'home_goods') { gsTab = 'garden'; playSound('click'); redraw(); }
       return;
     }
     if (e.key === 'ArrowLeft') {
       e.preventDefault();
-      if (gsTab === 'home_goods') { gsTab = 'clothing'; redraw(); }
-      else if (gsTab === 'garden') { gsTab = 'home_goods'; redraw(); }
+      if (gsTab === 'home_goods') { gsTab = 'clothing'; playSound('click'); redraw(); }
+      else if (gsTab === 'garden') { gsTab = 'home_goods'; playSound('click'); redraw(); }
       return;
     }
 
@@ -5153,7 +5162,7 @@ function openGeneralStoreMenu() {
       renderDirty();
       display.draw(state.player.x, state.player.y, '@', state.player.color || BRIGHT_WHITE, BG);
       addLog(`${item.name} planted in your garden.`, item.fg);
-      drawStatusBar(); redraw();
+      playSound('bought'); drawStatusBar(); redraw();
       return;
     }
 
@@ -5177,11 +5186,13 @@ function openGeneralStoreMenu() {
         placeGardenTiles();
         renderDirty();
         logHistory('Bought a cottage.');
+        playSound('bought');
         addLog('You purchase the cottage. The deed changes hands.', '#ddcc99');
       } else {
         state.cottage.furniture[item.key] = true;
         if (item.key === 'cat') { state.cottage.catX = 9; state.cottage.catY = 7; }
         logHistory(`Brought home a ${item.name.toLowerCase()}.`);
+        playSound('bought');
         addLog(`${item.name} placed in your cottage.`, '#aa66ff');
         buildInteriorTileMap();
       }
@@ -5202,7 +5213,7 @@ function openGeneralStoreMenu() {
     if (state.player.stamps<10) { addLog(`You need ${10-state.player.stamps} more stamps.`,'#ff5555'); return; }
     state.player.stamps-=10; state.player.ownedOutfits.push(outfit.key); state.player.color=outfit.color; state.player.colorName=outfit.name;
     markDirty(state.player.x,state.player.y); renderDirty(); display.draw(state.player.x,state.player.y,'@',state.player.color,BG);
-    addLog(`You purchase and put on the ${outfit.name.toLowerCase()} outfit.`,outfit.color); drawStatusBar(); redraw();
+    addLog(`You purchase and put on the ${outfit.name.toLowerCase()} outfit.`,outfit.color); playSound('bought'); drawStatusBar(); redraw();
   }
   window.addEventListener('keydown', gsKeyHandler);
 }
@@ -7500,6 +7511,7 @@ function renderLargeNumber(display, x, y, numberString, color, availableWidth) {
 // ── Launch Facility menu (§9) ─────────────────────────────────────────────────
 
 const CHANGELOG = [
+  { version: '1.03.02', summary: 'Sound effects added: buy, sell, craft, click, start, new game.' },
   { version: '1.03.01', summary: 'Garden tab in General Store. Plant flowers and veggies. Eat veggies from your garden.' },
   { version: '1.02.08', summary: 'Desert expanded 30%. Dense jungle west of pond.' },
   { version: '1.02.07', summary: 'Changelog entries now word-wrap to multiple lines instead of being cut off.' },
@@ -10872,8 +10884,8 @@ function showPauseMenu() {
     }
     // Arrow / Enter navigation
     const mo = maxOpts();
-    if (e.key === 'ArrowUp')   { selOpt = (selOpt - 1 + mo) % mo; render(); return; }
-    if (e.key === 'ArrowDown') { selOpt = (selOpt + 1) % mo;       render(); return; }
+    if (e.key === 'ArrowUp')   { selOpt = (selOpt - 1 + mo) % mo; playSound('click'); render(); return; }
+    if (e.key === 'ArrowDown') { selOpt = (selOpt + 1) % mo;       playSound('click'); render(); return; }
     if (e.key === ' ')         { e.preventDefault(); activate(); return; }
     // ESC
     if (e.key === 'Escape') {
@@ -11282,6 +11294,7 @@ setInterval(() => {
     if (craftProgress >= activeCraftTicks) {
       craftProgress = 0;
       state.player.inventory.widgets++;
+      playSound('crafted');
       state.widgetsMade++;
       state.stats.widgetsMadeToday++;
       drawStatusBar();
