@@ -834,7 +834,7 @@ drawArt(0);
 drawPrompt(true);
 
 const CREDIT  = "Created by Adam A.";
-const VERSION = "alpha 1.02.06";
+const VERSION = "alpha 1.02.07";
 function drawTitleBottomText() {
   const CHLABEL = 'press c for changelog';
   for (let i = 0; i < CREDIT.length;   i++) display.draw(77 - CREDIT.length   + i, 45, CREDIT[i],   '#555555', BG);
@@ -1981,9 +1981,30 @@ function showChangelog() {
   const BOX_W = 60, IW_CL = 58, BOX_H = 30;
   const BOX_X = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
   const BOX_Y = Math.max(1, Math.floor((DISPLAY_HEIGHT - BOX_H) / 2));
-  const BC = '#66ccff', WC = '#555555';
+  const BC = '#66ccff';
   let scrollOffset = 0;
   const VISIBLE_ROWS = 18;
+  const maxLineW = IW_CL - 6; // 4-char indent + 2-char margin
+
+  // Build flat row array — each element is one display line
+  const contentRows = [];
+  for (const entry of CHANGELOG) {
+    contentRows.push({ type: 'version', text: 'alpha ' + entry.version });
+    const words = entry.summary.split(' ');
+    let line = '';
+    for (const word of words) {
+      if (!line) {
+        line = word;
+      } else if (line.length + 1 + word.length <= maxLineW) {
+        line += ' ' + word;
+      } else {
+        contentRows.push({ type: 'summary', text: '    ' + line });
+        line = word;
+      }
+    }
+    if (line) contentRows.push({ type: 'summary', text: '    ' + line });
+    contentRows.push({ type: 'blank' });
+  }
 
   function drawChangelog() {
     // Clear entire box area first (prevents bleed-through from title/cube)
@@ -2011,19 +2032,15 @@ function showChangelog() {
     for (let i = 0; i < warn2.length; i++) display.draw(BOX_X+2+i, BOX_Y+5, warn2[i], '#ff5555', BG);
     // Row 8: ═ separator
     for (let x = 1; x < BOX_W-1; x++) display.draw(BOX_X+x, BOX_Y+8, '═', '#444444', BG);
-    // Rows 9 to 9+VISIBLE_ROWS-1: scrollable entries
+    // Rows 9 to 9+VISIBLE_ROWS-1: scrollable content rows
     for (let r = 0; r < VISIBLE_ROWS; r++) {
-      const lineIdx = scrollOffset + r;
-      const entryIdx = Math.floor(lineIdx / 3);
-      const lineType = lineIdx % 3;
+      const row = contentRows[scrollOffset + r];
+      if (!row) continue;
       const ay = BOX_Y + 9 + r;
-      if (entryIdx >= CHANGELOG.length) continue;
-      const entry = CHANGELOG[entryIdx];
-      if (lineType === 0) {
-        const vStr = 'alpha ' + entry.version;
-        for (let i = 0; i < vStr.length; i++) display.draw(BOX_X+2+i, ay, vStr[i], '#66ccff', BG);
-      } else if (lineType === 1) {
-        for (let i = 0; i < entry.summary.length && i < IW_CL-4; i++) display.draw(BOX_X+4+i, ay, entry.summary[i], '#aaaaaa', BG);
+      if (row.type === 'version') {
+        for (let i = 0; i < row.text.length; i++) display.draw(BOX_X+2+i, ay, row.text[i], '#66ccff', BG);
+      } else if (row.type === 'summary') {
+        for (let i = 0; i < row.text.length; i++) display.draw(BOX_X+2+i, ay, row.text[i], '#aaaaaa', BG);
       }
     }
     // Footer separator + hint
@@ -2041,14 +2058,14 @@ function showChangelog() {
       showContinueMenu();
       return;
     }
-    const maxScroll = Math.max(0, CHANGELOG.length * 3 - VISIBLE_ROWS);
+    const maxScroll = Math.max(0, contentRows.length - VISIBLE_ROWS);
     if (e.key === 'ArrowUp') {
       e.preventDefault();
-      scrollOffset = Math.max(0, scrollOffset - 3);
+      scrollOffset = Math.max(0, scrollOffset - 1);
       drawChangelog();
     } else if (e.key === 'ArrowDown') {
       e.preventDefault();
-      scrollOffset = Math.min(maxScroll, scrollOffset + 3);
+      scrollOffset = Math.min(maxScroll, scrollOffset + 1);
       drawChangelog();
     }
   }
@@ -7272,6 +7289,7 @@ function renderLargeNumber(display, x, y, numberString, color, availableWidth) {
 // ── Launch Facility menu (§9) ─────────────────────────────────────────────────
 
 const CHANGELOG = [
+  { version: '1.02.07', summary: 'Changelog entries now word-wrap to multiple lines instead of being cut off.' },
   { version: '1.02.06', summary: 'Snow moved to top-right corner, added snowman.' },
   { version: '1.02.05', summary: 'New biomes: snow, rocks, marsh, pond beach, mushrooms, blue flowers.' },
   { version: '1.02.04', summary: 'Changelog menu visual fix — solid background, cyan theme.' },
