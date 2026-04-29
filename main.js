@@ -829,7 +829,7 @@ drawArt(0);
 drawPrompt(true);
 
 const CREDIT  = "Created by Adam A.";
-const VERSION = "alpha 1.00.08";
+const VERSION = "alpha 1.01.01";
 for (let i = 0; i < CREDIT.length;  i++) display.draw(77 - CREDIT.length  + i, 46, CREDIT[i],  '#555555', BG);
 for (let i = 0; i < VERSION.length; i++) display.draw(77 - VERSION.length + i, 47, VERSION[i], '#555555', BG);
 requestAnimationFrame(titleAnimLoop);
@@ -5817,6 +5817,7 @@ let dashboardRedrawFn  = null;
 let dvMenuRedrawFn     = null;
 let inventoryRedrawFn  = null;
 let lfMenuRedrawFn     = null;
+let lfChyronFn         = null;
 let rmMenuRedrawFn     = null;
 let wbMenuRedrawFn     = null;
 let wbMenuCloseFn      = null;
@@ -7019,6 +7020,25 @@ function renderLargeNumber(display, x, y, numberString, color, availableWidth) {
 
 // ── Launch Facility menu (§9) ─────────────────────────────────────────────────
 
+const CHYRON_MSGS = [
+  'tightening o-rings...',
+  'loading fuel into first chamber...',
+  'screwing in carbonite windshield...',
+  'calibrating gyroscope array...',
+  'pressure testing fuel lines...',
+  'welding heat shield plates...',
+  'inspecting booster nozzles...',
+  'loading freeze-dried rations...',
+  'testing emergency abort system...',
+  'charging backup battery cells...',
+  'sealing cargo bay doors...',
+  'aligning navigation computer...',
+  'polishing the windshield...',
+  'running pre-flight diagnostics...',
+  'cross-referencing star charts...',
+  'loading widget manifest...',
+];
+
 function openLFMenu() {
   state.gameState = 'lf_menu';
 
@@ -7160,6 +7180,27 @@ function openLFMenu() {
       for (let i = 0; i < RW; i++) display.draw(RP + i, ay, line[i] || ' ', fg, BG);
     }
 
+    if (state.rocketWidgets >= 50000) {
+      rpt(4,  '', WC);
+      rpt(5,  '', WC);
+      rpt(6,  '╔══════════════════════════╗', RC);
+      rpt(7,  '║                          ║', RC);
+      rpt(8,  '║      ROCKET  READY       ║', '#ff5555');
+      rpt(9,  '║                          ║', RC);
+      rpt(10, '║    50,000 / 50,000       ║', '#ffd633');
+      rpt(11, '║                          ║', RC);
+      rpt(12, '╚══════════════════════════╝', RC);
+      rpt(13, '', WC);
+      rpt(14, '', WC);
+      rpt(15, '═'.repeat(38), DC);
+      rpt(16, '', WC);
+      const blinkOn = Math.floor(Date.now() / 500) % 2 === 0;
+      rpt(17, blinkOn ? '[ PRESS SPACE TO LAUNCH ]' : '', '#ff5555');
+      rpt(18, '', WC);
+      rpt(19, 'There is no coming back.', '#555555');
+      return;
+    }
+
     rpt(4,  'WIDGETS LOADED', WC);
 
     // Large digit display (rows 5-9, 5 rows tall)
@@ -7223,33 +7264,58 @@ function openLFMenu() {
     // │ separator at col 20 within inner (rows 4-20)
     for (let r = 4; r <= 20; r++) display.draw(BOX_X+1+20, BOX_Y+r, '│', DC, BG);
 
-    // Row 21: ─ separator
-    for (let i = 0; i < IW; i++) display.draw(BOX_X+1+i, BOX_Y+21, '─', DC, BG);
-
-    // Row 22: full-width toggle centered
-    const dest     = state.courierDestination;
-    const mktA     = dest === 'market';
-    const fullToggle = (mktA ? '>> [ MARKET ] <<' : '   [ MARKET ]  ') + ' / ' + (mktA ? '   [ ROCKET ]  ' : '>> [ ROCKET ] <<');
-    const fullPad  = menuPad(fullToggle, IW);
-    const ftx = Math.floor((IW - fullToggle.length) / 2);
-    for (let i = 0; i < IW; i++) display.draw(BOX_X+1+i, BOX_Y+22, fullPad[i] || ' ', BRIGHT_WHITE, BG);
-    // Re-draw toggle parts in their colors
-    let ltx = BOX_X + 1 + ftx;
-    const mktStr = mktA ? '>> [ MARKET ] <<' : '   [ MARKET ]  ';
-    const rktStr = mktA ? '   [ ROCKET ]  ' : '>> [ ROCKET ] <<';
-    for (const ch of mktStr) display.draw(ltx++, BOX_Y+22, ch, mktA ? RC : WC, BG);
-    for (const ch of ' / ')  display.draw(ltx++, BOX_Y+22, ch, WC, BG);
-    for (const ch of rktStr) display.draw(ltx++, BOX_Y+22, ch, mktA ? WC : RC, BG);
+    // Row 21: chyron ticker
+    drawChyron();
+    // Row 22: ─ separator
+    for (let i = 0; i < IW; i++) display.draw(BOX_X+1+i, BOX_Y+22, '─', DC, BG);
 
     drawRocket();
     drawRightPane();
   }
 
+  // ── Chyron ticker (§9) ───────────────────────────────────────────────────────
+  let chyronText = '', chyronOffset = 0, chyronTick = 0;
+
+  function buildChyron() {
+    const msgs = [];
+    for (let i = 0; i < 4; i++)
+      msgs.push(CHYRON_MSGS[Math.floor(Math.random() * CHYRON_MSGS.length)]);
+    chyronText = msgs.join(' ··· ') + ' ··· ';
+    chyronOffset = 0;
+  }
+  buildChyron();
+
+  function drawChyron() {
+    const ay = BOX_Y + 21;
+    if (state.rocketWidgets >= 50000) {
+      // Static ALL SYSTEMS GO at 50K
+      const msg = 'ALL SYSTEMS GO';
+      const pad = Math.floor((IW - msg.length) / 2);
+      const line = ' '.repeat(pad) + msg;
+      const p = menuPad(line, IW);
+      for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, p[i] || ' ', '#ff5555', BG);
+      return;
+    }
+    if (state.rocketWidgets <= 0) {
+      for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, ' ', BRIGHT_WHITE, BG);
+      return;
+    }
+    for (let i = 0; i < IW; i++) {
+      const ci = (chyronOffset + i) % chyronText.length;
+      display.draw(BOX_X + 1 + i, ay, chyronText[ci] || ' ', '#555555', BG);
+    }
+    chyronTick++;
+    if (chyronTick % 6 === 0) chyronOffset++;
+    if (chyronOffset >= chyronText.length) buildChyron();
+  }
+
   lfMenuRedrawFn = redraw;
+  lfChyronFn     = drawChyron;
   redraw();
 
   function closeLF() {
     lfMenuRedrawFn = null;
+    lfChyronFn     = null;
     window.removeEventListener('keydown', lfKeyHandler);
     clearMenuRegion(BOX_X, BOX_Y, BOX_W, BOX_H);
     renderDirty();
@@ -7261,7 +7327,12 @@ function openLFMenu() {
     if (e.key === 'Escape') { closeLF(); return; }
     if (e.key === ' ') {
       e.preventDefault();
-      if (state.rocketWidgets < 50000) {
+      if (state.rocketWidgets >= 50000) {
+        // Launch trigger
+        state.endingTriggered = true;
+        addLog('> Ignition sequence started.', '#ff5555');
+        redraw();
+      } else {
         state.courierDestination = state.courierDestination === 'market' ? 'rocket' : 'market';
         redraw();
       }
@@ -9564,7 +9635,7 @@ function devUnlockEverything() {
   state.player.stamps = 500;
 
   // Rocket near-endgame
-  state.rocketWidgets = 49000;
+  state.rocketWidgets = 49990;
   state.courierDestination = 'market';
 
   // Market and economy
@@ -9583,7 +9654,7 @@ function devUnlockEverything() {
   state.gameState = 'playing';
   clearScreen();
   drawWorld();
-  addLog('DEV: Everything unlocked. Rocket at 49K. Couriers set to market.', '#ff5555');
+  addLog('DEV: Everything unlocked. Rocket at 49,990. Couriers set to market.', '#ff5555');
   addLog('Toggle couriers to rocket when ready for the finale.', '#ff5555');
 }
 
@@ -10791,6 +10862,9 @@ setInterval(() => {
     addLog(item.line, item.color);
     state.bank.upgradeLogLastFired = Date.now();
   }
+
+  // LF chyron live scroll (calls drawChyron closure inside openLFMenu)
+  if (state.gameState === 'lf_menu' && lfChyronFn) lfChyronFn();
 
   requestAnimationFrame(effectsLoop);
 })(0);
