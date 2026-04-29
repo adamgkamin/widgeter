@@ -304,6 +304,7 @@ const state = {
     interfacing:  { pips: 0 },
   },
   craftingTimeRemote: 10,
+  lakeEasterEgg: { discovered: false },
   fishing: {
     totalCatches:  0,
     catchesToday:  0,
@@ -384,9 +385,10 @@ function saveGame() {
     stampHintFired:       state.player.stampHintFired,
     stampHintTick:        state.player.stampHintTick,
     newspaper:            state.newspaper,
-    fishingTotalCatches:  state.fishing.totalCatches,
-    fishingCatchesToday:  state.fishing.catchesToday,
-    fishingDailyLimit:    state.fishing.dailyLimit,
+    fishingTotalCatches:   state.fishing.totalCatches,
+    fishingCatchesToday:   state.fishing.catchesToday,
+    fishingDailyLimit:     state.fishing.dailyLimit,
+    lakeEasterEggDiscovered: state.lakeEasterEgg.discovered,
   };
   localStorage.setItem(SAVE_KEY, JSON.stringify(data));
 }
@@ -572,6 +574,8 @@ function loadGame() {
     state.stations.newspaper.lastManipulationDay    = state.stations.newspaper.lastManipulationDay    ?? -99;
     state.stations.newspaper.manipulationCooldownDays = state.stations.newspaper.manipulationCooldownDays ?? 3;
     state.stations.newspaper.pendingManipulation    = state.stations.newspaper.pendingManipulation    ?? null;
+    // Lake easter egg discovery state
+    state.lakeEasterEgg = { discovered: data.lakeEasterEggDiscovered ?? false };
     // Fishing (§4.2) — only totalCatches, catchesToday, dailyLimit are persistent
     state.fishing = state.fishing ?? {};
     state.fishing.totalCatches  = data.fishingTotalCatches  ?? 0;
@@ -1010,10 +1014,15 @@ function buildTileMap() {
   }
   // Pond center Look Mode description (§4.2)
   if (tileMap[22] && tileMap[22][25]) {
-    tileMap[22][25].description = state.skills.aquatics?.purchased
-      ? 'The center of the lake. The water is calm. Press space to fish.'
-      : 'The deepest part of the pond. You cannot reach it.';
+    if (!state.skills.aquatics?.purchased) {
+      tileMap[22][25].description = 'The deepest part of the pond. Something glints below the surface. You cannot reach it.';
+    } else if (!state.lakeEasterEgg?.discovered) {
+      tileMap[22][25].description = 'The center of the lake. The water is calm but something catches the light below. Press space to investigate.';
+    } else {
+      tileMap[22][25].description = 'The center of the lake. The water is calm. Press space to fish.';
+    }
   }
+  // Surrounding pond tile descriptions are in descriptions.json tiles["21,25"] etc.
 }
 
 // Inject cottage tiles into the live tileMap and mark them dirty.
@@ -1329,6 +1338,7 @@ function resetState() {
   state.craftingTimeRemote = 10;
   state.stats.pondStepsWalked = 0;
   state.fishing = { totalCatches: 0, catchesToday: 0, dailyLimit: 5, currentPhase: 'menu', fishTimer: 0, biteTimer: 0, fishX: 0, animTick: 0 };
+  state.lakeEasterEgg = { discovered: false };
   state.cottage = { owned: false, mapX: 40, mapY: 21, playerX: 10, playerY: 5, furniture: {}, visited: false, catX: 9, catY: 7, matLoggedThisVisit: false };
   state.bookshelfLog = [];
   state.officeAnim = { apprenticeFlash: 0, courierFlash: 0 };
@@ -3843,7 +3853,7 @@ function openGeneralStoreMenu() {
   const IW    = 52;
   const AW    = 14;
   const IPW   = 37;
-  const BOX_H = 25;
+  const BOX_H = 31;
   const BOX_X = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
   const BOX_Y = Math.max(1, Math.floor((WORLD_ROWS - BOX_H) / 2));
   const RPX   = BOX_X + 1 + AW + 1;
@@ -3929,7 +3939,7 @@ function openGeneralStoreMenu() {
     // Stamp balance in art pane last row (r=9, BOX_Y+14)
     { const ay=BOX_Y+14; const stStr = `Stamps:${state.player.stamps} ·`.slice(0,AW);
       for(let i=0;i<AW;i++) display.draw(BOX_X+1+i, ay, stStr[i]||' ', COLOR_STAMPS, BG); }
-    // Right pane
+    // Right pane (rows 6-12)
     if(gsTab==='clothing'){
       drp(BOX_Y+6,'CLOTHING SHOP',TC); drp(BOX_Y+7,'Change your look.','#555555');
       drp(BOX_Y+9,'Each item: 10 stamps','#555555'); drp(BOX_Y+11,'Current look:','#555555');
@@ -3942,39 +3952,55 @@ function openGeneralStoreMenu() {
       if(state.cottage.owned) drp(BOX_Y+12,'Cottage: OWNED','#66cc66');
       else drp(BOX_Y+12,'Cottage: not yet','#555555');
     }
-    // Row 15: ─
-    { const ay=BOX_Y+15; border(ay); for(let i=0;i<IW;i++) display.draw(BOX_X+1+i,ay,'─',DC,BG); }
-    // Rows 16-21: grid (6 rows)
+    // Rows 15-20: shopkeeper note in left pane only (shared between both tabs)
+    { const NOTE = [
+        "  We don't    ",
+        "  sell rods.  ",
+        "  But someone ",
+        "  left some-  ",
+        "  thing in    ",
+        "  the pond.   ",
+      ];
+      for(let r=0;r<6;r++){
+        const ay=BOX_Y+15+r; border(ay);
+        for(let i=0;i<AW;i++) display.draw(BOX_X+1+i,ay,NOTE[r][i]||' ','#aaaa66',BG);
+        display.draw(BOX_X+1+AW,ay,'│',DC,BG);
+        for(let i=0;i<IPW;i++) display.draw(RPX+i,ay,' ',BRIGHT_WHITE,BG);
+      }
+    }
+    // Row 21: ─
+    { const ay=BOX_Y+21; border(ay); for(let i=0;i<IW;i++) display.draw(BOX_X+1+i,ay,'─',DC,BG); }
+    // Rows 22-27: grid (6 rows)
     const letters='abcdefghijkl';
     if(gsTab==='clothing'){
       for(let row=0;row<5;row++){
-        const ay=BOX_Y+16+row; border(ay);
+        const ay=BOX_Y+22+row; border(ay);
         let cx=BOX_X+3;
         cx=drawOutfitCell(cx,ay,OUTFITS[row*2],row*2); cx+=2;
         cx=drawOutfitCell(cx,ay,OUTFITS[row*2+1],row*2+1);
         while(cx<BOX_X+1+IW) display.draw(cx++,ay,' ',BRIGHT_WHITE,BG);
       }
-      { const ay=BOX_Y+21; border(ay); for(let i=0;i<IW;i++) display.draw(BOX_X+1+i,ay,' ',BRIGHT_WHITE,BG); }
+      { const ay=BOX_Y+27; border(ay); for(let i=0;i<IW;i++) display.draw(BOX_X+1+i,ay,' ',BRIGHT_WHITE,BG); }
     } else {
       for(let row=0;row<6;row++){
-        const ay=BOX_Y+16+row; border(ay);
+        const ay=BOX_Y+22+row; border(ay);
         const li=row*2, ri=row*2+1;
         for(let i=0;i<IW;i++) display.draw(BOX_X+1+i,ay,' ',BRIGHT_WHITE,BG);
         if(li<FURNITURE_DEFS.length) drawHGCell(BOX_X+3,ay,FURNITURE_DEFS[li],letters[li]);
         if(ri<FURNITURE_DEFS.length) drawHGCell(BOX_X+28,ay,FURNITURE_DEFS[ri],letters[ri]);
       }
     }
-    // Row 22: ═
-    { const ay=BOX_Y+22; border(ay); for(let i=0;i<IW;i++) display.draw(BOX_X+1+i,ay,'═',DC,BG); }
-    // Row 23: footer
-    { const ay=BOX_Y+23; border(ay);
+    // Row 28: ═
+    { const ay=BOX_Y+28; border(ay); for(let i=0;i<IW;i++) display.draw(BOX_X+1+i,ay,'═',DC,BG); }
+    // Row 29: footer
+    { const ay=BOX_Y+29; border(ay);
       const txt=gsTab==='clothing'?'a–j: buy/equip  →: home goods  ESC: exit':'a–l: buy/visit  ←: clothing  ESC: exit';
       const pad=' '.repeat(Math.max(0,Math.floor((IW-txt.length)/2)));
       const padded=menuPad(pad+txt,IW);
       for(let i=0;i<IW;i++) display.draw(BOX_X+1+i,ay,padded[i]||' ','#555555',BG); }
-    // Row 24: ╚═╝
-    display.draw(BOX_X,BOX_Y+24,'╚',TC,BG); display.draw(BOX_X+BOX_W-1,BOX_Y+24,'╝',TC,BG);
-    for(let i=1;i<BOX_W-1;i++) display.draw(BOX_X+i,BOX_Y+24,'═',TC,BG);
+    // Row 30: ╚═╝
+    display.draw(BOX_X,BOX_Y+30,'╚',TC,BG); display.draw(BOX_X+BOX_W-1,BOX_Y+30,'╝',TC,BG);
+    for(let i=1;i<BOX_W-1;i++) display.draw(BOX_X+i,BOX_Y+30,'═',TC,BG);
   }
 
   gsMenuRedrawFn = redraw;
@@ -6897,6 +6923,11 @@ function exitCottage() {
 
 function openFishingMenu() {
   state.gameState = 'fishing';
+  if (!state.lakeEasterEgg.discovered) {
+    state.lakeEasterEgg.discovered = true;
+    // Update pond center description now that it's been discovered
+    if (tileMap[22]?.[25]) tileMap[22][25].description = 'The center of the lake. The water is calm. Press space to fish.';
+  }
 
   const FC    = '#1a6a8a';   // frame color (deep lake blue)
   const WC    = '#1a6a8a';   // water color (same)

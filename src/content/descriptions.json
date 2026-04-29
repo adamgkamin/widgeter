@@ -159,6 +159,10 @@
     }
   },
   "tiles": {
+    "21,25": "The water is deeper here. Your reflection disappears.",
+    "23,25": "Something stirs near the center of the pond.",
+    "22,24": "The pond floor drops away sharply ahead.",
+    "22,26": "The water is darker here. The center is close.",
     "28,6": "A loose nail sticks up at an odd angle. Someone has bent it down partway, then given up.",
     "52,20": "The ground here is worn in a circle, as if something heavy was once dragged in a loop. Nobody remembers what.",
     "7,36": "A child's drawing scratched into the wood with a tool. A house, a tree, a stick figure. The figure is waving.",
