@@ -533,7 +533,7 @@ function loadGame() {
         apprenticeCount:   s.apprenticeCount   ?? s.apprentice    ?? 0,
         courierCount:      s.courierCount      ?? s.courier       ?? 0,
         workerCarryLevel:  s.workerCarryLevel  ?? Math.min(s.workerCarry  || 0, 5),
-        workerSpeedLevel:  s.workerSpeedLevel  ?? Math.min(s.workerSpeed  || 0, 4),
+        workerSpeedLevel:  s.workerSpeedLevel  ?? Math.min(s.workerSpeed  || 0, 5),
         courierCarryLevel: s.courierCarryLevel ?? Math.min(s.courierCarry || 0, 4),
         courierSpeedLevel: s.courierSpeedLevel ?? Math.min(s.courierSpeed || 0, 4),
         storageExp1:    s.storageExp1    ?? 0,
@@ -832,7 +832,7 @@ drawArt(0);
 drawPrompt(true);
 
 const CREDIT  = "Created by Adam A.";
-const VERSION = "alpha 1.02.01";
+const VERSION = "alpha 1.02.02";
 for (let i = 0; i < CREDIT.length;  i++) display.draw(77 - CREDIT.length  + i, 46, CREDIT[i],  '#555555', BG);
 for (let i = 0; i < VERSION.length; i++) display.draw(77 - VERSION.length + i, 47, VERSION[i], '#555555', BG);
 requestAnimationFrame(titleAnimLoop);
@@ -1639,6 +1639,8 @@ function resetState() {
     ratingHistory: [], consecutivePositiveDays: 0,
     creditNegativeLogged: false,
     casinoStartCredits: null,
+    upgradeLogQueue: [],
+    upgradeLogLastFired: 0,
     card: {
       tier: null, limit: 0, balance: 0, interestRate: 0,
       statementCycle: 10, lastStatementDay: 0,
@@ -3476,7 +3478,7 @@ function openMarketMenu(initialTab = 'sell') {
 
 // Carry cap and speed lookup tables indexed by skill level (§5.3)
 const WORKER_CARRY_CAPS  = [3, 5, 8, 12, 16, 20];        // workerCarryLevel 0–5
-const WORKER_SPEEDS      = [1.0, 1.25, 1.5, 1.75, 2.0];  // workerSpeedLevel 0–4
+const WORKER_SPEEDS      = [1.2, 1.5, 1.8, 2.1, 2.5, 3.0];  // workerSpeedLevel 0–5
 const COURIER_CARRY_CAPS = [10, 15, 25, 40, 60];          // courierCarryLevel 0–4
 const COURIER_SPEEDS     = [1.0, 1.25, 1.5, 2.0, 2.5];   // courierSpeedLevel 0–4
 
@@ -3489,7 +3491,7 @@ const OFFICE_NODES = [
   { key: 'apprentice5', name: 'Hire Apprentice 5', cost: 1000, minPhase: 3, countKey: 'apprenticeCount', tier: 5 },
   // Worker upgrades — scaling repeatable (costs array indexed by current level)
   { key: 'workerCarry', name: 'Increase Apprentice Inventory', levelKey: 'workerCarryLevel', costs: [40, 60, 100, 160, 250], max: 5, minPhase: 2 },
-  { key: 'workerSpeed', name: 'Train Apprentice Speed',        levelKey: 'workerSpeedLevel', costs: [60, 100, 160, 250],     max: 4, minPhase: 2 },
+  { key: 'workerSpeed', name: 'Train Apprentice Speed',        levelKey: 'workerSpeedLevel', costs: [30, 60, 100, 160, 250], max: 5, minPhase: 2 },
   // Storage (unchanged)
   { key: 'storageExp1',  name: 'Storage Expansion I',  cost: 200, max: 1, minPhase: 3 },
   { key: 'storageExp2',  name: 'Storage Expansion II', cost: 300, max: 1, minPhase: 3, requires: 'storageExp1', requiresLabel: 'Expansion I' },
@@ -5616,7 +5618,7 @@ function openBankMenu() {
     renderDirty();
     display.draw(state.player.x, state.player.y, '@', state.player.color || BRIGHT_WHITE, BG);
     // Arm upgrade log sequence if one was queued during this session
-    if (state.bank.upgradeLogQueue.length > 0) {
+    if (state.bank.upgradeLogQueue && state.bank.upgradeLogQueue.length > 0) {
       state.bank.upgradeLogLastFired = Date.now();
     }
     state.gameState = 'playing';
@@ -9903,6 +9905,8 @@ function devUnlockEverything() {
     silverMarketExtraUsedToday: false, demandImmunityUsedThisWeek: false,
     insuranceBalance: 10000, autoRMThreshold: 20,
   };
+  state.bank.upgradeLogQueue    = state.bank.upgradeLogQueue    || [];
+  state.bank.upgradeLogLastFired = state.bank.upgradeLogLastFired || 0;
 
   // Casino unlocked
   state.shinyRocks.red.collected = true;
