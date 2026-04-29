@@ -1119,47 +1119,87 @@ function startPhaseIn() {
 // ── §3.4 Intro flavor screen ──────────────────────────────────────────────────
 
 const INTRO_PARAS = [
-  "On the morning of the deep orange sun, the dew is heavy on the leaves surrounding your workshop. The air smells something metallic.",
-  "You have inherited a large, formidable landscape. A workbench, a plot of land, a small wallet of credits. The buyers come at dawn and leave at dusk. Between these hours you will be manufacturing.",
-  "You make small, useful objects with sufficient patience and raw materials.",
-  "Begin at the shed [RM] to the north-west. Purchase materials and craft them into widgets at the workbench [WB] in the north. Sell what you make at the market [MT] in the south-east during operational hours. Good luck.",
+  "On the morning of the deep orange sun, the dew is heavy on the leaves surrounding your workshop. The air smells of something metallic.",
+  "You have inherited this place. A workbench, a plot of land, a small wallet of credits. The buyers come at dawn and leave at dusk. Between these hours, you will have nothing but time to manufacture.",
+  "You make small, useful objects using sufficient patience and raw materials.",
+  "Begin at the shed [RM] to the north-west. Purchase materials and craft them into widgets at the workbench [WB] in the north. Sell what you make at the market [MT] in the south-east during operational hours.",
 ];
-// Inline color tokens for the 4th intro paragraph (index 3)
-const INTRO_PARA4_TOKENS = { '[RM]': '#ff6600', '[WB]': '#cc3300', '[MT]': '#ffd633' };
+const INTRO_HINT_SENTENCE = "Press 'o' to look around you for hints, and if you're stuck, press 'p' to ponder.";
+const INTRO_NAV_TOKENS    = { '[RM]': '#ff6600', '[WB]': '#cc3300', '[MT]': '#ffd633' };
+const INTRO_BORDER_COLOR  = '#886633';
+const INTRO_FLOURISH_COLOR = '#aa8855';
+const INTRO_TITLE_COLOR   = '#ffd633';
+const INTRO_HINT_COLOR    = '#66cc66';
+const INTRO_KEY_COLOR     = '#ffffff';
+const INTRO_WRAP_W = 54;
+const INTRO_INDENT = '  ';
 
 function showIntroScreen() {
   state.gameState = 'intro';
 
-  const BOX_W   = 60;
-  const INNER_W = BOX_W - 2;
-  const BOX_X   = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
+  const BOX_W        = 60;
+  const INNER_W      = BOX_W - 2; // 58
+  const BOX_X        = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
+  const FLOURISH_STR = '·~'.repeat(27); // 54 chars
+  const TITLE_TEXT   = '-- WIDGETER --';
+  const PROMPT_TEXT  = '[ press any key to begin ]';
 
-  const TITLE_TEXT  = "-- WIDGETER --";
-  const PROMPT_TEXT = "[ press any key to begin ]";
+  // Build animated paragraph data
+  const allAnimParas = [
+    { lines: wordWrap(INTRO_PARAS[0], INTRO_WRAP_W), type: 'text' },
+    { lines: wordWrap(INTRO_PARAS[1], INTRO_WRAP_W), type: 'text' },
+    { lines: wordWrap(INTRO_PARAS[2], INTRO_WRAP_W), type: 'text' },
+    { lines: wordWrap(INTRO_PARAS[3], INTRO_WRAP_W), type: 'nav' },
+    { lines: wordWrap(INTRO_HINT_SENTENCE, INTRO_WRAP_W), type: 'hint' },
+    { lines: ['Good luck.'], type: 'text' },
+  ];
 
-  const wrapped = INTRO_PARAS.map(p => wordWrap(p, INNER_W));
+  // Build rows array
   const rows = [];
-  rows.push(null);
-  rows.push({ text: TITLE_TEXT, fg: BRIGHT_CYAN, center: true });
-  rows.push(null);
-  for (let i = 0; i < wrapped.length; i++) {
-    if (i > 0) rows.push(null);
-    for (const line of wrapped[i]) rows.push({ text: line, fg: BRIGHT_WHITE, colored: i === 3 });
-  }
-  rows.push(null);
-  const PROMPT_IDX = rows.length;
-  rows.push({ text: PROMPT_TEXT, fg: BRIGHT_CYAN, center: true });
+  rows.push({ flourish: true }); // [0] top flourish — shown immediately
+  rows.push(null);                // [1] blank
+  rows.push({ text: TITLE_TEXT, fg: INTRO_TITLE_COLOR, center: true }); // [2]
+  rows.push(null);                // [3] blank
 
-  const BOX_H = rows.length + 2;
+  const PARA_START_IDX = rows.length; // = 4
+
+  for (let i = 0; i < allAnimParas.length; i++) {
+    if (i > 0) rows.push(null); // blank gap between paragraphs
+    for (const line of allAnimParas[i].lines) {
+      const r = { text: INTRO_INDENT + line, fg: BRIGHT_WHITE };
+      if (allAnimParas[i].type === 'nav')  r.coloredNav  = true;
+      if (allAnimParas[i].type === 'hint') r.coloredHint = true;
+      rows.push(r);
+    }
+  }
+
+  // Footer rows (revealed by showPrompt)
+  rows.push(null);                // blank after Good luck.   → PROMPT_IDX - 3
+  rows.push({ flourish: true }); // bottom flourish           → PROMPT_IDX - 2
+  rows.push(null);                // blank before prompt       → PROMPT_IDX - 1
+  const PROMPT_IDX = rows.length;
+  rows.push({ text: PROMPT_TEXT, fg: BRIGHT_CYAN, center: true }); // prompt
+  rows.push(null);                // blank after prompt
+
+  const BOX_H = rows.length + 2; // +2 for top/bottom borders
   const BOX_Y = Math.floor((DISPLAY_HEIGHT - BOX_H) / 2);
 
   function drawContentRow(i, fg_override) {
     const y   = BOX_Y + 1 + i;
     const row = rows[i];
-    display.draw(BOX_X,             y, '|', DIM_GRAY, BG);
-    display.draw(BOX_X + BOX_W - 1, y, '|', DIM_GRAY, BG);
+    display.draw(BOX_X,             y, '║', INTRO_BORDER_COLOR, BG);
+    display.draw(BOX_X + BOX_W - 1, y, '║', INTRO_BORDER_COLOR, BG);
     if (row === null || fg_override === BG) {
       for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, y, ' ', BRIGHT_WHITE, BG);
+      return;
+    }
+    if (row.flourish) {
+      const fg  = fg_override !== undefined ? fg_override : INTRO_FLOURISH_COLOR;
+      const pad = Math.floor((INNER_W - FLOURISH_STR.length) / 2);
+      for (let x = 0; x < INNER_W; x++) {
+        const si = x - pad;
+        display.draw(BOX_X + 1 + x, y, (si >= 0 && si < FLOURISH_STR.length) ? FLOURISH_STR[si] : ' ', fg, BG);
+      }
       return;
     }
     let text = row.text;
@@ -1167,20 +1207,21 @@ function showIntroScreen() {
       const pad = Math.floor((INNER_W - text.length) / 2);
       text = ' '.repeat(pad) + text;
     }
-    if (row.colored && fg_override === undefined) {
-      // Inline color rendering: scan for token markers and switch fg mid-line
+    if ((row.coloredNav || row.coloredHint) && fg_override === undefined) {
+      const tokens    = row.coloredNav ? INTRO_NAV_TOKENS : { "'o'": INTRO_KEY_COLOR, "'p'": INTRO_KEY_COLOR };
+      const defaultFg = row.coloredHint ? INTRO_HINT_COLOR : BRIGHT_WHITE;
       let cx = 0, si = 0;
       while (cx < INNER_W) {
         if (si >= text.length) { display.draw(BOX_X + 1 + cx, y, ' ', BRIGHT_WHITE, BG); cx++; continue; }
         let matched = false;
-        for (const [tok, clr] of Object.entries(INTRO_PARA4_TOKENS)) {
+        for (const [tok, clr] of Object.entries(tokens)) {
           if (text.startsWith(tok, si)) {
             for (let j = 0; j < tok.length && cx < INNER_W; j++, cx++)
               display.draw(BOX_X + 1 + cx, y, tok[j], clr, BG);
             si += tok.length; matched = true; break;
           }
         }
-        if (!matched) { display.draw(BOX_X + 1 + cx, y, text[si], row.fg, BG); cx++; si++; }
+        if (!matched) { display.draw(BOX_X + 1 + cx, y, text[si], defaultFg, BG); cx++; si++; }
       }
     } else {
       const fg = fg_override !== undefined ? fg_override : row.fg;
@@ -1190,23 +1231,29 @@ function showIntroScreen() {
     }
   }
 
-  display.draw(BOX_X,             BOX_Y, '+', DIM_GRAY, BG);
-  display.draw(BOX_X + BOX_W - 1, BOX_Y, '+', DIM_GRAY, BG);
-  for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, BOX_Y, '-', DIM_GRAY, BG);
+  // Draw ornate border
+  display.draw(BOX_X,             BOX_Y, '╔', INTRO_BORDER_COLOR, BG);
+  display.draw(BOX_X + BOX_W - 1, BOX_Y, '╗', INTRO_BORDER_COLOR, BG);
+  for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, BOX_Y, '═', INTRO_BORDER_COLOR, BG);
   const botY = BOX_Y + BOX_H - 1;
-  display.draw(BOX_X,             botY, '+', DIM_GRAY, BG);
-  display.draw(BOX_X + BOX_W - 1, botY, '+', DIM_GRAY, BG);
-  for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, botY, '-', DIM_GRAY, BG);
+  display.draw(BOX_X,             botY, '╚', INTRO_BORDER_COLOR, BG);
+  display.draw(BOX_X + BOX_W - 1, botY, '╝', INTRO_BORDER_COLOR, BG);
+  for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, botY, '═', INTRO_BORDER_COLOR, BG);
 
+  // Mask all content, then reveal static header
   for (let i = 0; i < rows.length; i++) drawContentRow(i, BG);
-  drawContentRow(1);
+  drawContentRow(0); // top flourish
+  drawContentRow(1); // blank
+  drawContentRow(2); // title
+  drawContentRow(3); // blank
 
+  // Build paraRanges for animation
   const paraRanges = [];
-  let ri = 3;
-  for (let i = 0; i < wrapped.length; i++) {
+  let ri = PARA_START_IDX;
+  for (let i = 0; i < allAnimParas.length; i++) {
     const blankIdx = i > 0 ? ri++ : null;
-    paraRanges.push({ blankIdx, start: ri, end: ri + wrapped[i].length });
-    ri += wrapped[i].length;
+    paraRanges.push({ blankIdx, start: ri, end: ri + allAnimParas[i].lines.length });
+    ri += allAnimParas[i].lines.length;
   }
 
   const timers = [];
@@ -1232,7 +1279,7 @@ function showIntroScreen() {
     const { blankIdx, start, end } = paraRanges[i];
     if (blankIdx !== null) drawContentRow(blankIdx);
     for (let r = start; r < end; r++) drawContentRow(r);
-    if (i < INTRO_PARAS.length - 1) {
+    if (i < allAnimParas.length - 1) {
       timers.push(setTimeout(() => revealPara(i + 1), 400));
     } else {
       timers.push(setTimeout(showPrompt, 400));
@@ -1241,8 +1288,10 @@ function showIntroScreen() {
 
   function showPrompt() {
     if (state.gameState !== 'intro') return;
-    drawContentRow(PROMPT_IDX - 1);
-    drawContentRow(PROMPT_IDX);
+    drawContentRow(PROMPT_IDX - 3); // blank after Good luck.
+    drawContentRow(PROMPT_IDX - 2); // bottom flourish
+    drawContentRow(PROMPT_IDX - 1); // blank before prompt
+    drawContentRow(PROMPT_IDX);     // prompt
     let pv = true;
     introBlinkInterval = setInterval(() => {
       if (state.gameState !== 'intro') { clearInterval(introBlinkInterval); return; }
