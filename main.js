@@ -834,7 +834,7 @@ drawArt(0);
 drawPrompt(true);
 
 const CREDIT  = "Created by Adam A.";
-const VERSION = "alpha 1.02.04";
+const VERSION = "alpha 1.02.05";
 function drawTitleBottomText() {
   const CHLABEL = 'press c for changelog';
   for (let i = 0; i < CREDIT.length;   i++) display.draw(77 - CREDIT.length   + i, 45, CREDIT[i],   '#555555', BG);
@@ -1140,6 +1140,145 @@ function buildTileMap() {
         tile.description = 'A ripple in the sand. You wonder what made it.';
         tileMap[x][y] = tile;
       }
+    }
+  }
+
+  // Snow/Frost Zone — north strip x=20-55, y=1-7 (§4.2)
+  for (let y = 1; y <= 7; y++) {
+    for (let x = 20; x <= 55; x++) {
+      const t = tileMap[x][y];
+      if (!t.walkable || t.glyph === ':' || t.glyph === 'Y') continue;
+      if (isPathTile(x, y) || isStationTile(x, y)) continue;
+      const frostStrength = 1.0 - (y - 1) / 7;
+      const noise = ((x * 1664525 + y * 1013904223) >>> 16) % 100;
+      if (noise >= frostStrength * 85) continue;
+      let glyph, fg, desc;
+      if (noise % 5 === 0)      { glyph = '*'; fg = '#aabbcc'; desc = "A snowflake. It won't last."; }
+      else if (noise % 3 === 0) { glyph = '_'; fg = '#667788'; desc = 'A thin sheet of ice. Watch your step.'; }
+      else                      { glyph = '·'; fg = '#8899aa'; desc = 'Frost. The ground crunches underfoot.'; }
+      const tile = mk(glyph, fg, true);
+      tile.description = desc;
+      tileMap[x][y] = tile;
+    }
+  }
+  // Frozen trees in frost zone
+  for (let y = 1; y <= 5; y++) {
+    for (let x = 20; x <= 55; x++) {
+      if (tileMap[x][y].glyph === 'Y') {
+        tileMap[x][y] = { ...tileMap[x][y], fg: '#88aacc', description: 'A frozen tree. The bark is slick with ice.' };
+      }
+    }
+  }
+
+  // Rocky Outcrop — center-south x=32-46, y=35-41 (§4.2)
+  for (let y = 35; y <= 41; y++) {
+    for (let x = 32; x <= 46; x++) {
+      const t = tileMap[x][y];
+      if (!t.walkable || t.glyph === ':' || t.glyph === 'Y') continue;
+      if (isPathTile(x, y) || isStationTile(x, y)) continue;
+      const noise = ((x * 1664525 + y * 1013904223) >>> 16) % 100;
+      if (noise >= 70) continue;
+      let glyph, fg, desc;
+      if (noise % 7 === 0)      { glyph = '^'; fg = '#5a5a5a'; desc = 'Jagged stone. This was here before you.'; }
+      else if (noise % 4 === 0) { glyph = '▪'; fg = '#4a4a4a'; desc = "A stubborn boulder. It isn't moving."; }
+      else if (noise % 3 === 0) { glyph = ';'; fg = '#3a3a3a'; desc = 'Loose pebbles. They scatter when you walk.'; }
+      else                      { glyph = '.'; fg = '#4a4a4a'; desc = 'Gravel. This area is rocky.'; }
+      const tile = mk(glyph, fg, true);
+      tile.description = desc;
+      tileMap[x][y] = tile;
+    }
+  }
+
+  // Pond sand fringe — thin ring outside dirt bank, before marsh so marsh overwrites (§4.2)
+  for (let y = POND_CY - POND_RY - 2; y <= POND_CY + POND_RY + 2; y++) {
+    for (let x = POND_CX - POND_RX - 2; x <= POND_CX + POND_RX + 2; x++) {
+      if (x <= 0 || x >= DISPLAY_WIDTH - 1 || y <= 0 || y >= WORLD_ROWS - 1) continue;
+      if (isPathTile(x, y) || isStationTile(x, y)) continue;
+      const t = tileMap[x][y];
+      if (t.glyph === '~' || t.glyph === ',' || t.glyph === ':' || t.glyph === 'Y') continue;
+      const dx = (x - POND_CX) / (POND_RX + 1.5);
+      const dy = (y - POND_CY) / (POND_RY + 1.5);
+      const dist = dx * dx + dy * dy;
+      if (dist >= 1 || dist < 0.6) continue;
+      const noise = ((x * 1664525 + y * 1013904223) >>> 16) % 100;
+      if (noise >= 50) continue;
+      const tile = mk('.', '#5a4828', true);
+      tile.description = 'Sandy bank. The pond is close.';
+      tileMap[x][y] = tile;
+    }
+  }
+
+  // Marsh/Reeds — fringe ring 2-3 tiles beyond pond bank (§4.2)
+  for (let y = POND_CY - POND_RY - 4; y <= POND_CY + POND_RY + 4; y++) {
+    for (let x = POND_CX - POND_RX - 4; x <= POND_CX + POND_RX + 4; x++) {
+      if (x <= 0 || x >= DISPLAY_WIDTH - 1 || y <= 0 || y >= WORLD_ROWS - 1) continue;
+      if (isPathTile(x, y) || isStationTile(x, y)) continue;
+      const t = tileMap[x][y];
+      if (t.glyph === '~' || t.glyph === ',' || t.glyph === ':' || t.glyph === 'Y') continue;
+      const dx = (x - POND_CX) / (POND_RX + 3);
+      const dy = (y - POND_CY) / (POND_RY + 3);
+      if (dx * dx + dy * dy >= 1) continue;
+      const noise = ((x * 1664525 + y * 1013904223) >>> 16) % 100;
+      if (noise >= 65) continue;
+      let glyph, fg, desc;
+      if (noise % 5 === 0)      { glyph = '|'; fg = '#2a4a2a'; desc = 'Tall reeds. Something rustles inside.'; }
+      else if (noise % 4 === 0) { glyph = ';'; fg = '#3a3a1a'; desc = 'Cattails. They sway without wind.'; }
+      else                      { glyph = ','; fg = '#1a3a2a'; desc = 'Wet mud. Your boots sink a little.'; }
+      const tile = mk(glyph, fg, true);
+      tile.description = desc;
+      tileMap[x][y] = tile;
+    }
+  }
+
+  // Second wildflower patch — left forest edge x=3-14, y=10-18 (§4.2)
+  const FLOWER2_COLORS = ['#6688cc', '#aaaacc', '#88aa88'];
+  const FLOWER2_DESCS  = [
+    'A pale blue flower. It looks cold but alive.',
+    'White petals, almost translucent.',
+    'A green-tinged bloom. Stubborn little thing.',
+  ];
+  for (let y = 10; y <= 18; y++) {
+    for (let x = 3; x <= 14; x++) {
+      if (x <= 0 || x >= DISPLAY_WIDTH - 1 || y <= 0 || y >= WORLD_ROWS - 1) continue;
+      if (isPathTile(x, y) || isStationTile(x, y)) continue;
+      if (tileMap[x][y].glyph === 'Y' || tileMap[x][y].glyph === ':') continue;
+      const noise = ((x * 1664525 + y * 1013904223) >>> 16) % 100;
+      if (noise < 12) {
+        const fi = (x * 31 + y * 17) % 3;
+        const tile = mk('*', FLOWER2_COLORS[fi], true);
+        tile.description = FLOWER2_DESCS[fi];
+        tileMap[x][y] = tile;
+      }
+    }
+  }
+
+  // Scattered mushrooms — ~0.8% density, placed last so they appear on top (§4.2)
+  const MUSHROOM_GLYPHS = [
+    { glyph: '♠', fg: '#6a4a3a' },
+    { glyph: '♠', fg: '#4a6a4a' },
+    { glyph: '♠', fg: '#8a6a5a' },
+    { glyph: '♠', fg: '#5a3a5a' },
+    { glyph: 'τ',  fg: '#aa6644' },
+  ];
+  const MUSHROOM_DESCS = [
+    "A small mushroom. Don't eat it.",
+    "A small mushroom. Don't eat it.",
+    "A small mushroom. Don't eat it.",
+    "A small mushroom. Don't eat it.",
+    "A tall mushroom. Definitely don't eat it.",
+  ];
+  for (let y = 1; y < WORLD_ROWS - 1; y++) {
+    for (let x = 1; x < DISPLAY_WIDTH - 1; x++) {
+      const t = tileMap[x][y];
+      if (!t.walkable) continue;
+      if (t.glyph === ':' || t.glyph === 'Y' || t.glyph === '*' || t.glyph === '~') continue;
+      if (isPathTile(x, y) || isStationTile(x, y)) continue;
+      const noise = ((x * 1664525 + y * 1013904223) >>> 16) % 1000;
+      if (noise >= 8) continue;
+      const mi = noise % MUSHROOM_GLYPHS.length;
+      const tile = mk(MUSHROOM_GLYPHS[mi].glyph, MUSHROOM_GLYPHS[mi].fg, true);
+      tile.description = MUSHROOM_DESCS[mi];
+      tileMap[x][y] = tile;
     }
   }
 
@@ -7120,6 +7259,7 @@ function renderLargeNumber(display, x, y, numberString, color, availableWidth) {
 // ── Launch Facility menu (§9) ─────────────────────────────────────────────────
 
 const CHANGELOG = [
+  { version: '1.02.05', summary: 'New biomes: snow, rocks, marsh, pond beach, mushrooms, blue flowers.' },
   { version: '1.02.04', summary: 'Changelog menu visual fix — solid background, cyan theme.' },
   { version: '1.02.03', summary: 'Added changelog.' },
   { version: '1.02.02', summary: 'Fixed bank crash. Apprentices start faster, 5 speed levels.' },
