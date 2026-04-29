@@ -836,7 +836,7 @@ drawArt(0);
 drawPrompt(true);
 
 const CREDIT  = "Created by Adam A.";
-const VERSION = "alpha 1.03.06";
+const VERSION = "alpha 1.03.07";
 
 // ── Sound system ──────────────────────────────────────────────────────────────
 const SOUNDS = {};
@@ -2885,79 +2885,28 @@ function openWorkbenchMenu(isRemote = false) {
   ];
 
   const HAMMER_FRAMES = [
-    // Frame 0 — resting
-    ['              ',
-     '        ___   ',
-     '       |   |  ',
-     '       |___|  ',
-     '  _____|      '],
-    // Frame 1 — lifting
-    ['       ___    ',
-     '      |   |   ',
-     '      |___|   ',
-     '        |     ',
-     '  _____|      '],
-    // Frame 2 — raised high
-    ['    _______   ',
-     '   |       |  ',
-     '   |_______|  ',
-     '       |      ',
-     '  _____|      '],
-    // Frame 3 — top (pause)
-    ['   |       |  ',
-     '   |_______|  ',
-     '       |      ',
-     '       |      ',
-     '  _____|      '],
-    // Frame 4 — swinging down
-    ['              ',
-     '    _______   ',
-     '   |       |  ',
-     '   |_______|  ',
-     '  _____|      '],
-    // Frame 5 — approaching anvil
-    ['              ',
-     '              ',
-     '    _______   ',
-     '   |_______|  ',
-     '  _____|      '],
-    // Frame 6 — IMPACT
-    ['  * . * . *   ',
-     '   \\  |  /    ',
-     '   |_______|  ',
-     '  *|  anvil|* ',
-     '  ==-----==   '],
-    // Frame 7 — sparks flying
-    [' *  .  *  . * ',
-     '    *   *     ',
-     '   |_______|  ',
-     '   |  anvil|  ',
-     '  ==-----==   '],
-    // Frame 8 — rebound
-    ['              ',
-     '    _______   ',
-     '   |       |  ',
-     '   |_______|  ',
-     '  ==-----==   '],
-    // Frame 9 — settling
-    ['              ',
-     '              ',
-     '      ___     ',
-     '     |___|    ',
-     '  _____|      '],
+    ['              ', '        ___   ', '       |   |  ', '       |___|  ', '  _____|      '],
+    ['       ___    ', '      |   |   ', '      |___|   ', '        |     ', '  _____|      '],
+    ['    _______   ', '   |       |  ', '   |_______|  ', '       |      ', '  _____|      '],
+    ['   |       |  ', '   |_______|  ', '       |      ', '       |      ', '  _____|      '],
+    ['              ', '    _______   ', '   |       |  ', '   |_______|  ', '  _____|      '],
+    ['              ', '              ', '    _______   ', '   |_______|  ', '  _____|      '],
+    ['  * . * . *   ', '    \  |  /   ', '   |_______|  ', '  *|=anvil=|* ', '  ==-----==   '],
+    [' *  .  *  . * ', '    *   *     ', '   |_______|  ', '   |=anvil=|  ', '  ==-----==   '],
+    ['              ', '    _______   ', '   |       |  ', '   |_______|  ', '  ==-----==   '],
+    ['              ', '              ', '      ___     ', '     |___|    ', '  _____|      '],
   ];
-
   const HAMMER_COLORS = [
-    ['#aaaaaa', '#aaaaaa', '#aaaaaa', '#aaaaaa', '#886633'], // 0 rest
-    ['#aaaaaa', '#aaaaaa', '#aaaaaa', '#cc6600', '#886633'], // 1 lift
-    ['#aaaaaa', '#aaaaaa', '#aaaaaa', '#cc6600', '#886633'], // 2 raised
-    ['#aaaaaa', '#aaaaaa', '#cc6600', '#cc6600', '#886633'], // 3 top
-    ['#aaaaaa', '#aaaaaa', '#aaaaaa', '#aaaaaa', '#886633'], // 4 swing
-    ['#aaaaaa', '#aaaaaa', '#aaaaaa', '#aaaaaa', '#886633'], // 5 approach
-    [null,      '#ff9933', '#ffffff', null,      '#ffaa33'], // 6 IMPACT
-    [null,      null,      '#aaaaaa', '#aaaaaa', '#ffaa33'], // 7 sparks
-    ['#aaaaaa', '#aaaaaa', '#aaaaaa', '#aaaaaa', '#ffaa33'], // 8 rebound
-    ['#aaaaaa', '#aaaaaa', '#aaaaaa', '#aaaaaa', '#886633'], // 9 settle
+    ['#aaaaaa', '#aaaaaa', '#aaaaaa', '#aaaaaa', '#886633'],
+    ['#aaaaaa', '#aaaaaa', '#aaaaaa', '#cc6600', '#886633'],
+    ['#aaaaaa', '#aaaaaa', '#aaaaaa', '#cc6600', '#886633'],
+    ['#aaaaaa', '#aaaaaa', '#cc6600', '#cc6600', '#886633'],
+    ['#aaaaaa', '#aaaaaa', '#aaaaaa', '#aaaaaa', '#886633'],
+    ['#aaaaaa', '#aaaaaa', '#aaaaaa', '#aaaaaa', '#886633'],
+    [null,      '#ff9933', '#ffffff', null,      '#ffaa33'],
+    [null,      null,      '#aaaaaa', '#aaaaaa', '#ffaa33'],
+    ['#aaaaaa', '#aaaaaa', '#aaaaaa', '#aaaaaa', '#ffaa33'],
+    ['#aaaaaa', '#aaaaaa', '#aaaaaa', '#aaaaaa', '#886633'],
   ];
 
   function drawHammerRow(r, ay) {
@@ -2970,11 +2919,11 @@ function openWorkbenchMenu(isRemote = false) {
       const ch = s[i] || ' ';
       let fg;
       if (base === null) {
-        if (ch === '*')                       fg = '#ffd633';
-        else if (ch === '.')                  fg = '#ff9933';
-        else if (ch === '\\' || ch === '/')   fg = '#ff9933';
-        else if (ch === '=' || ch === '-')    fg = '#886633';
-        else                                  fg = '#aaaaaa';
+        if (ch === '*') fg = '#ffd633';
+        else if (ch === '.') fg = '#ff9933';
+        else if (ch === '\\' || ch === '/') fg = '#ff9933';
+        else if (ch === '=' || ch === '-') fg = '#886633';
+        else fg = '#aaaaaa';
       } else {
         fg = base;
       }
@@ -7601,6 +7550,7 @@ function renderLargeNumber(display, x, y, numberString, color, availableWidth) {
 // ── Launch Facility menu (§9) ─────────────────────────────────────────────────
 
 const CHANGELOG = [
+  { version: '1.03.07', summary: 'Workbench 10-frame hammer animation (fourth attempt).' },
   { version: '1.03.06', summary: 'Pause menu widget art replaced with rotating cube and particles.' },
   { version: '1.03.05', summary: 'Workbench hammer animation replaced with 10-frame version.' },
   { version: '1.03.04', summary: 'Redesigned 10-frame workbench hammer animation with anvil and sparks.' },
