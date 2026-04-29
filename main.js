@@ -3474,72 +3474,83 @@ function showOfficeMenu() {
       }
 
     } else if (state.officeTab === 'upgrades') {
-      // Tab 2 — UPGRADES: WAREHOUSING / MARKETING / TRADING two-column grid
-      const CW = 26; // each cell = IW/2
-      function getItemData(item) {
+      // Tab 2 — UPGRADES: 2-row item cells (name row + cost/status row) in 2×2 grid per section
+      const HALF = Math.floor(IW / 2); // 26
+      function drawUpgradeCell(xStart, ay, item, isNameRow) {
         const node = OFFICE_NODES.find(n => n.key === item.nk);
-        if (!node) return null;
-        const ns = nodeStatus(item.nk);
-        let label = node.name;
-        let costStr;
-        if (node.levelKey) {
-          const level = state.skills[node.levelKey] || 0;
-          if (level > 0) label += ` (${level}/${node.max})`;
-          costStr = level < node.max ? `${node.costs[level]}cr` : '';
-        } else if (node.widgetCost != null) {
-          costStr = `${node.widgetCost}WG`;
-        } else if (node.cost != null) {
-          costStr = `${node.cost}cr`;
+        if (!node) { for (let i = 0; i < HALF; i++) display.draw(xStart + i, ay, ' ', DC, BG); return; }
+        const { fg, status } = nodeStatus(item.nk);
+        const owned    = status === '[owned]' || status === '[max]';
+        const locked   = fg === DC;
+        const canAfford = fg === '#66cc66';
+        if (isNameRow) {
+          const prefix = `  ${item.k}) `;
+          const full = (prefix + node.name).padEnd(HALF).slice(0, HALF);
+          for (let i = 0; i < HALF; i++) {
+            const ch = full[i] || ' ';
+            let cfG;
+            if (i < prefix.length)  cfG = '#555555';
+            else if (owned)          cfG = '#888888';
+            else if (locked)         cfG = '#444444';
+            else if (canAfford)      cfG = '#aaaaaa';
+            else                     cfG = '#666666';
+            display.draw(xStart + i, ay, ch, cfG, BG);
+          }
         } else {
-          costStr = '';
+          let costVal;
+          if (node.levelKey) {
+            const lv = state.skills[node.levelKey] || 0;
+            costVal = lv < node.max ? `${node.costs[lv]}cr` : '';
+          } else if (node.widgetCost != null) {
+            costVal = `${node.widgetCost}WG`;
+          } else if (node.cost != null) {
+            costVal = `${node.cost}cr`;
+          } else {
+            costVal = '';
+          }
+          const indicator  = owned ? '✓' : (locked ? '·' : '●');
+          const indColor   = owned ? '#888888' : (locked ? '#444444' : (canAfford ? '#66cc66' : '#ff5555'));
+          const costColor  = owned ? '#888888' : (locked ? '#444444' : (canAfford ? '#66cc66' : '#ff5555'));
+          const costStr    = ('      ' + costVal).padEnd(HALF - 2).slice(0, HALF - 2);
+          for (let i = 0; i < HALF - 2; i++) display.draw(xStart + i, ay, costStr[i] || ' ', costColor, BG);
+          display.draw(xStart + HALF - 2, ay, indicator, indColor, BG);
+          display.draw(xStart + HALF - 1, ay, ' ', BRIGHT_WHITE, BG);
         }
-        return { k: item.k, label, costStr, ns };
-      }
-      function drawUpgradeCell(ay, xStart, k, label, costStr, ns) {
-        const NAME_W = 14, COST_W = 6;
-        const { fg } = ns;
-        const nameFg = fg === '#888888' ? '#888888' : fg === DC ? '#444444' : '#aaaaaa';
-        const costFg = fg === '#888888' ? '#888888' : fg === '#66cc66' ? '#66cc66' : fg === '#ff5555' ? '#ff5555' : '#444444';
-        const [indCh, indFg] = fg === '#888888' ? ['✓', '#888888']
-                             : fg === '#66cc66'  ? ['●', '#66cc66']
-                             : fg === '#ff5555'  ? ['●', '#ff5555']
-                             : ['·', '#444444'];
-        const kStr     = (k ? `${k})` : '  ');
-        const nameStr  = (label.length > NAME_W ? label.slice(0, NAME_W-1) + '.' : label).padEnd(NAME_W);
-        const costDisp = (fg === '#888888' ? '' : costStr).padStart(COST_W);
-        let x = xStart;
-        display.draw(x++, ay, kStr[0] || ' ', '#555555', BG);
-        display.draw(x++, ay, kStr[1] || ' ', '#555555', BG);
-        display.draw(x++, ay, ' ', DC, BG);
-        for (let i = 0; i < NAME_W; i++) display.draw(x++, ay, nameStr[i] || ' ', nameFg, BG);
-        display.draw(x++, ay, ' ', DC, BG);
-        for (let i = 0; i < COST_W; i++) display.draw(x++, ay, costDisp[i] || ' ', costFg, BG);
-        display.draw(x++, ay, ' ', DC, BG);
-        display.draw(x++, ay, indCh, indFg, BG); // 2+1+14+1+6+1+1 = 26
       }
       let dr = 0;
       for (const sec of SECTIONS) {
         if (dr >= PAGE_ROWS) break;
+        // Section header row: ══[ NAME ]═══ with ═ in #333333 and name in colour
         const hasAvail = sec.items.some(item => nodeStatus(item.nk).fg === '#66cc66');
-        const secColor = hasAvail ? '#ffd633' : '#333333';
+        const nameColor = hasAvail ? '#ffd633' : '#555555';
         { const ay = BOX_Y + 16 + dr; border(ay);
-          const decorated = `[ ${sec.header} ]`;
-          const totalDashes = IW - decorated.length - 2;
-          const lDash = Math.floor(totalDashes / 2), rDash = totalDashes - lDash;
-          const full = ('═'.repeat(lDash) + ' ' + decorated + ' ' + '═'.repeat(rDash)).slice(0, IW).padEnd(IW);
-          for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, full[i] || '═', secColor, BG);
+          const tag = `[ ${sec.header} ]`;
+          const totalDash = IW - tag.length - 2;
+          const lD = Math.floor(totalDash / 2), rD = totalDash - lD;
+          const full = ('═'.repeat(lD) + ' ' + tag + ' ' + '═'.repeat(rD)).slice(0, IW);
+          for (let i = 0; i < IW; i++) {
+            const isTag = i >= lD + 1 && i < lD + 1 + tag.length;
+            display.draw(BOX_X + 1 + i, ay, full[i] || '═', isTag ? nameColor : '#333333', BG);
+          }
         }
         dr++;
-        for (let pi = 0; pi < sec.items.length && dr < PAGE_ROWS; pi += 2) {
-          const ay = BOX_Y + 16 + dr; border(ay);
-          const d1 = getItemData(sec.items[pi]);
-          if (d1) drawUpgradeCell(ay, BOX_X + 1, d1.k, d1.label, d1.costStr, d1.ns);
+        // Items in pairs: 2 rows per pair (name row then cost row)
+        for (let pi = 0; pi < sec.items.length && dr + 1 < PAGE_ROWS; pi += 2) {
+          const nameAy = BOX_Y + 16 + dr;
+          const costAy = BOX_Y + 16 + dr + 1;
+          border(nameAy); border(costAy);
+          drawUpgradeCell(BOX_X + 1,        nameAy, sec.items[pi],     true);
+          drawUpgradeCell(BOX_X + 1,        costAy, sec.items[pi],     false);
           if (pi + 1 < sec.items.length) {
-            const d2 = getItemData(sec.items[pi + 1]);
-            if (d2) drawUpgradeCell(ay, BOX_X + 1 + CW, d2.k, d2.label, d2.costStr, d2.ns);
+            drawUpgradeCell(BOX_X + 1 + HALF, nameAy, sec.items[pi + 1], true);
+            drawUpgradeCell(BOX_X + 1 + HALF, costAy, sec.items[pi + 1], false);
+          } else {
+            for (let i = 0; i < HALF; i++) display.draw(BOX_X + 1 + HALF + i, nameAy, ' ', DC, BG);
+            for (let i = 0; i < HALF; i++) display.draw(BOX_X + 1 + HALF + i, costAy, ' ', DC, BG);
           }
-          dr++;
+          dr += 2;
         }
+        // Blank spacer after section
         if (dr < PAGE_ROWS) {
           const ay = BOX_Y + 16 + dr; border(ay);
           for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, ay, ' ', BRIGHT_WHITE, BG);
