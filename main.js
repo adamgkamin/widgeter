@@ -836,7 +836,7 @@ drawArt(0);
 drawPrompt(true);
 
 const CREDIT  = "Created by Adam A.";
-const VERSION = "alpha 1.03.09";
+const VERSION = "alpha 1.03.10";
 
 // ── Sound system ──────────────────────────────────────────────────────────────
 const SOUNDS = {};
@@ -2902,7 +2902,7 @@ function openWorkbenchMenu(isRemote = false) {
     ['   |       |  ', '   |_______|  ', '       |      ', '       |      ', '  _____|      '],
     ['              ', '    _______   ', '   |       |  ', '   |_______|  ', '  _____|      '],
     ['              ', '              ', '    _______   ', '   |_______|  ', '  _____|      '],
-    ['  * . * . *   ', '    \  |  /   ', '   |_______|  ', '  *|=anvil=|* ', '  ==-----==   '],
+    ['  * . * . *   ', '    \\  |  /   ', '   |_______|  ', '  *|=anvil=|* ', '  ==-----==   '],
     [' *  .  *  . * ', '    *   *     ', '   |_______|  ', '   |=anvil=|  ', '  ==-----==   '],
     ['              ', '    _______   ', '   |       |  ', '   |_______|  ', '  ==-----==   '],
     ['              ', '              ', '      ___     ', '     |___|    ', '  _____|      '],
@@ -7561,6 +7561,7 @@ function renderLargeNumber(display, x, y, numberString, color, availableWidth) {
 // ── Launch Facility menu (§9) ─────────────────────────────────────────────────
 
 const CHANGELOG = [
+  { version: '1.03.10', summary: 'Workbench hammer animation -- 10 frames via sed (fifth attempt).' },
   { version: '1.03.09', summary: 'All menus updated to double-line border style.' },
   { version: '1.03.08', summary: 'Title menus restyled with cyan double-line borders, removed WIDGETER label.' },
   { version: '1.03.07', summary: 'Workbench 10-frame hammer animation (fourth attempt).' },
