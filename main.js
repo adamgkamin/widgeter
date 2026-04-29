@@ -786,24 +786,33 @@ let titleFrame = 0;
 function titleAnimLoop() {
   if (state.gameState !== 'title' && state.gameState !== 'title_menu') return;
   titleFrame++;
-  renderTitleCube();
-  // Update and draw particles
+
+  // Step 1: Erase all particles at current positions
+  for (const p of titleParticles) {
+    const px = Math.floor(p.x), py = Math.floor(p.y);
+    if (px >= 1 && px < DISPLAY_WIDTH - 1 && py >= 1 && py < DISPLAY_HEIGHT - 1)
+      display.draw(px, py, ' ', BRIGHT_WHITE, BG);
+  }
+
+  // Step 2: Update positions, decrement life, remove dead ones
   for (let i = titleParticles.length - 1; i >= 0; i--) {
     const p = titleParticles[i];
     p.x += p.vx; p.y += p.vy; p.life--;
+    if (p.life <= 0 || p.y <= 1 || p.y >= ART_Y - 1) { titleParticles.splice(i, 1); }
+  }
+
+  // Step 3: Render cube and text (so erased particle spots are restored)
+  renderTitleCube();
+  drawArt(titleFrame);
+
+  // Step 4: Draw surviving particles on top
+  for (const p of titleParticles) {
     const px = Math.floor(p.x), py = Math.floor(p.y);
-    const dead = p.life <= 0 || p.y <= 1 || p.y >= ART_Y - 1;
-    if (dead) {
-      if (py >= 2 && py < ART_Y && px >= 0 && px < DISPLAY_WIDTH)
-        display.draw(px, py, ' ', BRIGHT_WHITE, BG);
-      titleParticles.splice(i, 1);
-      continue;
-    }
-    if (px >= 0 && px < DISPLAY_WIDTH && py >= 0 && py < DISPLAY_HEIGHT)
+    if (px >= 1 && px < DISPLAY_WIDTH - 1 && py >= 1 && py < DISPLAY_HEIGHT - 1)
       display.draw(px, py, p.char, p.color, BG);
   }
+
   if (titleParticles.length < 4 && Math.random() < 0.015) spawnTitleParticle();
-  drawArt(titleFrame);
   requestAnimationFrame(titleAnimLoop);
 }
 
@@ -821,7 +830,7 @@ drawArt(0);
 drawPrompt(true);
 
 const CREDIT  = "Created by Adam A.";
-const VERSION = "alpha 1.00.03";
+const VERSION = "alpha 1.00.04";
 for (let i = 0; i < CREDIT.length;  i++) display.draw(79 - CREDIT.length  + i, 46, CREDIT[i],  '#555555', BG);
 for (let i = 0; i < VERSION.length; i++) display.draw(79 - VERSION.length + i, 47, VERSION[i], '#555555', BG);
 requestAnimationFrame(titleAnimLoop);
