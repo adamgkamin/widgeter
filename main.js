@@ -7,6 +7,8 @@ import {
   COLOR_HINT_LINE,
   COLOR_STAMPS,
   DEV_PASSWORD,
+  COLOR_NP_FRAME,
+  COLOR_NP_LABEL,
 } from './constants.js';
 import { EffectsManager } from './src/effects.js';
 
@@ -182,6 +184,8 @@ const state = {
     stampLookTiles:    new Set(),
     stampLookMilestone: 0,
     stampEventTimer:   Math.floor(Math.random() * 21) + 40,
+    stampHintFired:    false,
+    stampHintTick:     180 + Math.floor(Math.random() * 59),
   },
   day: 1,
   tick: 0,
@@ -360,6 +364,8 @@ function saveGame() {
     stampLookTiles:       Array.from(state.player.stampLookTiles),
     stampLookMilestone:   state.player.stampLookMilestone,
     stampEventTimer:      state.player.stampEventTimer,
+    stampHintFired:       state.player.stampHintFired,
+    stampHintTick:        state.player.stampHintTick,
     newspaper:            state.newspaper,
   };
   localStorage.setItem(SAVE_KEY, JSON.stringify(data));
@@ -515,6 +521,8 @@ function loadGame() {
     state.player.stampLookTiles    = new Set(data.stampLookTiles ?? []);
     state.player.stampLookMilestone = data.stampLookMilestone ?? 0;
     state.player.stampEventTimer   = data.stampEventTimer   ?? (Math.floor(Math.random() * 21) + 40);
+    state.player.stampHintFired    = data.stampHintFired    ?? false;
+    state.player.stampHintTick     = data.stampHintTick     ?? (180 + Math.floor(Math.random() * 59));
     // Newspaper (§13)
     state.newspaper = data.newspaper ?? { todayHeadline: '', tomorrowForecastLabel: '', animTick: 0 };
     state.newspaper.todayHeadline       = state.newspaper.todayHeadline       ?? '';
@@ -628,7 +636,17 @@ function renderLog() {
     } else {
       const lineIdx = pendingLine ? (state.logLines.length - 4 + i) : (state.logLines.length - 5 + i);
       const entry = state.logLines[lineIdx];
-      if (entry) {
+      if (entry && entry.rich) {
+        drawRow(row, '', DIM_GRAY); // clear the row first
+        const prefix = '> ';
+        const full   = prefix + entry.text;
+        for (let ci = 0; ci < full.length && ci < DISPLAY_WIDTH; ci++) {
+          const cIdx = ci - prefix.length; // character index into entry.text
+          const col  = entry.colors[Math.max(0, cIdx) % entry.colors.length];
+          const fg   = ci < prefix.length ? DIM_GRAY : col;
+          display.draw(ci, row, full[ci], fg, BG);
+        }
+      } else if (entry) {
         drawRow(row, '> ' + entry.text, entry.color);
       } else {
         drawRow(row, '>', DIM_GRAY);
@@ -1254,6 +1272,8 @@ function resetState() {
   state.player.stampLookTiles    = new Set();
   state.player.stampLookMilestone = 0;
   state.player.stampEventTimer   = Math.floor(Math.random() * 21) + 40;
+  state.player.stampHintFired    = false;
+  state.player.stampHintTick     = 180 + Math.floor(Math.random() * 59);
   const lfDef = STATION_DEFS.find(s => s.label === 'LF');
   const stDef = STATION_DEFS.find(s => s.label === 'ST');
   const bkDef = STATION_DEFS.find(s => s.label === 'BK');
@@ -1325,11 +1345,14 @@ function showContinueMenu() {
   }
   const title = '-- WIDGETER --';
   for (let i = 0; i < title.length; i++) display.draw(CX+i, BOX_Y+1, title[i], BRIGHT_CYAN, BG);
+  const saveExists = !!localStorage.getItem(SAVE_KEY);
   const o1 = '1. Continue'; const o2 = '2. New Game';
-  for (let i = 0; i < o1.length; i++) display.draw(CX+i, BOX_Y+3, o1[i], BRIGHT_WHITE, BG);
-  for (let i = 0; i < o2.length; i++) display.draw(CX+i, BOX_Y+4, o2[i], BRIGHT_WHITE, BG);
+  const c1fg = saveExists ? BRIGHT_WHITE : '#333333';
+  for (let i = 0; i < o1.length; i++) display.draw(CX+i, BOX_Y+3, o1[i], c1fg, BG);
+  for (let i = 0; i < o2.length; i++) display.draw(CX+i, BOX_Y+4, o2[i], '#66cc66', BG);
   function cmKeyHandler(e) {
     if (e.key === '1') {
+      if (!saveExists) return;
       window.removeEventListener('keydown', cmKeyHandler);
       state.gameState = 'playing';
       clearScreen();
@@ -1347,12 +1370,7 @@ function onAnyKey() {
   window.removeEventListener('keydown', onAnyKey);
   // Apply fullscreen preference — browsers require a user gesture before requestFullscreen
   if (state.settings.fullscreen) setFullscreen(true);
-  if (hasSave) {
-    showContinueMenu();
-  } else {
-    state.gameState = 'transitioning';
-    startPhaseIn();
-  }
+  showContinueMenu();
 }
 
 window.addEventListener('keydown', onAnyKey);
@@ -2165,7 +2183,7 @@ function applyPhaseUnlocks(phase) {
     }
     if (!state.stations.newspaper.unlocked) {
       state.stations.newspaper.unlocked = true;
-      colorInStation('NP', '#ccaa44', '#ffdd66');
+      colorInStation('NP', COLOR_NP_FRAME, COLOR_NP_LABEL);
     }
   }
   if (phase >= 4) {
@@ -2262,8 +2280,8 @@ function checkPhase3Trigger() {
     setTimeout(() => addLog('New possibilities are available.', '#66cc66'), 2000);
     setTimeout(() => colorInStation('BK', '#66cc66', '#aaffaa'), 4000);
     setTimeout(() => {
-      addLog('> The Newspaper office has a light on. Someone is printing something.', '#ccaa44');
-      colorInStation('NP', '#ccaa44', '#ffdd66');
+      addLog('> The Newspaper office has a light on. Someone is printing something.', COLOR_NP_FRAME);
+      colorInStation('NP', COLOR_NP_FRAME, COLOR_NP_LABEL);
     }, 5000);
   }
 }
@@ -3580,12 +3598,12 @@ function handlePonder() {
   if (state.phase >= 3 && state.stations.newspaper?.unlocked) {
     const np = state.stations.newspaper;
     if (np.pendingManipulation) {
-      wrapLog('> Tomorrow\'s headline is already written.', '#ccaa44'); return;
+      wrapLog('> Tomorrow\'s headline is already written.', COLOR_NP_FRAME); return;
     } else if (state.skills.plantStory) {
       const onCooldown = (state.day - np.lastManipulationDay) < 3;
-      if (!onCooldown) { wrapLog('> The press is ready. The market is listening.', '#ccaa44'); return; }
+      if (!onCooldown) { wrapLog('> The press is ready. The market is listening.', COLOR_NP_FRAME); return; }
     } else {
-      wrapLog('> The paper prints what it\'s given. For now.', '#ccaa44'); return;
+      wrapLog('> The paper prints what it\'s given. For now.', COLOR_NP_FRAME); return;
     }
   }
 
@@ -6931,10 +6949,10 @@ function openNewspaperMenu() {
   if (!state.stations.newspaper?.unlocked) return;
   state.gameState = 'newspaper';
 
-  const NC    = '#ccaa44'; // newsprint gold
+  const NC    = COLOR_NP_FRAME;
   const LC    = '#f0f0f0';
   const DC    = '#333333';
-  const HL    = '#ffdd66'; // headline gold
+  const HL    = COLOR_NP_LABEL;
   const BOX_W = 60;
   const IW    = 58;        // inner width
   const LP_W  = 16;        // left pane (art)
@@ -7743,7 +7761,7 @@ setInterval(() => {
       const FORECAST_LABELS = [[71,'Strong'],[55,'Positive'],[40,'Mixed'],[25,'Weak'],[0,'Poor']];
       state.newspaper.tomorrowForecastLabel = FORECAST_LABELS.find(([t]) => nxtD > t)[1];
       state.newspaper.animTick = 0;
-      addLog(`> [DAILY WIDGET] ${headline}`, '#ccaa44');
+      addLog(`> [DAILY WIDGET] ${headline}`, COLOR_NP_FRAME);
     }
     // Settle forward contracts due today
     if (state.derivatives.forwards.length > 0) {
@@ -7855,6 +7873,16 @@ setInterval(() => {
 
   }
   drawTimeIndicator();
+
+  // Stamp hint on first night — day 1 night phase only, once ever (§13)
+  if (state.day === 1 && state.dayTick === state.player.stampHintTick && !state.player.stampHintFired) {
+    state.player.stampHintFired = true;
+    const hintText = 'Being observant seems to award stamps';
+    const hintEntry = { text: hintText, rich: true, colors: [COLOR_STAMPS, '#f0f0f0'] };
+    state.logLines.push(hintEntry);
+    if (state.logLines.length > 5) state.logLines.shift();
+    renderLog();
+  }
 
   // Stamp event timer — only when actively playing (§13)
   if (state.gameState === 'playing') {

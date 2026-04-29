@@ -20,6 +20,10 @@ export const COLOR_HINT_LINE = '#2a2a3a';
 // Stamps currency color (§13)
 export const COLOR_STAMPS = '#aa9966';
 
+// Newspaper station colors (§4.2)
+export const COLOR_NP_FRAME = '#3a8c4a';
+export const COLOR_NP_LABEL = '#6abf7a';
+
 // Dev mode access code
 export const DEV_PASSWORD = 'wetstyle';
 
