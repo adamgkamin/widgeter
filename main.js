@@ -29,7 +29,6 @@ document.getElementById('game-container').appendChild(display.getContainer());
 // Fullscreen / resize helpers — module-level so any function can use them
 let pauseMenuRedrawFn  = null; // set by showPauseMenu, cleared on close
 let pauseMenuCloseFn   = null; // set by showPauseMenu so fullscreenchange can close it
-let _pauseFrameCount  = 0;   // throttle counter for effectsLoop animation
 let fsError = '';             // shown in settings menu when requestFullscreen fails
 let fsErrorTimer = null;
 let resizeDebounceTimer = null;
@@ -837,7 +836,7 @@ drawArt(0);
 drawPrompt(true);
 
 const CREDIT  = "Created by Adam A.";
-const VERSION = "alpha 1.03.05";
+const VERSION = "alpha 1.03.06";
 
 // ── Sound system ──────────────────────────────────────────────────────────────
 const SOUNDS = {};
@@ -7602,6 +7601,7 @@ function renderLargeNumber(display, x, y, numberString, color, availableWidth) {
 // ── Launch Facility menu (§9) ─────────────────────────────────────────────────
 
 const CHANGELOG = [
+  { version: '1.03.06', summary: 'Pause menu widget art replaced with rotating cube and particles.' },
   { version: '1.03.05', summary: 'Workbench hammer animation replaced with 10-frame version.' },
   { version: '1.03.04', summary: 'Redesigned 10-frame workbench hammer animation with anvil and sparks.' },
   { version: '1.03.03', summary: 'Fixed numeric prompt disappearing. Redesigned workbench hammer animation.' },
@@ -10581,36 +10581,11 @@ function showPauseMenu() {
   const PS    = 4;   // pane start row offset (from BOX_Y)
   const PR    = 17;  // pane rows 0–16
 
-  const FLAVOR_POOL = [
-    'time is not passing right now.',
-    'the market is frozen mid-transaction.',
-    'your workers are standing very still.',
-    'a courier is suspended mid-step.',
-    'somewhere, a widget waits to be made.',
-    'the pond is not shimmering.',
-  ];
-  const flavorLine = FLAVOR_POOL[Math.floor(Math.random() * FLAVOR_POOL.length)];
-
-  // Widget art — 20 chars each; ## gear at row1[9-10], !! lights at row7[9-10]
-  const ART = [
-    '                    ',  // 0
-    '         ##         ',  // 1  gear (animated: ## <-> //)
-    '                    ',  // 2
-    '        ________    ',  // 3
-    '       /       /|   ',  // 4
-    '      /_______/ |   ',  // 5
-    '      |       | |   ',  // 6
-    '      |  !!   | |   ',  // 7  lights (animated color)
-    '      |       | /   ',  // 8
-    '      |_______|/    ',  // 9
-    '                    ',  // 10
-    '                    ',  // 11
-    '                    ',  // 12
-    '                    ',  // 13
-    '                    ',  // 14
-    '  a widget.         ',  // 15
-    '  probably.         ',  // 16
-  ];
+  // ── Left pane: mini rotating cube ───────────────────────────────────────────
+  const CUBE_V = [[-1,-1,-1],[1,-1,-1],[1,1,-1],[-1,1,-1],[-1,-1,1],[1,-1,1],[1,1,1],[-1,1,1]];
+  const CUBE_E = [[0,1],[1,2],[2,3],[3,0],[4,5],[5,6],[6,7],[7,4],[0,4],[1,5],[2,6],[3,7]];
+  let pauseAngleA = 0, pauseAngleB = 0;
+  const pauseParticles = [];
 
   let screen       = 'pause';
   let selOpt       = 0;
@@ -10675,26 +10650,95 @@ function showPauseMenu() {
   // ── Left pane art ────────────────────────────────────────────────────────────
 
   function drawLeftArt() {
-    const gt = state.gameState === 'paused' ? Math.floor(Date.now() / 2000) % 2 : 0;
-    const lt = state.gameState === 'paused' ? Math.floor(Date.now() / 500)  % 2 : 0;
-    const gearCh   = gt === 0 ? '#' : '/';
-    const lightCol = lt === 0 ? '#66cc66' : '#ff5555';
+    const cx = BOX_X + 1 + Math.floor(LP_W / 2);
+    const cy = BOX_Y + PS + Math.floor(PR / 2) - 1;
+    const scale = 2.0;
+
+    // Clear left pane
     for (let r = 0; r < PR; r++) {
-      const row = ART[r] || '                    ';
-      const dy  = BOX_Y + PS + r;
-      for (let i = 0; i < LP_W; i++) {
-        let ch = row[i] !== undefined ? row[i] : ' ';
-        let fg = BRIGHT_WHITE;
-        if      (r === 1 && (i === 9 || i === 10))                    { ch = gearCh; fg = '#ffd633'; }
-        else if (r === 7 && (i === 9 || i === 10) && ch === '!')       { fg = lightCol; }
-        else if (r === 15 && i >= 2 && i <= 10)                        { fg = WC; }
-        else if (r === 16 && i >= 2 && i <= 10)                        { fg = DC; }
-        else if (ch === '_')                                            { fg = '#886633'; }
-        else if (ch === '/' || ch === '\\' || ch === '|')              { fg = '#aaaaaa'; }
-        display.draw(BOX_X + 1 + i, dy, ch, fg, BG);
-      }
+      const dy = BOX_Y + PS + r;
+      for (let i = 0; i < LP_W; i++) display.draw(BOX_X + 1 + i, dy, ' ', BRIGHT_WHITE, BG);
       display.draw(DIVX, dy, '│', DC, BG);
     }
+
+    pauseAngleA += 0.015;
+    pauseAngleB += 0.008;
+
+    const cosA = Math.cos(pauseAngleA), sinA = Math.sin(pauseAngleA);
+    const cosB = Math.cos(pauseAngleB), sinB = Math.sin(pauseAngleB);
+    const proj = CUBE_V.map(([x, y, z]) => {
+      const x1 = x * cosA - z * sinA;
+      const z1 = x * sinA + z * cosA;
+      const y1 = y * cosB - z1 * sinB;
+      const z2 = y * sinB + z1 * cosB;
+      const d = z2 + 3.5;
+      return [Math.round(cx + (x1 / d) * scale * 2), Math.round(cy + (y1 / d) * scale), d];
+    });
+
+    // Draw edges with depth shading into a z-buffer
+    const buf = {};
+    for (const [i, j] of CUBE_E) {
+      const [x0, y0, z0] = proj[i], [x1, y1, z1] = proj[j];
+      const dx = Math.abs(x1 - x0), dy = Math.abs(y1 - y0);
+      const sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
+      let err = dx - dy, ex = x0, ey = y0;
+      const steps = Math.max(dx, dy);
+      for (let s = 0; s <= steps; s++) {
+        const t = steps > 0 ? s / steps : 0;
+        const z = z0 + (z1 - z0) * t;
+        const adx = Math.abs(x1 - x0), ady = Math.abs(y1 - y0);
+        let ch;
+        if      (adx > ady * 2)                                          ch = '─';
+        else if (ady > adx * 2)                                          ch = '│';
+        else if ((x1 - x0 > 0 && y1 - y0 > 0) || (x1 - x0 < 0 && y1 - y0 < 0)) ch = '╲';
+        else                                                             ch = '╱';
+        const key = `${ex},${ey}`;
+        if (!buf[key] || z < buf[key].z) buf[key] = { ch, z, x: ex, y: ey };
+        const e2 = 2 * err;
+        if (e2 > -dy) { err -= dy; ex += sx; }
+        if (e2 < dx)  { err += dx; ey += sy; }
+      }
+    }
+
+    for (const key of Object.keys(buf)) {
+      const p = buf[key];
+      if (p.x < BOX_X + 1 || p.x >= DIVX || p.y < BOX_Y + PS || p.y >= BOX_Y + PS + PR) continue;
+      const fg = p.z < 3.0 ? PC : p.z < 3.8 ? '#884488' : '#444444';
+      display.draw(p.x, p.y, p.ch, fg, BG);
+    }
+
+    // Vertices
+    for (const [px, py, pz] of proj) {
+      if (px < BOX_X + 1 || px >= DIVX || py < BOX_Y + PS || py >= BOX_Y + PS + PR) continue;
+      display.draw(px, py, '+', pz < 3.5 ? PC : '#666666', BG);
+    }
+
+    // Particles
+    const PCHARS = ['·', '✦', '*'];
+    const PCOLS  = ['#553355', '#664466', '#443344'];
+    if (pauseParticles.length < 3 && Math.random() < 0.03) {
+      pauseParticles.push({
+        x: cx - 4 + Math.random() * 8,
+        y: cy + 3 + Math.random() * 2,
+        vy: -0.05 - Math.random() * 0.03,
+        vx: (Math.random() - 0.5) * 0.02,
+        char: PCHARS[Math.floor(Math.random() * PCHARS.length)],
+        color: PCOLS[Math.floor(Math.random() * PCOLS.length)],
+        life: 80 + Math.floor(Math.random() * 40),
+      });
+    }
+    for (let i = pauseParticles.length - 1; i >= 0; i--) {
+      const p = pauseParticles[i];
+      p.x += p.vx; p.y += p.vy; p.life--;
+      const px = Math.floor(p.x), py = Math.floor(p.y);
+      if (p.life <= 0 || py <= BOX_Y + PS || px < BOX_X + 1 || px >= DIVX) {
+        pauseParticles.splice(i, 1); continue;
+      }
+      display.draw(px, py, p.char, p.color, BG);
+    }
+
+    // Redraw divider (cube/particles may have overwritten it)
+    for (let r = 0; r < PR; r++) display.draw(DIVX, BOX_Y + PS + r, '│', DC, BG);
   }
 
   // ── Right pane per-screen renderers ─────────────────────────────────────────
@@ -10837,10 +10881,8 @@ function showPauseMenu() {
     else                               drawRightDev();
     // Row 21: ═ separator
     for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, BOX_Y + 21, '═', DC, BG);
-    // Row 22: flavor line centered
+    // Row 22: blank
     irow(22, '', BRIGHT_WHITE);
-    { const s = flavorLine; const cx = BOX_X + 1 + Math.floor((IW - s.length) / 2);
-      for (let i = 0; i < s.length; i++) display.draw(cx + i, BOX_Y + 22, s[i], DC, BG); }
   }
 
   // ── Option activation ────────────────────────────────────────────────────────
@@ -11750,10 +11792,9 @@ setInterval(() => {
     }
   }
 
-  // Animate pause menu (gear spin + indicator lights) at ~10fps
+  // Animate pause menu cube at 60fps
   if (state.gameState === 'paused' && pauseMenuRedrawFn) {
-    _pauseFrameCount++;
-    if (_pauseFrameCount % 6 === 0) pauseMenuRedrawFn();
+    pauseMenuRedrawFn();
   }
 
   // Fire queued upgrade log lines (1 per second, only while playing)
