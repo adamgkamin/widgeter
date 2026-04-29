@@ -106,6 +106,12 @@
     "|": {
       "default": "A wall plank, vertical."
     },
+    "_": {
+      "default": "A smooth ridge of sand. Wind-shaped."
+    },
+    ",": {
+      "default": "Coarse sand. It gets in everything."
+    },
     "unknown": "Nothing remarkable."
   },
   "stations": {

@@ -936,6 +936,51 @@ function buildTileMap() {
     }
   }
 
+  // Sandy desert biome — bottom-right corner around LF, gradient blend into grass (§4.2)
+  for (let y = 27; y <= WORLD_ROWS - 2; y++) {
+    for (let x = 57; x <= DISPLAY_WIDTH - 2; x++) {
+      const t = tileMap[x][y];
+      if (!t.walkable) continue;
+      if (t.glyph === ':' || t.glyph === 'Y') continue;
+      if (isPathTile(x, y) || isStationTile(x, y)) continue;
+
+      const sandX = (x - 57) / (DISPLAY_WIDTH - 2 - 57);
+      const sandY = (y - 27) / (WORLD_ROWS - 2 - 27);
+      const sandStrength = sandX * sandY;
+
+      const noise = ((x * 1664525 + y * 1013904223) >>> 16) % 100;
+      if (noise >= sandStrength * 100) continue;
+
+      const duneRow = ((y + x * 0.3) % 5 < 1.2);
+      let glyph, fg;
+      if (duneRow) {
+        glyph = '_'; fg = '#7a6538';
+      } else if (noise % 3 === 0) {
+        glyph = ','; fg = '#4a3a1e';
+      } else {
+        glyph = '.'; fg = '#5a4828';
+      }
+      tileMap[x][y] = mk(glyph, fg, true);
+    }
+  }
+  // Sand ripple accents in deep desert zone
+  for (let y = 35; y <= WORLD_ROWS - 2; y++) {
+    for (let x = 68; x <= DISPLAY_WIDTH - 2; x++) {
+      const t = tileMap[x][y];
+      if (!t.walkable) continue;
+      if (t.glyph === ':' || t.glyph === 'Y') continue;
+      if (isPathTile(x, y) || isStationTile(x, y)) continue;
+      const noise = ((x * 1664525 + y * 1013904223) >>> 16) % 100;
+      const sandX = (x - 57) / (DISPLAY_WIDTH - 2 - 57);
+      const sandY = (y - 27) / (WORLD_ROWS - 2 - 27);
+      if (sandX * sandY > 0.7 && noise % 12 === 0) {
+        const tile = mk('~', '#6a5830', true);
+        tile.description = 'A ripple in the sand. You wonder what made it.';
+        tileMap[x][y] = tile;
+      }
+    }
+  }
+
   // Fallen logs — §4.2
   for (const [lx, ly] of [[8,6],[71,9],[5,35],[68,38],[44,4],[50,39]]) {
     tileMap[lx][ly] = mk('&', '#5a4a2a', false);
