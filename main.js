@@ -838,6 +838,27 @@ drawPrompt(true);
 
 const CREDIT  = "Created by Adam A.";
 const VERSION = "alpha 1.03.01";
+
+// ── Sound system ──────────────────────────────────────────────────────────────
+const SOUNDS = {};
+function loadSound(name, path) {
+  const audio = new Audio(path);
+  audio.volume = 0.3;
+  SOUNDS[name] = audio;
+}
+function playSound(name) {
+  if (state.audio.muted) return;
+  const s = SOUNDS[name];
+  if (!s) return;
+  s.currentTime = 0;
+  s.play().catch(() => {});
+}
+loadSound('bought',      'sounds/bought.wav');
+loadSound('click',       'sounds/click.wav');
+loadSound('crafted',     'sounds/crafted.wav');
+loadSound('new_or_continue', 'sounds/new or continue.wav');
+loadSound('sold',        'sounds/sold.wav');
+loadSound('start_game',  'sounds/start game.wav');
 function drawTitleBottomText() {
   const CHLABEL = 'press c for changelog';
   for (let i = 0; i < CREDIT.length;   i++) display.draw(77 - CREDIT.length   + i, 45, CREDIT[i],   '#555555', BG);
