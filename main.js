@@ -250,6 +250,8 @@ const state = {
     deposit: 0,
     tab:                     'account',
     cardPage:                'bronze',
+    upgradeLogQueue:         [],
+    upgradeLogLastFired:     0,
     creditRating:            'CC',
     creditRatingScore:       3.0,
     ratingHistory:           [],
@@ -444,8 +446,10 @@ function loadGame() {
     state.bank.ratingHistory          = state.bank.ratingHistory          ?? [];
     state.bank.consecutivePositiveDays = state.bank.consecutivePositiveDays ?? 0;
     state.bank.creditNegativeLogged   = false; // transient
-    state.bank.tab      = state.bank.tab      ?? 'account';
-    state.bank.cardPage = state.bank.cardPage ?? 'bronze';
+    state.bank.tab               = state.bank.tab               ?? 'account';
+    state.bank.cardPage          = state.bank.cardPage          ?? 'bronze';
+    state.bank.upgradeLogQueue   = []; // transient
+    state.bank.upgradeLogLastFired = 0;
     { const _c = state.bank.card = state.bank.card ?? {};
       // Migrate old card.owned to card.tier
       if (_c.owned === true && !_c.tier) _c.tier = 'bronze';
@@ -1810,8 +1814,8 @@ function openRMShedMenu() {
     renderLargeNumber(display, RPX, BOX_Y + 6, numStr, TC, IPW);
 
     const cardTier = state.bank.card.tier;
-    const isBronzePlus = ['bronze','silver','gold','black'].includes(cardTier);
-    const isGoldPlus   = ['gold','black'].includes(cardTier);
+    const isBronzePlus = cardTierAtLeast('bronze');
+    const isGoldPlus   = cardTierAtLeast('gold');
     const discountedCost = isBronzePlus ? Math.max(1, Math.floor(COST * 0.95)) : COST;
     const discStr = isBronzePlus ? `${formatCredits(discountedCost)}cr (-5%)` : `${formatCredits(COST)}cr`;
     drp(BOX_Y + 11, `Cost per unit:  ${discStr}`, isBronzePlus ? '#cc7733' : '#f0f0f0');
@@ -1871,9 +1875,8 @@ function openRMShedMenu() {
     const maxBuy  = Math.min(rmSpace, Math.floor(state.player.credits / COST));
     const canBuy1 = state.player.credits >= COST && rmSpace > 0;
 
-    const cardTier2 = state.bank.card.tier;
-    const isBronzePlus2 = ['bronze','silver','gold','black'].includes(cardTier2);
-    const isGoldPlus2   = ['gold','black'].includes(cardTier2);
+    const isBronzePlus2 = cardTierAtLeast('bronze');
+    const isGoldPlus2   = cardTierAtLeast('gold');
     const effectiveCost = isBronzePlus2 ? Math.max(1, Math.floor(COST * 0.95)) : COST;
     const maxBuy2 = Math.min(rmSpace, Math.floor(state.player.credits / effectiveCost));
 
@@ -2385,7 +2388,7 @@ function sellWidgets(n) {
     const remaining = state.demand - state.widgetsSoldToday;
     if (remaining <= 0 && !immuneActive) {
       // Silver+ can sell up to 10 extra widgets at 70% price
-      const isSilverPlus = ['silver','gold','black'].includes(card.tier);
+      const isSilverPlus = cardTierAtLeast('silver');
       if (isSilverPlus && !card.silverMarketExtraUsedToday) {
         const extraSold = state.widgetsSoldToday - state.demand;
         const extraLeft = 10 - extraSold;
@@ -4406,6 +4409,46 @@ const CARD_TIERS = {
 
 const CARD_TIER_ORDER = ['bronze', 'silver', 'gold', 'black'];
 
+function cardTierAtLeast(minTier) {
+  const order = ['bronze', 'silver', 'gold', 'black'];
+  const playerIndex = order.indexOf(state.bank.card.tier);
+  const minIndex    = order.indexOf(minTier);
+  if (playerIndex === -1 || minIndex === -1) return false;
+  return playerIndex >= minIndex;
+}
+
+function getUpgradeLogLines(tierName) {
+  if (tierName === 'silver') return [
+    { line: '> [BANK] Silver card issued. Welcome to preferred status.', color: '#aaaaaa' },
+    { line: '> Includes all Bronze benefits:',                           color: '#555555' },
+    { line: '>   ✦ 5% discount on RM purchases',                   color: '#cc7733' },
+    { line: '>   ✦ Free overdraft: 50cr once per cycle',            color: '#cc7733' },
+    { line: '> Plus new Silver benefits:',                               color: '#aaaaaa' },
+    { line: '>   ✦ Auto RM purchase at dawn if storage low',        color: '#aaaaaa' },
+    { line: '>   ✦ Sell 10 extra widgets/day above demand',         color: '#aaaaaa' },
+    { line: '>   ✦ Workers 10% faster when payroll on card',        color: '#aaaaaa' },
+  ];
+  if (tierName === 'gold') return [
+    { line: '> [BANK] Gold card issued. You are a preferred customer.',  color: '#ffd633' },
+    { line: '> Includes all Bronze and Silver benefits.',                color: '#555555' },
+    { line: '> Plus new Gold benefits:',                                 color: '#ffd633' },
+    { line: '>   ✦ Newspaper headlines delivered to log at dawn',   color: '#ffd633' },
+    { line: '>   ✦ Balance rollover grace: 2 days once per cycle',  color: '#ffd633' },
+    { line: '>   ✦ Bulk RM: buy 50 at 15% discount in one action',  color: '#ffd633' },
+    { line: '>   ✦ Derivatives margin requirements -20%',           color: '#ffd633' },
+  ];
+  if (tierName === 'black') return [
+    { line: '> [BANK] Black card issued.',                               color: '#f0f0f0' },
+    { line: '> All previous benefits included.',                         color: '#555555' },
+    { line: '> Plus:',                                                   color: '#f0f0f0' },
+    { line: '>   ▪ Demand immunity once per week',                  color: '#f0f0f0' },
+    { line: '>   ▪ Derivatives insurance up to 10,000cr',           color: '#f0f0f0' },
+    { line: '>   ▪ Double stamps on all activities',                color: '#f0f0f0' },
+    { line: '>   ▪ Exclusive Auction House access',                 color: '#333333' },
+  ];
+  return [];
+}
+
 function getBankRatingIdx() {
   return Math.round(Math.max(0, Math.min(10, state.bank.creditRatingScore)));
 }
@@ -4439,11 +4482,10 @@ function changeRating(delta, reason) {
     addLog(`Credit rating: ${prevTier} → ${newTier}. ${reason}.`, up ? '#66cc66' : '#ff5555');
     // Check card upgrade eligibility on upward tier change
     if (up) {
-      const eligibleTier = getMaxEligibleCardTier(state.bank.creditRatingScore);
+      const currentTIdx = state.bank.card.tier ? CARD_TIER_ORDER.indexOf(state.bank.card.tier) : -1;
       for (const t of CARD_TIER_ORDER) {
-        if (!eligibleTier) break;
         const tIdx = CARD_TIER_ORDER.indexOf(t);
-        const currentTIdx = state.bank.card.tier ? CARD_TIER_ORDER.indexOf(state.bank.card.tier) : -1;
+        // Only notify for tiers strictly above the player's current card tier
         if (tIdx > currentTIdx && state.bank.creditRatingScore >= CARD_TIERS[t].requiresScore
             && !state.bank.card.upgradeNotified[t]) {
           state.bank.card.upgradeNotified[t] = true;
@@ -4847,6 +4889,10 @@ function openBankMenu() {
     clearMenuRegion(BOX_X, BOX_Y, BOX_W, BOX_H);
     renderDirty();
     display.draw(state.player.x, state.player.y, '@', state.player.color || BRIGHT_WHITE, BG);
+    // Arm upgrade log sequence if one was queued during this session
+    if (state.bank.upgradeLogQueue.length > 0) {
+      state.bank.upgradeLogLastFired = Date.now();
+    }
     state.gameState = 'playing';
   }
 
@@ -4910,7 +4956,7 @@ function openBankMenu() {
         card.balance           = Math.round((card.balance - pay) * 10) / 10;
         card.minimumPaymentDue = Math.max(0, Math.round((card.minimumPaymentDue - pay) * 10) / 10);
         if (card.minimumPaymentDue === 0) {
-          if (card.tier === 'gold' || card.tier === 'black') {
+          if (cardTierAtLeast('gold')) {
             card.consecutiveGoldPayments = (card.consecutiveGoldPayments || 0) + 1;
             if (card.consecutiveGoldPayments >= 3) {
               changeRating(+1.0, 'Three consecutive Gold payments');
@@ -4952,7 +4998,14 @@ function openBankMenu() {
         if (curTIdx < 0) card.lastStatementDay = state.day; // fresh card
         if (tierName === 'black') card.insuranceBalance = 10000;
         card.upgradeNotified[tierName] = false; // reset so future upgrades still notify
-        addLog(`${tierName.toUpperCase()} card issued. Limit: ${tierDef.limit}cr. Interest: ${(tierDef.interestRate*100).toFixed(0)}%/statement.`, tierDef.color);
+        if (tierName === 'bronze') {
+          // Bronze has no inherited perk sequence — just confirm immediately
+          addLog(`BRONZE card issued. Limit: ${tierDef.limit}cr. Interest: ${(tierDef.interestRate*100).toFixed(0)}%/statement.`, tierDef.color);
+        } else {
+          // Queue the perk-inheritance announcement sequence (fires after bank closes)
+          state.bank.upgradeLogQueue   = getUpgradeLogLines(tierName);
+          state.bank.upgradeLogLastFired = 0; // armed when closeBank fires
+        }
         if (curTIdx >= 0) changeRating(+0.5, `Upgraded to ${tierName.toUpperCase()} card`);
         drawStatusBar(); redraw();
       }
@@ -5175,7 +5228,7 @@ function openFuturesMenu() {
     line(5, `Open futures:   ${totalContracts} contracts (${totalContracts * 10} widgets notional)`, BRIGHT_WHITE);
     line(6, `Margin held:    ${totalMargin}cr`, '#ffd633');
     for (let i = 0; i < CONT_W; i++) display.draw(CONT_X + i, BOX_Y + 8, '.', WC, BG);
-    const _goldMargin = ['gold','black'].includes(state.bank.card.tier) ? 0.80 : 1.0;
+    const _goldMargin = cardTierAtLeast('gold') ? 0.80 : 1.0;
     const initMargin = Math.round(state.marketPrice * 10 * 0.20 * _goldMargin * 10) / 10;
     const canOpen = state.player.credits >= initMargin;
     line(9,  `1. Buy 1 contract (long — profit if price rises)  ${canOpen ? '[AVAILABLE]' : '[Need ' + initMargin + 'cr]'}`, canOpen ? MC : '#ff5555');
@@ -5196,7 +5249,7 @@ function openFuturesMenu() {
 
   function futKeyHandler(e) {
     if (e.key === 'Escape' || e.key === '4') { closeF(); openDerivativesMenu(); return; }
-    const _goldMargin = ['gold','black'].includes(state.bank.card.tier) ? 0.80 : 1.0;
+    const _goldMargin = cardTierAtLeast('gold') ? 0.80 : 1.0;
     const initMargin = Math.round(state.marketPrice * 10 * 0.20 * _goldMargin * 10) / 10;
     if ((e.key === '1' || e.key === '2') && state.player.credits >= initMargin) {
       const type = e.key === '1' ? 'long' : 'short';
@@ -7573,7 +7626,7 @@ function tickApprentices() {
   const wbDef  = STATION_DEFS.find(s => s.label === 'WB');
   const rmDoor = { x: rmDef.x + 1, y: rmDef.y + 2 };  // (10, 4)
   const wbDoor = { x: wbDef.x + 1, y: wbDef.y + 2 };  // (35, 10)
-  const _silverPlus = ['silver','gold','black'].includes(state.bank.card.tier);
+  const _silverPlus = cardTierAtLeast('silver');
   const speed    = Math.max(1, Math.round(WORKER_SPEEDS[state.skills.workerSpeedLevel || 0] * (_silverPlus ? 1.10 : 1.0)));
   const carryMax = WORKER_CARRY_CAPS[state.skills.workerCarryLevel || 0];
 
@@ -8514,7 +8567,7 @@ setInterval(() => {
       }
 
       // Silver: auto-RM purchase at dawn
-      if ((card.tier === 'silver' || card.tier === 'gold' || card.tier === 'black') && card.autoRMThreshold > 0) {
+      if (cardTierAtLeast('silver') && card.autoRMThreshold > 0) {
         const rmSpace = state.storage.rmCap - state.storage.rm;
         if (state.storage.rm < card.autoRMThreshold && rmSpace > 0) {
           const needed  = Math.min(card.autoRMThreshold - state.storage.rm, rmSpace);
@@ -8530,7 +8583,7 @@ setInterval(() => {
       }
 
       // Gold: extra newspaper forecast at dawn
-      if ((card.tier === 'gold' || card.tier === 'black') && state.phase >= 3 && state.newspaper.tomorrowForecastLabel) {
+      if (cardTierAtLeast('gold') && state.phase >= 3 && state.newspaper.tomorrowForecastLabel) {
         addLog(`> [GOLD CARD] Tomorrow's forecast: ${state.newspaper.tomorrowForecastLabel}.`, CARD_TIERS.gold.color);
       }
 
@@ -8906,6 +8959,15 @@ setInterval(() => {
   if (state.gameState === 'paused' && pauseMenuRedrawFn) {
     _pauseFrameCount++;
     if (_pauseFrameCount % 6 === 0) pauseMenuRedrawFn();
+  }
+
+  // Fire queued upgrade log lines (1 per second, only while playing)
+  if (state.gameState === 'playing' && state.bank
+      && state.bank.upgradeLogQueue && state.bank.upgradeLogQueue.length > 0
+      && state.bank.upgradeLogLastFired && Date.now() - state.bank.upgradeLogLastFired >= 1000) {
+    const item = state.bank.upgradeLogQueue.shift();
+    addLog(item.line, item.color);
+    state.bank.upgradeLogLastFired = Date.now();
   }
 
   requestAnimationFrame(effectsLoop);
