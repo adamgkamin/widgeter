@@ -3086,7 +3086,6 @@ function showOfficeMenu() {
   // Page 2+ uses only these sections:
   const SECTIONS = [
     { header: 'WAREHOUSING', items: [
-      { k: null, label: 'Launch Facility', cost: 'AUTO', specialFn: () => state.phase >= 5 },
       { k: '8', nk: 'storageExp1'  },
       { k: '9', nk: 'storageExp2'  },
       { k: 'a', nk: 'reducedCarry' },
@@ -3144,7 +3143,7 @@ function showOfficeMenu() {
     const node = OFFICE_NODES.find(n => n.key === nk);
     if (!node) return { fg: DC, status: '[unknown]' };
     if (!state.officeUnlocked || state.phase < node.minPhase)
-      return { fg: DC, status: `[phase ${node.minPhase}]` };
+      return { fg: DC, status: '[locked]' };
 
     // Count-tracked nodes (apprenticeN / courierN)
     if (node.countKey) {
@@ -3532,15 +3531,44 @@ function showOfficeMenu() {
         if (state.officeUpgradesPage > 1 + secPageCount) state.officeUpgradesPage = 2;
         const pg = pages[state.officeUpgradesPage - 2] || [];
 
-        for (let i = 0; i < pg.length && i < PAGE_ROWS; i++) {
-          const row = pg[i];
-          const ay  = BOX_Y + 16 + i;
-          if (row.type === 'blank') { border(ay); continue; }
-          if (row.type === 'hdr')   { irow(ay, row.text, row.fg); }
-          else                      { irow(ay, menuLine(row.k, row.label, row.cost, row.status), row.fg); }
+        const CW  = Math.floor(IW / 2) - 1;  // 25 — left cell width
+        const RW2 = IW - CW - 1;              // 26 — right cell width
+        function halfLine(k, label, cost, status) {
+          const kp  = (k ? `${k}.` : '  ').padEnd(3);
+          const st  = status.slice(0, 6).padEnd(6);
+          const co  = cost.slice(0, 5).padStart(5);
+          const lbl = label.slice(0, 8).padEnd(8);
+          return (kp + ' ' + lbl + ' ' + co + ' ' + st).slice(0, CW).padEnd(CW);
         }
-        for (let i = pg.length; i < PAGE_ROWS; i++) {
-          const ay = BOX_Y + 16 + i;
+        function renderHalf(ay, lStr, lFg, rStr, rFg) {
+          border(ay);
+          const lp = menuPad(lStr, CW);
+          for (let i = 0; i < CW; i++) display.draw(BOX_X + 1 + i, ay, lp[i] || ' ', lFg, BG);
+          display.draw(BOX_X + 1 + CW, ay, '│', DC, BG);
+          const rp = menuPad(rStr, RW2);
+          for (let i = 0; i < RW2; i++) display.draw(BOX_X + 1 + CW + 1 + i, ay, rp[i] || ' ', rFg, BG);
+        }
+        let pi = 0, dr = 0;
+        while (pi < pg.length && dr < PAGE_ROWS) {
+          const row = pg[pi];
+          const ay  = BOX_Y + 16 + dr;
+          if (row.type === 'blank') { border(ay); pi++; dr++; }
+          else if (row.type === 'hdr') { irow(ay, row.text, row.fg); pi++; dr++; }
+          else {
+            const next = pg[pi + 1];
+            if (next && next.type === 'node') {
+              renderHalf(ay,
+                halfLine(row.k,  row.label,  row.cost,  row.status),  row.fg,
+                halfLine(next.k, next.label, next.cost, next.status), next.fg);
+              pi += 2; dr++;
+            } else {
+              irow(ay, menuLine(row.k, row.label, row.cost, row.status), row.fg);
+              pi++; dr++;
+            }
+          }
+        }
+        for (; dr < PAGE_ROWS; dr++) {
+          const ay = BOX_Y + 16 + dr;
           border(ay);
           for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, ay, ' ', BRIGHT_WHITE, BG);
         }
