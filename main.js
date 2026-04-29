@@ -239,6 +239,7 @@ const state = {
   couriersOwned:        0,
   demand:               50,
   marketPrice:          8,
+  marketBuyOffers:      [],
   widgetsSoldToday:     0,
   demandMetLogged:      false,
   debt:                 0,
@@ -358,6 +359,7 @@ function saveGame() {
     couriersOwned:        state.couriersOwned,
     demand:               state.demand,
     marketPrice:          state.marketPrice,
+    marketBuyOffers:      state.marketBuyOffers,
     widgetsSoldToday:     state.widgetsSoldToday,
     demandMetLogged:      state.demandMetLogged,
     debt:                 state.debt,
@@ -438,6 +440,7 @@ function loadGame() {
     state.couriersOwned        = data.couriersOwned        ?? 0;
     state.demand               = data.demand               ?? 50;
     state.marketPrice          = data.marketPrice          ?? 8;
+    state.marketBuyOffers      = data.marketBuyOffers      ?? [];
     state.widgetsSoldToday     = data.widgetsSoldToday     ?? 0;
     state.demandMetLogged      = data.demandMetLogged       ?? false;
     state.debt                 = data.debt                 ?? 0;
@@ -1467,6 +1470,8 @@ function resetState() {
   state.couriersOwned    = 0;
   state.demand           = 50;
   state.marketPrice      = 8;
+  state.marketBuyOffers  = [];
+  generateBuyOffers();
   state.widgetsSoldToday = 0;
   state.demandMetLogged      = false;
   state.debt                 = 0;
@@ -2762,19 +2767,55 @@ function showForecastScreen() {
   drawDemandChart('– 7-DAY FORECAST –', rows, 'Actual results will vary.');
 }
 
-function openMarketMenu() {
+const SELLER_PORTRAITS = [
+  ['  .---.  ', ' ( o o ) ', '  ( > )  ', '  /| |\\  ', '   d b   '],
+  ['  .---.  ', ' ( -_- ) ', '  ( = )  ', '  /| |\\  ', '   d b   '],
+  ['  _/\\_   ', ' ( * * ) ', '  ( o )  ', '  /| |\\  ', '   d b   '],
+  ['  [===]  ', ' ( o_o ) ', '  ( - )  ', '  /| |\\  ', '   d b   '],
+  ['  .---.  ', ' ( >_< ) ', '  (   )  ', '  /| |\\  ', '   d b   '],
+  ['  ~~~~~  ', ' ( o o ) ', '  ( ^ )  ', '  /| |\\  ', '   d b   '],
+  ['  .===.  ', ' ( $ $ ) ', '  ( = )  ', '  /| |\\  ', '   d b   '],
+  ['  .---.  ', ' ( ; ; ) ', '  ( ~ )  ', '  /| |\\  ', '   d b   '],
+  ['  .vvv.  ', ' ( o O ) ', '  ( < )  ', '  /| |\\  ', '   d b   '],
+  ['  .....  ', ' ( ? ? ) ', '  ( _ )  ', '  /| |\\  ', '   d b   '],
+];
+
+const SELLER_ADJ = ['Rusty','Thin','Old','Crooked','Dusty','Slick','Tall','Quiet','Lucky','Bitter','Slow','Sharp','Pale','Half','Wiry'];
+const SELLER_NOUN = ['Pete','Margaret','Bones','Sullivan','Sawdust','Wheels','Copper','Finch','Tobacco','Gravel','Needles','Pudding','Decker','Spool','Morrow'];
+
+function generateBuyOffers() {
+  const basePrice = state.phase >= 3 ? state.marketPrice : 8.0;
+  const usedAdj = new Set(), usedNoun = new Set(), usedPortrait = new Set();
+  state.marketBuyOffers = [0, 1].map(() => {
+    let adj, noun;
+    do { adj  = Math.floor(Math.random() * SELLER_ADJ.length); }  while (usedAdj.has(adj));
+    do { noun = Math.floor(Math.random() * SELLER_NOUN.length); } while (usedNoun.has(noun));
+    usedAdj.add(adj); usedNoun.add(noun);
+    let portIdx;
+    do { portIdx = Math.floor(Math.random() * SELLER_PORTRAITS.length); } while (usedPortrait.has(portIdx));
+    usedPortrait.add(portIdx);
+    const name = SELLER_ADJ[adj] + ' ' + SELLER_NOUN[noun];
+    const size = (Math.floor(Math.random() * 16) + 5) * 10;
+    const markup = 1.10 + Math.random() * 0.15;
+    const askPrice = Math.round(basePrice * markup * 10) / 10;
+    return { portIdx, name, size, askPrice, rejected: false, accepted: false };
+  });
+}
+
+function openMarketMenu(initialTab = 'sell') {
   state.gameState = 'mt_menu';
 
   const TC    = '#ffd633';
   const DC    = '#333333';
-  const BOX_W = 54;
-  const IW    = 52;
+  const BOX_W = 60;
+  const IW    = 58;
   const AW    = 14;
-  const IPW   = 37;
-  const BOX_H = 24;
+  const IPW   = 43;
+  const BOX_H = 34;
   const BOX_X = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
   const BOX_Y = Math.max(1, Math.floor((WORLD_ROWS - BOX_H) / 2));
   const RPX   = BOX_X + 1 + AW + 1;
+  let marketTab = state.phase >= 3 ? initialTab : 'sell';
 
   const MT_ART = [
     '  _________   ',
@@ -2848,10 +2889,11 @@ function openMarketMenu() {
     display.draw(BOX_X, BOX_Y, '╔', TC, BG); display.draw(BOX_X + BOX_W - 1, BOX_Y, '╗', TC, BG);
     for (let i = 1; i < BOX_W - 1; i++) display.draw(BOX_X + i, BOX_Y, '═', TC, BG);
 
-    // Row 1: header
+    // Row 1: header — shows active tab label
     { const ay = BOX_Y + 1;
       border(ay);
-      const title = 'Widget Market', hint = 'press esc to exit';
+      const tabLbl = state.phase >= 3 ? (marketTab === 'sell' ? '[SELL]' : '[BUY]') : '';
+      const title = `Widget Market ${tabLbl}`.trim(), hint = 'press esc to exit';
       for (let i = 0; i < IW; i++) {
         const ch = i < title.length ? title[i] : (i >= IW - hint.length ? hint[i-(IW-hint.length)] : ' ');
         const fg = i < title.length ? '#f0f0f0' : (i >= IW - hint.length ? DC : BRIGHT_WHITE);
@@ -2863,79 +2905,190 @@ function openMarketMenu() {
     { const ay = BOX_Y + 2; border(ay);
       for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '═', DC, BG); }
 
-    // Rows 3-12: art + divider + info
-    for (let r = 0; r < 10; r++) crow(BOX_Y + 3 + r, r);
-
-    // Info pane
-    drp(BOX_Y + 4, 'WIDGET MARKET', TC);
-    if (mtMenuBlinkOn) {
-      drp(BOX_Y + 5, state.marketOpen ? 'OPEN' : 'CLOSED', state.marketOpen ? '#66cc66' : '#ff5555');
-    }
-    drp(BOX_Y + 6, 'Widgets in hand:', '#555555');
-    // Large number — 5 rows tall, starts at +7, ends at +11
-    const wStr = String(widgets);
-    renderLargeNumber(display, RPX, BOX_Y + 7, wStr, '#f0f0f0', IPW);
-    drp(BOX_Y + 12, `Price today:  ${formatCredits(price)}cr`, TC);
-
-    // Row 13: ─ separator
-    { const ay = BOX_Y + 13; border(ay);
-      for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '─', DC, BG); }
-
-    // Rows 14-15: demand section
+    // Row 3: tab bar (phase 3+ only) or plain ─ separator
     if (state.phase >= 3) {
-      irow(BOX_Y + 14, `Demand today:  ${state.demand} widgets`, dl ? dl.fg : '#f0f0f0');
-      irow(BOX_Y + 15, `Sold today:   ${state.widgetsSoldToday} / ${state.demand}`, '#555555');
-    } else {
-      irow(BOX_Y + 14, '', BRIGHT_WHITE);
-      irow(BOX_Y + 15, '', BRIGHT_WHITE);
-    }
-
-    // Row 16: ─ separator
-    { const ay = BOX_Y + 16; border(ay);
-      for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '─', DC, BG); }
-
-    // Action rows 17-20
-    if (!state.marketOpen) {
-      irow(BOX_Y + 17, 'The market is shuttered.', '#555555');
-      irow(BOX_Y + 18, 'Opens at dawn.', '#555555');
-      irow(BOX_Y + 19, `Dawn in:  ${secsLeft}s`, '#cc66cc');
-      arow(BOX_Y + 20, '1. Cancel', '', '#555555');
-    } else if (cantSell) {
-      const isBlack = state.bank.card.tier === 'black';
-      const immuneAvail = isBlack && !state.bank.card.demandImmunityUsedThisWeek;
-      irow(BOX_Y + 17, demandMet ? 'Daily demand satisfied. No more sales.' : 'Nothing to sell.', '#555555');
-      irow(BOX_Y + 18, '', BRIGHT_WHITE);
-      if (isBlack && !state._demandImmunityActiveToday) {
-        arow(BOX_Y + 19, `2. Use Black Card: unlimited sales today`, '-500cr', immuneAvail ? '#f0f0f0' : '#333333');
-      } else if (state._demandImmunityActiveToday) {
-        irow(BOX_Y + 19, '  Demand immunity active — sell freely.', CARD_TIERS.black.labelColor);
-      } else {
-        irow(BOX_Y + 19, '', BRIGHT_WHITE);
+      const ay = BOX_Y + 3; border(ay);
+      const HALF = Math.floor(IW / 2);
+      const center = (s, w) => { const p = Math.max(0, w - s.length); const l = Math.floor(p/2); return ' '.repeat(l) + s + ' '.repeat(p-l); };
+      const sellLbl = center(marketTab === 'sell' ? '>> [ SELL ] <<' : '[ SELL ]', HALF);
+      const buyLbl  = center(marketTab === 'buy'  ? '>> [ BUY ] <<'  : '[ BUY ]',  IW - HALF);
+      for (let i = 0; i < IW; i++) {
+        const inLeft = i < HALF;
+        const ch = (inLeft ? sellLbl : buyLbl)[inLeft ? i : i - HALF] || ' ';
+        display.draw(BOX_X + 1 + i, ay, ch, (inLeft && marketTab === 'sell') || (!inLeft && marketTab === 'buy') ? '#ffffff' : '#555555', BG);
       }
-      arow(BOX_Y + 20, '1. Cancel', '', '#555555');
+      // Row 4: ─ separator
+      { const ay2 = BOX_Y + 4; border(ay2);
+        for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay2, '─', DC, BG); }
     } else {
-      arow(BOX_Y + 17, '1. Sell 1', `+${formatCredits(price)}cr`, '#66cc66');
-      arow(BOX_Y + 18, `2. Sell max  (${avail})`, `+${formatCredits(avail * price)}cr`, '#66cc66');
-      arow(BOX_Y + 19, '3. Sell custom amount', '', '#66cc66');
-      arow(BOX_Y + 20, '4. Cancel', '', '#555555');
+      const ay = BOX_Y + 3; border(ay);
+      for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '─', DC, BG);
     }
 
-    // Row 21: ═ rule
-    { const ay = BOX_Y + 21; border(ay);
-      for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '═', DC, BG); }
+    const artBase = state.phase >= 3 ? BOX_Y + 5 : BOX_Y + 4; // art pane start row
 
-    // Row 22: status
-    let statusText, statusFg;
-    if (!state.marketOpen)  { statusText = 'Come back at dawn.'; statusFg = '#555555'; }
-    else if (demandMet)     { statusText = 'Daily demand satisfied. No more sales today.'; statusFg = TC; }
-    else                    { statusText = 'Sell widgets here during market hours.'; statusFg = '#555555'; }
-    { const ay = BOX_Y + 22; border(ay);
-      const centered = menuPad(statusText.length < IW ? ' '.repeat(Math.floor((IW - statusText.length) / 2)) + statusText : statusText, IW);
-      for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, centered[i] || ' ', statusFg, BG); }
+    if (marketTab === 'sell') {
+      // ── SELL tab ──────────────────────────────────────────────────────────────
+      // Art + info pane (10 rows)
+      for (let r = 0; r < 10; r++) crow(artBase + r, r);
+      drp(artBase + 1, 'WIDGET MARKET', TC);
+      if (mtMenuBlinkOn) drp(artBase + 2, state.marketOpen ? 'OPEN' : 'CLOSED', state.marketOpen ? '#66cc66' : '#ff5555');
+      drp(artBase + 3, 'Widgets in hand:', '#555555');
+      renderLargeNumber(display, RPX, artBase + 4, String(widgets), '#f0f0f0', IPW);
+      drp(artBase + 9, `Price today:  ${formatCredits(price)}cr`, TC);
 
-    // Row 23: ╚═╝
-    display.draw(BOX_X, BOX_Y + 23, '╚', TC, BG); display.draw(BOX_X + BOX_W - 1, BOX_Y + 23, '╝', TC, BG);
-    for (let i = 1; i < BOX_W - 1; i++) display.draw(BOX_X + i, BOX_Y + 23, '═', TC, BG);
+      const sep1 = artBase + 10;
+      { border(sep1); for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, sep1, '─', DC, BG); }
+
+      // Demand rows
+      if (state.phase >= 3) {
+        irow(sep1 + 1, `Demand today:  ${state.demand} widgets`, dl ? dl.fg : '#f0f0f0');
+        irow(sep1 + 2, `Sold today:   ${state.widgetsSoldToday} / ${state.demand}`, '#555555');
+      }
+
+      const sep2 = sep1 + 3;
+      { border(sep2); for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, sep2, '─', DC, BG); }
+
+      // Action rows
+      const a0 = sep2 + 1;
+      if (!state.marketOpen) {
+        irow(a0,     'The market is shuttered.', '#555555');
+        irow(a0 + 1, 'Opens at dawn.', '#555555');
+        irow(a0 + 2, `Dawn in:  ${secsLeft}s`, '#cc66cc');
+        arow(a0 + 3, '1. Cancel', '', '#555555');
+      } else if (cantSell) {
+        const isBlack = state.bank.card.tier === 'black';
+        const immuneAvail = isBlack && !state.bank.card.demandImmunityUsedThisWeek;
+        irow(a0,     demandMet ? 'Daily demand satisfied. No more sales.' : 'Nothing to sell.', '#555555');
+        irow(a0 + 1, '', BRIGHT_WHITE);
+        if (isBlack && !state._demandImmunityActiveToday) {
+          arow(a0 + 2, '2. Use Black Card: unlimited sales today', '-500cr', immuneAvail ? '#f0f0f0' : '#333333');
+        } else if (state._demandImmunityActiveToday) {
+          irow(a0 + 2, '  Demand immunity active — sell freely.', CARD_TIERS.black.labelColor);
+        } else { irow(a0 + 2, '', BRIGHT_WHITE); }
+        arow(a0 + 3, '1. Cancel', '', '#555555');
+      } else {
+        arow(a0,     '1. Sell 1',            `+${formatCredits(price)}cr`,         '#66cc66');
+        arow(a0 + 1, `2. Sell max  (${avail})`, `+${formatCredits(avail * price)}cr`, '#66cc66');
+        arow(a0 + 2, '3. Sell custom amount', '',                                   '#66cc66');
+        arow(a0 + 3, '4. Cancel',            '',                                   '#555555');
+      }
+
+      // Status footer
+      const statusRow = a0 + 5;
+      { border(statusRow - 1); for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, statusRow - 1, '═', DC, BG); }
+      let statusText, statusFg;
+      if (!state.marketOpen) { statusText = 'Come back at dawn.'; statusFg = '#555555'; }
+      else if (demandMet)    { statusText = 'Daily demand satisfied. No more sales today.'; statusFg = TC; }
+      else                   { statusText = 'Sell widgets here during market hours.'; statusFg = '#555555'; }
+      { border(statusRow);
+        const centered = menuPad(statusText.length < IW ? ' '.repeat(Math.floor((IW - statusText.length) / 2)) + statusText : statusText, IW);
+        for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, statusRow, centered[i] || ' ', statusFg, BG); }
+
+    } else {
+      // ── BUY tab ───────────────────────────────────────────────────────────────
+      const offers = state.marketBuyOffers;
+      if (!offers || offers.length === 0) {
+        irow(artBase + 5, 'No offers available today.', '#555555');
+      } else {
+        const OFFER_ROWS = [artBase, artBase + 10]; // start row for each offer panel
+        const OFFER_KEYS = ['1', '2'];
+        for (let oi = 0; oi < 2; oi++) {
+          const offer = offers[oi];
+          if (!offer) continue;
+          const base = OFFER_ROWS[oi];
+
+          // Offer header
+          { border(base);
+            const tag = ` OFFER ${oi + 1} `;
+            const dashes = IW - tag.length - 2;
+            const lD = Math.floor(dashes / 2), rD = dashes - lD;
+            const full = ('═'.repeat(lD) + ' ' + tag + ' ' + '═'.repeat(rD)).slice(0, IW);
+            for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, base, full[i] || '═', '#555555', BG);
+          }
+          // Blank row
+          border(base + 1);
+
+          const portrait = offer.rejected ? null : SELLER_PORTRAITS[offer.portIdx] || SELLER_PORTRAITS[0];
+          const grayed   = offer.rejected;
+          const portFgs  = ['#555555', '#ffd633', '#ffd633', '#aaaaaa', '#aaaaaa'];
+
+          for (let pr = 0; pr < 5; pr++) {
+            const ay = base + 2 + pr;
+            border(ay);
+            // Portrait (9 chars at BOX_X+3)
+            const pRow = (portrait && !grayed) ? portrait[pr] : '         ';
+            for (let ci = 0; ci < 9; ci++) display.draw(BOX_X + 3 + ci, ay, pRow[ci] || ' ', grayed ? '#222222' : portFgs[pr], BG);
+          }
+
+          // Info text (starting BOX_X+14)
+          const IX = BOX_X + 14;
+          if (offer.rejected) {
+            // Show retraction message
+            const retractLine = `"${offer.name}" has retracted their offer.`;
+            const rp = menuPad(retractLine, IW - 13);
+            for (let i = 0; i < rp.length; i++) display.draw(IX + i, base + 3, rp[i] || ' ', '#ff5555', BG);
+          } else if (offer.accepted) {
+            const lns = [
+              [`Seller:  "${offer.name}"`,                    TC],
+              [`Lot:     ${offer.size} widgets`,              '#f0f0f0'],
+              [`Ask:     ${offer.askPrice}cr / widget`,       '#f0f0f0'],
+              [`Total:   ${formatCredits(offer.size * offer.askPrice)}cr`, '#f0f0f0'],
+            ];
+            for (let li = 0; li < lns.length; li++) {
+              const rp = menuPad(lns[li][0], IW - 13);
+              for (let ci = 0; ci < rp.length; ci++) display.draw(IX + ci, base + 2 + li, rp[ci] || ' ', lns[li][1], BG);
+            }
+          } else {
+            const total = Math.round(offer.askPrice * offer.size * 10) / 10;
+            const lns = [
+              [`Seller:  "${offer.name}"`,                TC,        '#555555'],
+              [`Lot:     ${offer.size} widgets`,          '#f0f0f0', '#555555'],
+              [`Ask:     ${offer.askPrice}cr / widget`,   '#f0f0f0', '#555555'],
+              [`Total:   ${formatCredits(total)}cr`,      '#ff5555', '#555555'],
+            ];
+            for (let li = 0; li < lns.length; li++) {
+              const [val, vfg, lfg] = lns[li];
+              const colonIdx = val.indexOf(':');
+              const rp = menuPad(val, IW - 13);
+              for (let ci = 0; ci < rp.length; ci++) {
+                const fg = ci <= colonIdx ? lfg : vfg;
+                display.draw(IX + ci, base + 2 + li, rp[ci] || ' ', fg, BG);
+              }
+            }
+          }
+
+          // Blank row after portrait
+          border(base + 7);
+
+          // Bid / status line
+          const bidAy = base + 8;
+          border(bidAy);
+          if (offer.rejected) {
+            const rp = menuPad('  OFFER WITHDRAWN', IW);
+            for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, bidAy, rp[i] || ' ', '#555555', BG);
+          } else if (offer.accepted) {
+            const rp = menuPad('  ACCEPTED — widgets delivered to storage.', IW);
+            for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, bidAy, rp[i] || ' ', '#66cc66', BG);
+          } else {
+            const noStorage = state.storage.widgets + offer.size > state.storage.widgetCap;
+            const bidKey = OFFER_KEYS[oi];
+            const bidStr = noStorage
+              ? `  ${bidKey}) Place a bid on this lot   [not enough storage]`
+              : `  ${bidKey}) Place a bid on this lot`;
+            const bidFg = noStorage ? '#ff5555' : '#66cc66';
+            const rp = menuPad(bidStr, IW);
+            for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, bidAy, rp[i] || ' ', bidFg, BG);
+          }
+          // Blank spacer after offer
+          border(base + 9);
+        }
+      }
+    }
+
+    // Row BOX_H-1: ╚═╝
+    display.draw(BOX_X, BOX_Y + BOX_H - 1, '╚', TC, BG); display.draw(BOX_X + BOX_W - 1, BOX_Y + BOX_H - 1, '╝', TC, BG);
+    for (let i = 1; i < BOX_W - 1; i++) display.draw(BOX_X + i, BOX_Y + BOX_H - 1, '═', TC, BG);
   }
 
   function closeMT() {
@@ -2949,14 +3102,75 @@ function openMarketMenu() {
     state.gameState = 'playing';
   }
 
+  function processBid(offerIdx, bidPrice) {
+    const offer = state.marketBuyOffers[offerIdx];
+    if (!offer || offer.accepted || offer.rejected) return;
+    if (state.storage.widgets + offer.size > state.storage.widgetCap) {
+      addLog('> Your warehouse can\'t hold that many.', '#ff5555'); return;
+    }
+    const ratio = bidPrice / offer.askPrice;
+    let chance;
+    if (ratio >= 1.0)      chance = 1.0;
+    else if (ratio >= 0.9) chance = 0.75;
+    else if (ratio >= 0.8) chance = 0.50;
+    else if (ratio >= 0.7) chance = 0.25;
+    else                   chance = 0;
+    if (Math.random() < chance) {
+      const totalCost = Math.round(bidPrice * offer.size * 10) / 10;
+      if (state.player.credits < totalCost) {
+        addLog(`> You can't afford ${formatCredits(totalCost)}cr.`, '#ff5555'); return;
+      }
+      state.player.credits = Math.round((state.player.credits - totalCost) * 10) / 10;
+      state.storage.widgets += offer.size;
+      offer.accepted = true;
+      addLog(`> ${offer.name} accepts. ${offer.size} widgets delivered to storage.`, '#66cc66');
+      drawStatusBar();
+    } else {
+      offer.rejected = true;
+      addLog(`> ${offer.name} scoffs at your offer and walks away.`, '#ff5555');
+    }
+    redraw();
+  }
+
   function mtKeyHandler(e) {
-    if (e.key === 'Escape' || e.key === '4') {
-      // '4' only cancels when in the sell-capable state
+    if (e.key === 'Escape') { closeMT(); return; }
+
+    // Tab switching (phase 3+ only)
+    if (state.phase >= 3) {
+      if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+        e.preventDefault();
+        marketTab = marketTab === 'sell' ? 'buy' : 'sell';
+        redraw(); return;
+      }
+    }
+
+    // ── BUY tab ─────────────────────────────────────────────────────────────
+    if (marketTab === 'buy') {
+      const bidOffer = (idx) => {
+        const offer = state.marketBuyOffers[idx];
+        if (!offer || offer.accepted || offer.rejected) return;
+        if (state.storage.widgets + offer.size > state.storage.widgetCap) {
+          addLog('> Your warehouse can\'t hold that many.', '#ff5555'); return;
+        }
+        window.removeEventListener('keydown', mtKeyHandler);
+        showNumericPrompt(
+          `Bid per widget (ask: ${offer.askPrice}cr)`,
+          Math.round(offer.askPrice * 2),
+          (bid) => { processBid(idx, bid); openMarketMenu('buy'); },
+          () => openMarketMenu('buy')
+        );
+      };
+      if (e.key === '1') { bidOffer(0); return; }
+      if (e.key === '2') { bidOffer(1); return; }
+      return;
+    }
+
+    // ── SELL tab ─────────────────────────────────────────────────────────────
+    if (e.key === '4') {
       const avail = state.phase >= 3
         ? Math.max(0, Math.min(state.player.inventory.widgets, state.demand - state.widgetsSoldToday))
         : state.player.inventory.widgets;
-      if (e.key === '4' && state.marketOpen && avail > 0) { closeMT(); return; }
-      if (e.key === 'Escape') { closeMT(); return; }
+      if (state.marketOpen && avail > 0) { closeMT(); return; }
     }
     if (!state.marketOpen) { if (e.key === '1') closeMT(); return; }
 
@@ -9591,6 +9805,7 @@ setInterval(() => {
   if (state.dayTick === 0 && !state.bellFiredToday) {
     state.bellFiredToday = true;
     addLog('The morning bell has rung.', BRIGHT_CYAN);
+    generateBuyOffers();
     if (state.phase >= 3) {
       calculateDailyDemand();
       const dl = demandLabel(state.demand);

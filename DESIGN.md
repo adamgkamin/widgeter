@@ -421,6 +421,30 @@ These numbers are tuned so that Phase 2 unlock at 200 cumulative credits earned 
 
 **Goal of Phase 2:** scale to ~50–100 widgets sold per day. This makes credits accumulate fast enough to feel powerful. Then Phase 3 punishes that scale.
 
+### 5.4 Market BUY Tab (Phase 3+)
+
+**Overview:** From Phase 3 onward, the Market menu gains a second tab — BUY — alongside the existing SELL tab. The BUY tab lets the player purchase widget lots from NPC sellers at a premium price.
+
+**Daily offer generation:** At each dawn (tick 0), two fresh NPC offers are generated and replace the previous day's offers. Accepted or rejected offers from the prior day are discarded.
+
+**Offer structure:**
+- Each offer has a seller (procedurally named from a 15×15 adjective×noun pool — 225 possible names), an ASCII portrait, a lot size, and an ask price.
+- **Lot size:** 50–200 widgets, in increments of 10 (random).
+- **Ask price:** 10–25% above the current market price (`askPrice = marketPrice × markup`, where `markup ∈ [1.10, 1.25]`). Rounded to one decimal.
+
+**Bid mechanic:** The player enters a bid price per widget. Acceptance is probabilistic:
+- Bid ≥ 100% of ask → 100% chance
+- Bid ≥ 90% → 75% chance
+- Bid ≥ 80% → 50% chance
+- Bid ≥ 70% → 25% chance
+- Bid < 70% → 0% chance
+
+On acceptance: credits are deducted (`bid × lot size`), widgets are delivered directly to storage. On rejection: the offer is withdrawn for the day.
+
+**Storage check:** If the player's storage cannot hold the lot, the bid is blocked with a log message.
+
+**Display:** Each offer shows an ASCII portrait, seller name, lot size, ask price, total cost, and a bid key. Accepted/rejected offers show their outcome in place of the bid line.
+
 ### 5.4 Phase 3 Formulas (Market Awareness)
 
 **Trigger:** player has owned ≥1 courier robot for at least 1 in-game day, AND total credits earned ≥500.
