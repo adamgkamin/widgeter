@@ -837,7 +837,7 @@ drawArt(0);
 drawPrompt(true);
 
 const CREDIT  = "Created by Adam A.";
-const VERSION = "alpha 1.03.03";
+const VERSION = "alpha 1.03.04";
 
 // ── Sound system ──────────────────────────────────────────────────────────────
 const SOUNDS = {};
@@ -2964,6 +2964,7 @@ function openWorkbenchMenu(isRemote = false) {
   function drawHammerRow(r, ay) {
     const frame  = state.workbenchHammerFrame;
     const rowIdx = r - 2;
+    if (rowIdx < 0 || rowIdx > 4) return;
     const s      = HAMMER_FRAMES[frame][rowIdx];
     const base   = HAMMER_COLORS[frame][rowIdx];
     for (let i = 0; i < AW; i++) {
@@ -7602,6 +7603,7 @@ function renderLargeNumber(display, x, y, numberString, color, availableWidth) {
 // ── Launch Facility menu (§9) ─────────────────────────────────────────────────
 
 const CHANGELOG = [
+  { version: '1.03.04', summary: 'Redesigned 10-frame workbench hammer animation with anvil and sparks.' },
   { version: '1.03.03', summary: 'Fixed numeric prompt disappearing. Redesigned workbench hammer animation.' },
   { version: '1.03.02', summary: 'Sound effects added: buy, sell, craft, click, start, new game.' },
   { version: '1.03.01', summary: 'Garden tab in General Store. Plant flowers and veggies. Eat veggies from your garden.' },
@@ -11370,7 +11372,17 @@ setInterval(() => {
   if (state.gameState === 'crafting') {
     const secsLeft = activeCraftTicks - craftProgress;
     drawRow(LOG_END_ROW, `> Crafting — ${secsLeft}s remaining`, '#ff9933');
+    const prevHammerFrame = state.workbenchHammerFrame;
     state.workbenchHammerFrame = Math.min(9, Math.floor((craftProgress / activeCraftTicks) * 10));
+    const wbDef = STATION_DEFS.find(s => s.label === 'WB');
+    if (wbDef) {
+      const doorX = wbDef.x + 1, doorY = wbDef.y + 2;
+      if (state.workbenchHammerFrame >= 6 && state.workbenchHammerFrame <= 7 && prevHammerFrame < 6) {
+        display.draw(doorX, doorY, '*', '#ffd633', BG);
+      } else if (prevHammerFrame >= 6 && prevHammerFrame <= 7 && state.workbenchHammerFrame >= 8) {
+        markDirty(doorX, doorY); renderDirty();
+      }
+    }
     craftProgress++;
     if (!craftingRemote) pulseWB();
     if (craftProgress >= activeCraftTicks) {
