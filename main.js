@@ -1596,7 +1596,7 @@ function showContinueMenu() {
   const o1 = '1. Continue'; const o2 = '2. New Game';
   const c1fg = saveExists ? BRIGHT_WHITE : '#333333';
   for (let i = 0; i < o1.length; i++) display.draw(CX+i, BOX_Y+3, o1[i], c1fg, BG);
-  for (let i = 0; i < o2.length; i++) display.draw(CX+i, BOX_Y+4, o2[i], '#66cc66', BG);
+  for (let i = 0; i < o2.length; i++) display.draw(CX+i, BOX_Y+4, o2[i], '#f0f0f0', BG);
   function cmKeyHandler(e) {
     if (e.key === '1') {
       if (!saveExists) return;
@@ -1606,7 +1606,14 @@ function showContinueMenu() {
       drawWorld();
     } else if (e.key === '2') {
       window.removeEventListener('keydown', cmKeyHandler);
-      showNewGameConfirm();
+      if (!saveExists) {
+        resetState();
+        localStorage.removeItem(SAVE_KEY);
+        state.gameState = 'transitioning';
+        startPhaseIn();
+      } else {
+        showNewGameConfirm();
+      }
     }
   }
   window.addEventListener('keydown', cmKeyHandler);
@@ -3138,71 +3145,73 @@ function openMarketMenu(initialTab = 'sell') {
       redraw(); return;
     }
 
-    // ── BUY tab ─────────────────────────────────────────────────────────────
-    if (marketTab === 'buy') {
-      const bidOffer = (idx) => {
-        const offer = state.marketBuyOffers[idx];
+    if (marketTab === 'sell') {
+      // ── SELL tab ───────────────────────────────────────────────────────────
+      if (e.key === '4') {
+        const avail = state.phase >= 3
+          ? Math.max(0, Math.min(state.player.inventory.widgets, state.demand - state.widgetsSoldToday))
+          : state.player.inventory.widgets;
+        if (state.marketOpen && avail > 0) { closeMT(); return; }
+      }
+      if (!state.marketOpen) { if (e.key === '1') closeMT(); return; }
+
+      const widgets = state.player.inventory.widgets;
+      const price   = state.phase >= 3 ? state.marketPrice : 8.0;
+      const demandMet = state.phase >= 3 && state.widgetsSoldToday >= state.demand;
+      const avail   = state.phase >= 3
+        ? Math.max(0, Math.min(widgets, state.demand - state.widgetsSoldToday))
+        : widgets;
+      const cantSell = avail === 0 || demandMet;
+
+      if (cantSell) {
+        if (e.key === '1') { closeMT(); return; }
+        if (e.key === '2' && state.bank.card.tier === 'black' && !state.bank.card.demandImmunityUsedThisWeek && !state._demandImmunityActiveToday) {
+          const immuneCost = 500;
+          const avail2 = Math.max(0, state.bank.card.limit - state.bank.card.balance);
+          if (avail2 >= immuneCost) {
+            state.bank.card.balance = Math.round((state.bank.card.balance + immuneCost) * 10) / 10;
+            state.bank.card.demandImmunityUsedThisWeek = true;
+            state._demandImmunityActiveToday = true;
+            addLog('> Black card: demand immunity activated. Sell freely today.', CARD_TIERS.black.labelColor);
+            drawStatusBar(); redraw();
+          } else { addLog('Insufficient card credit for demand immunity.', '#ff5555'); }
+        }
+        return;
+      }
+
+      if (e.key === '1') { sellWidgets(1); redraw(); return; }
+      if (e.key === '2') { sellWidgets(avail); redraw(); return; }
+      if (e.key === '3') {
+        window.removeEventListener('keydown', mtKeyHandler);
+        showNumericPrompt(`Sell how many? (max ${avail})`, avail,
+          (n) => { sellWidgets(n); openMarketMenu(); },
+          () => openMarketMenu()
+        );
+        return;
+      }
+      if (e.key === '4') { closeMT(); return; }
+
+    } else if (marketTab === 'buy') {
+      // ── BUY tab ────────────────────────────────────────────────────────────
+      if (e.key === '1' || e.key === '2') {
+        const offerIdx = e.key === '1' ? 0 : 1;
+        const offer = state.marketBuyOffers[offerIdx];
         if (!offer || offer.accepted || offer.rejected) return;
         if (state.storage.widgets + offer.size > state.storage.widgetCap) {
-          addLog('> Your warehouse can\'t hold that many.', '#ff5555'); return;
+          addLog('> Your warehouse can\'t hold that many.', '#ff5555');
+          return;
         }
         window.removeEventListener('keydown', mtKeyHandler);
         showNumericPrompt(
           `Bid per widget (ask: ${offer.askPrice}cr)`,
-          Math.round(offer.askPrice * 2),
-          (bid) => { processBid(idx, bid); openMarketMenu('buy'); },
-          () => openMarketMenu('buy')
+          Math.ceil(offer.askPrice * 2),
+          (bidPrice) => { processBid(offerIdx, bidPrice); openMarketMenu('buy'); },
+          () => openMarketMenu('buy'),
+          { decimal: true }
         );
-      };
-      if (e.key === '1') { bidOffer(0); return; }
-      if (e.key === '2') { bidOffer(1); return; }
-      return;
-    }
-
-    // ── SELL tab ─────────────────────────────────────────────────────────────
-    if (e.key === '4') {
-      const avail = state.phase >= 3
-        ? Math.max(0, Math.min(state.player.inventory.widgets, state.demand - state.widgetsSoldToday))
-        : state.player.inventory.widgets;
-      if (state.marketOpen && avail > 0) { closeMT(); return; }
-    }
-    if (!state.marketOpen) { if (e.key === '1') closeMT(); return; }
-
-    const widgets = state.player.inventory.widgets;
-    const price   = state.phase >= 3 ? state.marketPrice : 8.0;
-    const demandMet = state.phase >= 3 && state.widgetsSoldToday >= state.demand;
-    const avail   = state.phase >= 3
-      ? Math.max(0, Math.min(widgets, state.demand - state.widgetsSoldToday))
-      : widgets;
-    const cantSell = avail === 0 || demandMet;
-
-    if (cantSell) {
-      if (e.key === '1') { closeMT(); return; }
-      if (e.key === '2' && state.bank.card.tier === 'black' && !state.bank.card.demandImmunityUsedThisWeek && !state._demandImmunityActiveToday) {
-        const immuneCost = 500;
-        const avail2 = Math.max(0, state.bank.card.limit - state.bank.card.balance);
-        if (avail2 >= immuneCost) {
-          state.bank.card.balance = Math.round((state.bank.card.balance + immuneCost) * 10) / 10;
-          state.bank.card.demandImmunityUsedThisWeek = true;
-          state._demandImmunityActiveToday = true;
-          addLog('> Black card: demand immunity activated. Sell freely today.', CARD_TIERS.black.labelColor);
-          drawStatusBar(); redraw();
-        } else { addLog('Insufficient card credit for demand immunity.', '#ff5555'); }
+        return;
       }
-      return;
     }
-
-    if (e.key === '1') { sellWidgets(1); redraw(); return; }
-    if (e.key === '2') { sellWidgets(avail); redraw(); return; }
-    if (e.key === '3') {
-      window.removeEventListener('keydown', mtKeyHandler);
-      showNumericPrompt(`Sell how many? (max ${avail})`, avail,
-        (n) => { sellWidgets(n); openMarketMenu(); },
-        () => openMarketMenu()
-      );
-      return;
-    }
-    if (e.key === '4') { closeMT(); return; }
   }
 
   mtMenuRedrawFn = redraw;
@@ -3231,7 +3240,7 @@ const OFFICE_NODES = [
   { key: 'workerSpeed', name: 'Train Apprentice Speed',        levelKey: 'workerSpeedLevel', costs: [60, 100, 160, 250],     max: 4, minPhase: 2 },
   // Storage (unchanged)
   { key: 'storageExp1',  name: 'Storage Expansion I',  cost: 200, max: 1, minPhase: 3 },
-  { key: 'storageExp2',  name: 'Storage Expansion II', cost: 500, max: 1, minPhase: 3, requires: 'storageExp1', requiresLabel: 'Expansion I' },
+  { key: 'storageExp2',  name: 'Storage Expansion II', cost: 300, max: 1, minPhase: 3, requires: 'storageExp1', requiresLabel: 'Expansion I' },
   { key: 'reducedCarry', name: 'Reduced Carry Cost',   cost: 300, max: 1, minPhase: 3 },
   { key: 'discountDump', name: 'Market Discount Dump', cost: 250, max: 1, minPhase: 3 },
   // Couriers — 4 separate build tiers (widget cost from storage)
@@ -4039,8 +4048,8 @@ function showOfficeMenu() {
           if (level >= (node.max || 1) || state.player.credits < node.cost) return;
           state.player.credits -= node.cost;
           state.skills[item.nk] = level + 1;
-          if (item.nk === 'storageExp1') { state.storage.widgetCap = 100; state.storage.rmCap = 100; }
-          if (item.nk === 'storageExp2') { state.storage.widgetCap = 200; state.storage.rmCap = 200; }
+          if (item.nk === 'storageExp1') { state.storage.widgetCap = 100;  state.storage.rmCap = 100; }
+          if (item.nk === 'storageExp2') { state.storage.widgetCap = 1000; state.storage.rmCap = 1000; }
           addLog(`${node.name} purchased.`, '#cc66cc');
           drawStatusBar(); redraw(); return;
         }
@@ -4787,7 +4796,8 @@ function showOfficeDispatch() {
 
 // ── Bank numeric prompt helper ────────────────────────────────────────────────
 
-function showNumericPrompt(title, maxVal, onConfirm, onCancel) {
+function showNumericPrompt(title, maxVal, onConfirm, onCancel, opts = {}) {
+  const allowDecimal = !!opts.decimal;
   const BOX_W = 40, BOX_H = 8;
   const BOX_X = Math.floor((DISPLAY_WIDTH  - BOX_W) / 2);
   const BOX_Y = Math.floor((DISPLAY_HEIGHT - BOX_H) / 2);
@@ -4828,9 +4838,10 @@ function showNumericPrompt(title, maxVal, onConfirm, onCancel) {
   function promptHandler(e) {
     e.preventDefault();
     if (e.key === 'Escape')    { closePrompt(); onCancel?.(); return; }
-    if (e.key === 'Enter')     { const v = Math.min(parseInt(inputStr) || 0, maxVal); closePrompt(); if (v > 0) onConfirm(v); else onCancel?.(); return; }
+    if (e.key === 'Enter')     { const v = Math.min(allowDecimal ? (parseFloat(inputStr) || 0) : (parseInt(inputStr) || 0), maxVal); closePrompt(); if (v > 0) onConfirm(v); else onCancel?.(); return; }
     if (e.key === 'Backspace') { inputStr = inputStr.slice(0, -1); redrawPrompt(); return; }
-    if (/^[0-9]$/.test(e.key) && inputStr.length < 9) { inputStr += e.key; redrawPrompt(); }
+    if (/^[0-9]$/.test(e.key) && inputStr.length < 9) { inputStr += e.key; redrawPrompt(); return; }
+    if (allowDecimal && e.key === '.' && !inputStr.includes('.') && inputStr.length < 8) { inputStr += '.'; redrawPrompt(); }
   }
 
   redrawPrompt();
