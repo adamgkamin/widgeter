@@ -864,7 +864,7 @@ drawArt(0);
 drawPrompt(true);
 
 const CREDIT  = "Created by Adam A.";
-const VERSION = "alpha 1.05.03";
+const VERSION = "alpha 1.05.05";
 
 // ── Sound system ──────────────────────────────────────────────────────────────
 const SOUNDS = {};
@@ -963,6 +963,7 @@ function renderLog() {
       }
     }
   }
+  drawPhaseGoal();
 }
 
 // Time indicator — redrawn every tick (§3.7, §7.2)
@@ -984,42 +985,65 @@ let phaseGoalLastValue  = -1;
 
 function drawPhaseGoal() {
   if (state.gameState !== 'playing' && state.gameState !== 'crafting') return;
-  let goalText = '', goalFg = '#aaaaaa';
 
+  let goalText = '';
   let currentRemaining = 0;
+
   if (state.phase === 1) {
-    currentRemaining = Math.max(0, 100 - state.lifetimeCreditsEarned);
-    if (currentRemaining > 0) { goalText = `PHASE 2 IN ${Math.ceil(currentRemaining)}cr`; }
+    currentRemaining = Math.max(0, Math.ceil(100 - state.lifetimeCreditsEarned));
+    goalText = `PHASE 2 IN ${currentRemaining}CR`;
   } else if (state.phase === 2) {
-    currentRemaining = Math.max(0, 1000 - state.lifetimeCreditsEarned);
-    if (currentRemaining > 0) { goalText = `PHASE 3 IN ${Math.ceil(currentRemaining)}cr`; }
+    currentRemaining = Math.max(0, Math.ceil(1000 - state.lifetimeCreditsEarned));
+    goalText = `PHASE 3 IN ${currentRemaining}CR`;
   } else if (state.phase === 3) {
-    currentRemaining = Math.max(0, 2000 - state.lifetimeCreditsEarned);
-    if (currentRemaining > 0) { goalText = `PHASE 4 IN ${Math.ceil(currentRemaining)}cr`; }
+    currentRemaining = Math.max(0, Math.ceil(2000 - state.lifetimeCreditsEarned));
+    goalText = `PHASE 4 IN ${currentRemaining}CR`;
   } else if (state.phase === 4) {
-    currentRemaining = Math.max(0, 10000 - state.lifetimeCreditsEarned);
-    if (currentRemaining > 0) { goalText = `PHASE 5 IN ${Math.ceil(currentRemaining)}cr`; }
+    currentRemaining = Math.max(0, Math.ceil(10000 - state.lifetimeCreditsEarned));
+    goalText = `PHASE 5 IN ${currentRemaining}CR`;
   } else if (state.phase === 5) {
     currentRemaining = Math.max(0, 5000 - state.rocketWidgets);
-    if (currentRemaining > 0) { goalText = `ROCKET: ${state.rocketWidgets.toLocaleString()}/5,000`; goalFg = '#ff5555'; }
-    else { goalText = 'LAUNCH READY'; goalFg = '#ff5555'; }
+    if (currentRemaining > 0) {
+      goalText = `ROCKET: ${state.rocketWidgets.toLocaleString()}/${(5000).toLocaleString()}`;
+    } else {
+      goalText = 'LAUNCH READY';
+    }
   }
+
+  if (!goalText) return;
 
   if (phaseGoalLastValue >= 0 && currentRemaining < phaseGoalLastValue) {
     phaseGoalFlashUntil = Date.now() + 1000;
   }
   phaseGoalLastValue = currentRemaining;
 
-  if (Date.now() < phaseGoalFlashUntil) goalFg = '#66ff66';
+  const isFlashing = Date.now() < phaseGoalFlashUntil;
+  let textFg;
+  if (isFlashing) {
+    textFg = '#ffffff';
+  } else if (state.phase === 5) {
+    textFg = '#ff5555';
+  } else {
+    textFg = '#66cc66';
+  }
 
-  if (!goalText) return;
+  const borderFg = '#555555';
+  const padded = ' ' + goalText + ' ';
+  const boxW = padded.length + 2;
+  const boxX = DISPLAY_WIDTH - boxW;
+  const topY = LOG_END_ROW;
 
-  const boxText = goalText;
-  const startX = DISPLAY_WIDTH - boxText.length - 3;
-  for (let i = startX - 1; i < DISPLAY_WIDTH; i++) display.draw(i, HINT_ROW, ' ', BRIGHT_WHITE, BG);
-  display.draw(startX, HINT_ROW, '[', '#555555', BG);
-  for (let i = 0; i < boxText.length; i++) display.draw(startX + 1 + i, HINT_ROW, boxText[i], goalFg, BG);
-  display.draw(startX + 1 + boxText.length, HINT_ROW, ']', '#555555', BG);
+  display.draw(boxX, topY - 1, '╔', borderFg, BG);
+  for (let i = 1; i < boxW - 1; i++) display.draw(boxX + i, topY - 1, '═', borderFg, BG);
+  display.draw(boxX + boxW - 1, topY - 1, '╗', borderFg, BG);
+
+  display.draw(boxX, topY, '║', borderFg, BG);
+  for (let i = 0; i < padded.length; i++) display.draw(boxX + 1 + i, topY, padded[i], textFg, BG);
+  display.draw(boxX + boxW - 1, topY, '║', borderFg, BG);
+
+  display.draw(boxX, topY + 1, '╚', borderFg, BG);
+  for (let i = 1; i < boxW - 1; i++) display.draw(boxX + i, topY + 1, '═', borderFg, BG);
+  display.draw(boxX + boxW - 1, topY + 1, '╝', borderFg, BG);
 }
 
 // worst-case: "Credits: 9999.0  Raw: 5  Widgets: 5/5  Price: 20cr" (50) + "[== market open 180s ==]" (24) = 74 chars ≤ 78
@@ -2829,7 +2853,7 @@ function openRMShedMenu() {
     let statusText, statusFg;
     if (rmSpace <= 0)                { statusText = 'Inventory full.'; statusFg = '#ff5555'; }
     else if (state.player.credits < COST && !canBuyCard) { statusText = 'Insufficient credits.'; statusFg = '#ff5555'; }
-    else                             { statusText = 'Walk to shed. Press space to purchase.'; statusFg = '#555555'; }
+    else                             { statusText = 'Press a key to purchase.'; statusFg = '#555555'; }
     { const ay = BOX_Y + 22; border(ay);
       const centered = menuPad(statusText.length < IW ? ' '.repeat(Math.floor((IW-statusText.length)/2)) + statusText : statusText, IW);
       for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, centered[i] || ' ', statusFg, BG); }
@@ -3310,6 +3334,7 @@ function stampCasino(locked) {
 function checkPhase2Trigger() {
   if (state.lifetimeCreditsEarned >= 100 && state.phase === 1) {
     state.phase = 2;
+    phaseGoalLastValue = -1;
     state.officeUnlocked = true;
     logHistory('Hired first worker.');
     state.stations.storage.unlocked       = true;
@@ -3367,6 +3392,7 @@ function checkBankruptcyStipend() {
 function checkPhase3Trigger() {
   if (state.phase === 2 && (state.lifetimeCreditsEarned >= 1000 || (state.couriersOwned >= 1 && state.day >= 2))) {
     state.phase = 3;
+    phaseGoalLastValue = -1;
     state.stations.bank = { unlocked: true };
     state.stations.newspaper.unlocked = true;
     logHistory('The market began fluctuating.');
@@ -3384,6 +3410,7 @@ function checkPhase3Trigger() {
 function checkPhase4Trigger() {
   if (state.phase === 3 && (state.demandCrashOccurred || state.lifetimeCreditsEarned >= 2000)) {
     state.phase = 4;
+    phaseGoalLastValue = -1;
     state.terminalUnlocked = true;
     state.stations.terminal = { unlocked: true };
     logHistory('A man in a clean suit appeared.');
@@ -3399,6 +3426,7 @@ function checkPhase4Trigger() {
 function checkPhase5Trigger() {
   if (state.phase === 4 && state.lifetimeCreditsEarned >= 10000) {
     state.phase = 5;
+    phaseGoalLastValue = -1;
     logHistory('The launch facility opened.');
     addLog('Something has been under construction this whole time.', '#cc66cc');
     setTimeout(() => addLog('The structure in the corner. You always wondered.', '#cc66cc'), 3000);
@@ -3462,6 +3490,7 @@ function sellWidgets(n) {
   drawStatusBar();
   { const mtD = STATION_DEFS.find(s => s.label === 'MT'); if (mtD) effectsManager.creditRain(mtD.x + 1, mtD.y + 2, n, isFirstSale, earned); }
   checkPhase2Trigger();
+  drawPhaseGoal();
 }
 
 // ── Demand history / forecast screens (§5.5) ─────────────────────────────────
@@ -7707,6 +7736,7 @@ function renderLargeNumber(display, x, y, numberString, color, availableWidth) {
 // ── Launch Facility menu (§9) ─────────────────────────────────────────────────
 
 const CHANGELOG = [
+  { version: '1.05.05', summary: 'Phase tracker: green text, white flash on progress, bordered box on log area.' },
   { version: '1.05.03', summary: 'Phase tracker: brighter, all caps, green flash on progress.' },
   { version: '1.05.02', summary: 'Phase goal countdown tracker on hint row. Hint bar shortened.' },
   { version: '1.05.01', summary: 'The Mine — procedural cave dungeon with mining, 4 layouts, GS mining tab, inventory equip tab.' },
@@ -10500,6 +10530,7 @@ function tickCouriers() {
             drawStatusBar();
             { const mtD = STATION_DEFS.find(s => s.label === 'MT'); if (mtD) effectsManager.creditRain(mtD.x + 1, mtD.y + 2, n, false, earned); }
             checkPhase2Trigger();
+            drawPhaseGoal();
             c.target = { ...stDoor };
             c.courierState = 'returning';
           } else if (!state.marketOpen || demandLeft <= 0) {
@@ -11861,6 +11892,7 @@ setInterval(() => {
   checkPhase3Trigger();
   checkPhase4Trigger();
   checkPhase5Trigger();
+  drawPhaseGoal();
   // Safety net: if phase advanced but station unlock was missed, apply it now
   if (state.phase >= 3 && !state.stations.newspaper.unlocked) applyPhaseUnlocks(state.phase);
 
