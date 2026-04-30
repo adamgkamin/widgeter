@@ -890,7 +890,7 @@ drawArt(0);
 drawPrompt(true);
 
 const CREDIT  = "Created by Adam A.";
-const VERSION = "alpha 1.06.01";
+const VERSION = "alpha 1.06.02";
 
 // ── Sound system ──────────────────────────────────────────────────────────────
 const SOUNDS = {};
@@ -7841,6 +7841,7 @@ function renderLargeNumber(display, x, y, numberString, color, availableWidth) {
 // ── Launch Facility menu (§9) ─────────────────────────────────────────────────
 
 const CHANGELOG = [
+  { version: '1.06.02', summary: 'Newspaper redesigned as full daily edition — market, weather, production, finance sections.' },
   { version: '1.06.01', summary: 'Weather system: clear, rain, fog, heat wave, storm. Affects demand, worker speed, crafting, mining.' },
   { version: '1.05.07', summary: 'RM storage used before buying. Storage RM shown in RM menu. Apprentices use storage first.' },
   { version: '1.05.06', summary: 'The Mine — enemy, bare hands limit, water shimmer, full-screen clear, station entrance, random discovery.' },
@@ -10313,47 +10314,38 @@ function openNewspaperMenu() {
   const LC    = '#f0f0f0';
   const DC    = '#333333';
   const HL    = COLOR_NP_LABEL;
-  const BOX_W = 60;
-  const IW    = 58;        // inner width
-  const LP_W  = 16;        // left pane (art)
-  const RP_W  = 41;        // right pane
+  const FG2   = '#aaaaaa';
+  const SL    = '#66cc66';
+  const SF    = '#555555';
+  const BOX_W = 70;
+  const IW    = 68;
+  const BOX_H = 38;
   const BOX_X = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
+  const BOX_Y = Math.max(1, Math.floor((WORLD_ROWS - BOX_H) / 2));
+  const CX    = BOX_X + 1;
 
-  const NP_ART = [
-    ' _____________ ',
-    '|  THE DAILY  |',
-    '|    WIDGET   |',
-    '|=============|',
-    '| ## ## ## ## |',
-    '| ## ## ## ## |',
-    '| ## ## ## ## |',
-    '|-------------|',
-    '| [  PRESS  ] |',
-    '|_____________|',
-    '  |||     ||| ',
-    '  ___     ___ ',
-  ];
-
-  const BULLISH_STORIES = [
-    { label: 'Endorse by industry figure',  headline: 'INDUSTRY FIGURE ENDORSES WIDGETS — demand expected to surge',     nudge: +15 },
-    { label: 'Gov. subsidy incoming',        headline: 'GOVERNMENT WIDGET SUBSIDY INCOMING — analysts bullish',              nudge: +15 },
-    { label: 'Widgets cure mild ailments',   headline: 'WIDGETS LINKED TO HEALTH BENEFITS — sales forecast strong',        nudge: +15 },
-    { label: 'Supply running critically low',headline: 'SUPPLY RUNNING CRITICALLY LOW — buyers urged to act now',           nudge: +15 },
-    { label: 'Rival producer has gone under',headline: 'RIVAL WIDGET PRODUCER CONFIRMS CLOSURE — market share up',         nudge: +15 },
-  ];
-  const BEARISH_STORIES = [
-    { label: 'Link to food-borne illness',   headline: 'WIDGETS LINKED TO FOOD-BORNE ILLNESS OUTBREAK — demand at risk',   nudge: -15 },
-    { label: 'Factory environmental breach', headline: 'FACTORY ENVIRONMENTAL VIOLATIONS REPORTED — confidence shaken',    nudge: -15 },
-    { label: 'Competing product superior',   headline: 'COMPETING PRODUCT OUTPERFORMS WIDGETS IN INDEPENDENT TESTS',       nudge: -15 },
-    { label: 'Widgets contain banned material',headline: 'WIDGETS CONTAIN BANNED MATERIALS — investigation underway',     nudge: -15 },
-    { label: 'Demand survey shows sharp drop',headline: 'DEMAND SURVEY SHOWS SHARP DROP — analysts downgrade outlook',    nudge: -15 },
-  ];
-
-  let npSel     = 0;   // 0-9 (bullish 0-4, bearish 5-9), or 0-14 with smear
+  let npTab     = 'newspaper';
+  let npScroll  = 0;
+  let npSel     = 0;
   let npConfirm = false;
 
-  const hasSkill  = !!state.skills.plantStory;
-  const hasSmear  = !!state.skills.smearCampaign;
+  const BULLISH_STORIES = [
+    { label: 'Endorse by industry figure',   headline: 'INDUSTRY FIGURE ENDORSES WIDGETS — demand expected to surge',    nudge: +15 },
+    { label: 'Gov. subsidy incoming',         headline: 'GOVERNMENT WIDGET SUBSIDY INCOMING — analysts bullish',             nudge: +15 },
+    { label: 'Widgets cure mild ailments',    headline: 'WIDGETS LINKED TO HEALTH BENEFITS — sales forecast strong',       nudge: +15 },
+    { label: 'Supply running critically low', headline: 'SUPPLY RUNNING CRITICALLY LOW — buyers urged to act now',          nudge: +15 },
+    { label: 'Rival producer gone under',     headline: 'RIVAL WIDGET PRODUCER CONFIRMS CLOSURE — market share up',        nudge: +15 },
+  ];
+  const BEARISH_STORIES = [
+    { label: 'Link to food-borne illness',      headline: 'WIDGETS LINKED TO FOOD-BORNE ILLNESS OUTBREAK — demand at risk', nudge: -15 },
+    { label: 'Factory environmental breach',    headline: 'FACTORY ENVIRONMENTAL VIOLATIONS REPORTED — confidence shaken', nudge: -15 },
+    { label: 'Competing product superior',      headline: 'COMPETING PRODUCT OUTPERFORMS WIDGETS IN INDEPENDENT TESTS',    nudge: -15 },
+    { label: 'Widgets contain banned material', headline: 'WIDGETS CONTAIN BANNED MATERIALS — investigation underway',     nudge: -15 },
+    { label: 'Demand survey shows sharp drop',  headline: 'DEMAND SURVEY SHOWS SHARP DROP — analysts downgrade outlook',   nudge: -15 },
+  ];
+
+  const hasSkill   = !!state.skills.plantStory;
+  const hasSmear   = !!state.skills.smearCampaign;
   const onCooldown = () => (state.day - (state.stations.newspaper.lastManipulationDay ?? -99)) < 3;
 
   function allStories() {
@@ -10367,167 +10359,238 @@ function openNewspaperMenu() {
     return list;
   }
 
-  // Compute BOX_H based on what's shown
-  function calcBOX_H() {
-    if (!hasSkill)            return 28;
-    if (onCooldown())         return 24;
-    if (!hasSmear)            return 36;
-    return 46;
+  // ── Drawing helpers ──────────────────────────────────────────────────────────
+  function border(ay) { display.draw(BOX_X, ay, '║', NC, BG); display.draw(BOX_X + BOX_W - 1, ay, '║', NC, BG); }
+  function irow(ay, text, fg) {
+    border(ay);
+    const p = menuPad(text, IW);
+    for (let i = 0; i < IW; i++) display.draw(CX + i, ay, p[i]||' ', fg, BG);
+  }
+  function sectTop(ay, x, w, label) {
+    display.draw(x, ay, '┌', SF, BG);
+    display.draw(x+1, ay, '─', SF, BG);
+    display.draw(x+2, ay, ' ', BRIGHT_WHITE, BG);
+    for (let i = 0; i < label.length; i++) display.draw(x+3+i, ay, label[i], SL, BG);
+    display.draw(x+3+label.length, ay, ' ', BRIGHT_WHITE, BG);
+    for (let xi = x+4+label.length; xi < x+w-1; xi++) display.draw(xi, ay, '─', SF, BG);
+    display.draw(x+w-1, ay, '┐', SF, BG);
+  }
+  function sectBot(ay, x, w) {
+    display.draw(x, ay, '└', SF, BG);
+    for (let xi = x+1; xi < x+w-1; xi++) display.draw(xi, ay, '─', SF, BG);
+    display.draw(x+w-1, ay, '┘', SF, BG);
+  }
+  function sectRow(ay, x, w, text, fg) {
+    display.draw(x, ay, '│', SF, BG);
+    display.draw(x+w-1, ay, '│', SF, BG);
+    const iw = w - 2;
+    const str = (' ' + text).padEnd(iw).slice(0, iw);
+    for (let i = 0; i < iw; i++) display.draw(x+1+i, ay, str[i]||' ', fg, BG);
   }
 
-  function redraw() {
-    const BOX_H = calcBOX_H();
-    _npCloseBOX_H = BOX_H; // keep close function in sync with what was actually drawn
-    const BOX_Y = Math.max(1, Math.floor((WORLD_ROWS - BOX_H) / 2));
-    const LP_X  = BOX_X + 1;
-    const RP_X  = BOX_X + 1 + LP_W + 1;
-    const animFrame = (state.newspaper.animTick >> 2) & 1; // flip every 4 ticks
+  const WEATHER_ICONS = { clear: '☀', rain: '☂', fog: '▓', heatwave: '♨', storm: '⚡' };
+  const WEATHER_COLORS = { clear: '#ffd633', rain: '#4a8aaa', fog: '#666666', heatwave: '#ff6633', storm: '#ffaa00' };
+  const WEATHER_NAMES  = { clear: 'Clear', rain: 'Rain', fog: 'Fog', heatwave: 'Heat Wave', storm: 'Storm' };
+  const WEATHER_EFFECTS = {
+    clear:    'No weather effects.',
+    rain:     'Workers -20%. Demand -10%.',
+    fog:      'Couriers -10%. Look range limited.',
+    heatwave: 'Crafting +1s. Demand +20%.',
+    storm:    'Workers -30%. Demand -20%. Mine 2x RM.',
+  };
+  const FORECAST_FG = { Strong:'#66cc66', Positive:'#66cc66', Mixed:'#ffd633', Weak:'#ff9933', Poor:'#ff5555' };
 
-    function border(ay) { display.draw(BOX_X, ay, '║', NC, BG); display.draw(BOX_X + BOX_W - 1, ay, '║', NC, BG); }
-    function lp(ay, text, fg) {
-      const p = menuPad(text, LP_W);
-      for (let i = 0; i < LP_W; i++) display.draw(LP_X + i, ay, p[i]||' ', fg, BG);
-    }
-    function rp(ay, text, fg) {
-      const p = menuPad(text, RP_W);
-      for (let i = 0; i < RP_W; i++) display.draw(RP_X + i, ay, p[i]||' ', fg, BG);
-    }
-    function fullRow(ay, text, fg) {
-      border(ay);
-      const p = menuPad(text, IW);
-      for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, p[i]||' ', fg, BG);
-    }
-    function sep(ay) { fullRow(ay, '─'.repeat(IW), DC); }
+  const SPECIAL_REPORTS = [
+    { cond: () => state.phase === 3 && !state.mine.discovered, text: 'Rumors of caves in the southern rocks persist.' },
+    { cond: () => state.mine.discovered && state.skills.pickaxeLevel === 0, text: 'Miners report bare-hand injuries. A pickaxe would help.' },
+    { cond: () => state.weather.current === 'storm', text: 'Storm conditions make the mine dangerous but lucrative.' },
+    { cond: () => state.rocketWidgets > 0 && state.rocketWidgets < 5000, text: `Rocket loading: ${Math.round(state.rocketWidgets/50)}% complete. The facility hums.` },
+    { cond: () => state.bank.creditRatingScore < 5, text: 'Financial advisors urge caution. Your credit rating needs work.' },
+    { cond: () => state.player.credits > 5000, text: 'Local tycoon spotted buying luxury goods. The economy thanks you.' },
+    { cond: () => state.cottage.owned, text: 'Real estate values holding steady. Your cottage appreciates.' },
+    { cond: () => state.widgetsMade > 500, text: `Production milestone: ${state.widgetsMade} widgets manufactured to date.` },
+    { cond: () => state.fishing.totalCatches > 10, text: 'Pond fishing yields remain stable. Conservationists pleased.' },
+    { cond: () => true, text: 'Markets steady. No major developments.' },
+  ];
 
-    // Clear
-    for (let r = 1; r < BOX_H - 1; r++) for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, BOX_Y + r, ' ', LC, BG);
-
-    // Top border
-    display.draw(BOX_X, BOX_Y, '╔', NC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y, '╗', NC, BG);
-    for (let i = 1; i < BOX_W-1; i++) display.draw(BOX_X+i, BOX_Y, '═', NC, BG);
-
-    // Row 1: title
-    { const ay = BOX_Y + 1; border(ay);
-      const title = 'THE DAILY WIDGET', hint = 'press esc to exit';
-      for (let i = 0; i < IW; i++) {
-        const ch = i < title.length ? title[i] : (i >= IW - hint.length ? hint[i-(IW-hint.length)] : ' ');
-        const fg = i < title.length ? LC : (i >= IW - hint.length ? DC : LC);
-        display.draw(BOX_X + 1 + i, BOX_Y + 1, ch, fg, BG);
-      }
-    }
-
-    // Row 2: ═ separator
-    { const ay = BOX_Y + 2; border(ay); for (let i = 0; i < IW; i++) display.draw(BOX_X+1+i, ay, '═', DC, BG); }
-
-    // Rows 3-14: art pane + right pane
-    for (let r = 0; r < 12; r++) {
-      const ay = BOX_Y + 3 + r;
-      border(ay);
-      // Art pane
-      const artLine = NP_ART[r] || '                ';
-      for (let i = 0; i < LP_W; i++) {
-        let fg = NC;
-        if (r === 1 || r === 2) fg = HL; // "THE DAILY" / "WIDGET" text
-        if (r >= 4 && r <= 6)   fg = animFrame === 0 ? '#555555' : '#444444'; // animated ## columns
-        if (r === 8)             fg = NC; // [  PRESS  ]
-        if (r === 10 || r === 11) fg = '#aaaaaa'; // press legs
-        display.draw(LP_X + i, ay, artLine[i]||' ', fg, BG);
-      }
-      // Divider
-      display.draw(BOX_X + 1 + LP_W, ay, '│', DC, BG);
-      // Right pane (cleared already)
-    }
-
-    // Right pane content
+  function drawNewspaperTab() {
+    const y0 = BOX_Y + 6;
+    // HEADLINE section — full width
+    sectTop(y0, CX, IW, 'HEADLINE');
     const hdl = state.newspaper.todayHeadline || '(no report yet today)';
-    const hdlWrapped = wordWrap(hdl, 38);
-    rp(BOX_Y+4,  'TODAY\'S REPORT', NC);
-    hdlWrapped.slice(0, 2).forEach((line, i) => rp(BOX_Y + 6 + i, line, LC));
+    const hdlLines = wordWrap(hdl, IW - 4);
+    sectRow(y0+1, CX, IW, hdlLines[0] || '', LC);
+    if (hdlLines.length > 1) sectRow(y0+2, CX, IW, hdlLines[1], LC);
+    else { display.draw(CX, y0+2, '│', SF, BG); display.draw(CX+IW-1, y0+2, '│', SF, BG); for (let xi = CX+1; xi < CX+IW-1; xi++) display.draw(xi, y0+2, ' ', BRIGHT_WHITE, BG); }
+    sectBot(y0+3, CX, IW);
+
+    // MARKET + WEATHER side by side
+    const y1 = y0 + 5;
+    const MX = CX, MW = 28;
+    const WX = CX + 30, WW = IW - 30;
+
+    sectTop(y1, MX, MW, 'MARKET');
+    const dLabel = demandLabel(state.demand);
+    sectRow(y1+1, MX, MW, `Demand today: ${state.demand}`, state.demand > 50 ? '#66cc66' : state.demand > 30 ? '#ffd633' : '#ff5555');
+    sectRow(y1+2, MX, MW, `Price today:  ${state.marketPrice}cr`, '#66cc66');
+    sectRow(y1+3, MX, MW, `Sold today:   ${state.widgetsSoldToday}/${state.demand}`, FG2);
     const fLabel = state.newspaper.tomorrowForecastLabel || '—';
-    const FORECAST_FG = { Strong:'#66cc66', Positive:'#66cc66', Mixed:'#ffd633', Weak:'#ff9933', Poor:'#ff5555' };
-    rp(BOX_Y+9,  `Tomorrow's outlook: ${fLabel}`, FORECAST_FG[fLabel] || '#aaaaaa');
-    const eD = Math.round(50 + 30 * Math.sin((state.day+1) / 7 * 2 * Math.PI));
-    rp(BOX_Y+10, `Expected demand: ~${eD} widgets`, '#555555');
-    for (let i = 0; i < 39; i++) display.draw(RP_X + i, BOX_Y+12, '═', DC, BG);
-    rp(BOX_Y+13, hasSkill ? 'INFLUENCE THE NARRATIVE' : 'STANDARD EDITION', hasSkill ? NC : DC);
+    sectRow(y1+4, MX, MW, `Outlook: ${fLabel}`, FORECAST_FG[fLabel] || FG2);
+    sectBot(y1+5, MX, MW);
 
-    // Row 15: separator
-    sep(BOX_Y + 15);
+    sectTop(y1, WX, WW, 'WEATHER');
+    const wc = state.weather.current, wf = state.weather.forecast;
+    const todayStr = `Today:    ${WEATHER_ICONS[wc]||'?'} ${WEATHER_NAMES[wc]||wc}`;
+    const tmrwStr  = `Tomorrow: ${WEATHER_ICONS[wf]||'?'} ${WEATHER_NAMES[wf]||wf} (75%)`;
+    sectRow(y1+1, WX, WW, todayStr, WEATHER_COLORS[wc] || LC);
+    sectRow(y1+2, WX, WW, tmrwStr, WEATHER_COLORS[wf] || FG2);
+    sectRow(y1+3, WX, WW, '', BRIGHT_WHITE);
+    sectRow(y1+4, WX, WW, WEATHER_EFFECTS[wc] || '', SF);
+    sectBot(y1+5, WX, WW);
 
-    // Story section rows start at BOX_Y+16
-    let cr = BOX_Y + 16;
-    if (!hasSkill) {
-      fullRow(cr++, 'This is a standard subscription.', '#555555');
-      cr++; // blank
-      fullRow(cr++, 'Influence options available via', '#555555');
-      fullRow(cr++, 'the Office (MARKETING section).', '#555555');
-      cr++;
-      fullRow(cr++, '  Plant a Story:     1,500cr', '#555555');
-      fullRow(cr++, '  Run a Smear:       4,000cr', '#555555');
+    // PRODUCTION section
+    const y2 = y1 + 7;
+    sectTop(y2, CX, IW, 'PRODUCTION');
+    const activeAppr = state.workers.apprentices.filter(w => !w.paused).length;
+    const courDir = state.courierDestination === 'rocket' ? '→ rocket' : '→ market';
+    const estOutput = activeAppr * 16;
+    sectRow(y2+1, CX, IW, `Apprentices: ${activeAppr} active   Couriers: ${state.workers.couriers.length} (${courDir})`, FG2);
+    sectRow(y2+2, CX, IW, `RM in storage: ${state.storage.rm}/${state.storage.rmCap}   Widgets: ${state.storage.widgets}/${state.storage.widgetCap}`, FG2);
+    sectRow(y2+3, CX, IW, `Daily output: ~${estOutput} widgets   Revenue today: ${formatCredits(state.stats.revenueToday)}cr`, FG2);
+    sectBot(y2+4, CX, IW);
+
+    // FINANCE section
+    const y3 = y2 + 6;
+    sectTop(y3, CX, IW, 'FINANCE');
+    const interestDay = Math.round(state.bank.deposit * 0.10 * 10) / 10;
+    const cardStr = state.bank.card.tier ? state.bank.card.tier.toUpperCase() : 'None';
+    const carryCost = Math.min(50, Math.round(state.storage.widgets * (state.skills.reducedCarry ? 0.1 : 0.2) * 10) / 10);
+    sectRow(y3+1, CX, IW, `Credits: ${formatCredits(state.player.credits)}cr   Bank deposit: ${formatCredits(state.bank.deposit)}cr (+${formatCredits(interestDay)}/day)`, state.player.credits < 0 ? '#ff5555' : LC);
+    sectRow(y3+2, CX, IW, `Card: ${cardStr}   Rating: ${state.bank.creditRating} (${state.bank.creditRatingScore.toFixed(1)})`, FG2);
+    sectRow(y3+3, CX, IW, `Debt: ${formatCredits(state.debt)}cr   Carry cost: ${formatCredits(carryCost)}cr/day`, state.debt > 0 ? '#ff9933' : FG2);
+    sectBot(y3+4, CX, IW);
+
+    // SPECIAL REPORT section
+    const y4 = y3 + 6;
+    const report = SPECIAL_REPORTS.find(r => r.cond());
+    const reportLines = report ? wordWrap(report.text, IW - 4) : ['Markets steady.'];
+    sectTop(y4, CX, IW, 'SPECIAL REPORT');
+    sectRow(y4+1, CX, IW, reportLines[0] || '', FG2);
+    sectBot(y4+2, CX, IW);
+  }
+
+  function drawInfluenceTab() {
+    const hasSkillNow  = !!state.skills.plantStory;
+    const hasSmearNow  = !!state.skills.smearCampaign;
+    let cr = BOX_Y + 7;
+    if (!hasSkillNow) {
+      irow(cr++, 'This is a standard subscription.', SF);
+      irow(cr++, '', BRIGHT_WHITE);
+      irow(cr++, 'Influence options available via the Office', SF);
+      irow(cr++, '(MARKETING section).', SF);
+      irow(cr++, '', BRIGHT_WHITE);
+      irow(cr++, '  Plant a Story:   1,500cr', SF);
+      irow(cr++, '  Run a Smear:     4,000cr', SF);
     } else if (onCooldown()) {
       const nextDay = (state.stations.newspaper.lastManipulationDay ?? 0) + 3;
-      fullRow(cr++, 'Cooldown active.', '#555555');
-      fullRow(cr++, `Next story available: day ${nextDay}`, '#555555');
+      irow(cr++, 'Cooldown active.', SF);
+      irow(cr++, `Next story available: day ${nextDay}`, SF);
     } else {
       const stories = allStories();
       const sections = [
-        { title: `BULLISH STORIES  (+demand)   ${hasSmear ? '500cr' : '500cr'}`, stories: BULLISH_STORIES, offset: 0, tier: 'plant', cost: 500 },
-        { title: `BEARISH STORIES  (-demand)   ${hasSmear ? '500cr' : '500cr'}`, stories: BEARISH_STORIES, offset: 5, tier: 'plant', cost: 500 },
+        { title: 'BULLISH STORIES  (+demand)  500cr', stories: BULLISH_STORIES, offset: 0, tier: 'plant', cost: 500 },
+        { title: 'BEARISH STORIES  (-demand)  500cr', stories: BEARISH_STORIES, offset: 5, tier: 'plant', cost: 500 },
       ];
-      if (hasSmear) {
+      if (hasSmearNow) {
         sections.push({ title: 'SMEAR CAMPAIGN (+/- demand)  2,000cr', stories: [...BULLISH_STORIES, ...BEARISH_STORIES], offset: 10, tier: 'smear', cost: 2000, isSmear: true });
       }
-
       for (const sec of sections) {
-        fullRow(cr++, sec.title, sec.isSmear ? '#ff5555' : NC);
+        irow(cr++, sec.title, sec.isSmear ? '#ff5555' : NC);
         for (let i = 0; i < sec.stories.length; i++) {
-          const globalIdx = sec.offset + i;
-          const isSel = npSel === globalIdx;
-          const prefix = isSel ? '>> ' : '   ';
+          const isSel = npSel === sec.offset + i;
           const ltr = sec.isSmear ? (i < 5 ? String(i+1) : String(i-4)) : String.fromCharCode((sec.offset < 5 ? 97 : 102) + i);
-          fullRow(cr++, `${prefix}${ltr}) ${sec.stories[i].label}`, isSel ? HL : '#aaaaaa');
+          irow(cr++, `${isSel ? '>> ' : '   '}${ltr}) ${sec.stories[i].label}`, isSel ? HL : FG2);
         }
-        cr++; // blank
+        irow(cr++, '', BRIGHT_WHITE);
       }
-
       if (npConfirm) {
-        const chosen = allStories()[npSel];
-        fullRow(cr++, `File this story for ${chosen.cost}cr? (1. Yes / 2. No)`, LC);
+        const chosen = stories[npSel];
+        irow(cr++, `File this story for ${chosen.cost}cr? (1. Yes / 2. No)`, LC);
       }
     }
-
-    // Bottom separator and footer
-    { const ay = BOX_Y + BOX_H - 3; sep(ay); }
-    { const ay = BOX_Y + BOX_H - 2; border(ay);
-      const footTxt = hasSkill && !onCooldown() ? (npConfirm ? '1: confirm  2: cancel' : '↑↓: select  Enter: choose  ESC: exit') : 'ESC: exit';
-      const fp = menuPad(footTxt.length < IW ? ' '.repeat(Math.floor((IW-footTxt.length)/2)) + footTxt : footTxt, IW);
-      for (let i = 0; i < IW; i++) display.draw(BOX_X+1+i, ay, fp[i]||' ', DC, BG); }
-
-    // Bottom border
-    { const ay = BOX_Y + BOX_H - 1;
-      display.draw(BOX_X, ay, '╚', NC, BG); display.draw(BOX_X+BOX_W-1, ay, '╝', NC, BG);
-      for (let i = 1; i < BOX_W-1; i++) display.draw(BOX_X+i, ay, '═', NC, BG); }
   }
 
-  // Must be declared before redraw() is first called — redraw() assigns to it.
-  let _npCloseBOX_H = calcBOX_H();
+  function redraw() {
+    _npCloseBOX_H = BOX_H;
+    // Clear
+    for (let r = 0; r < BOX_H; r++) for (let x = 0; x < BOX_W; x++) display.draw(BOX_X + x, BOX_Y + r, ' ', BRIGHT_WHITE, BG);
+    // Outer borders
+    display.draw(BOX_X, BOX_Y, '╔', NC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y, '╗', NC, BG);
+    for (let i = 1; i < BOX_W-1; i++) display.draw(BOX_X+i, BOX_Y, '═', NC, BG);
+    display.draw(BOX_X, BOX_Y+BOX_H-1, '╚', NC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y+BOX_H-1, '╝', NC, BG);
+    for (let i = 1; i < BOX_W-1; i++) display.draw(BOX_X+i, BOX_Y+BOX_H-1, '═', NC, BG);
+    for (let r = 1; r < BOX_H-1; r++) { display.draw(BOX_X, BOX_Y+r, '║', NC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y+r, '║', NC, BG); }
 
+    // Row 1: masthead
+    { const title = 'THE DAILY WIDGET';
+      const tx = CX + Math.floor((IW - title.length) / 2);
+      for (let i = 0; i < IW; i++) display.draw(CX+i, BOX_Y+1, ' ', BRIGHT_WHITE, BG);
+      for (let i = 0; i < title.length; i++) display.draw(tx+i, BOX_Y+1, title[i], LC, BG); }
+    // Row 2: subtitle
+    { const wi = WEATHER_ICONS[state.weather.current] || '☀';
+      const wn = WEATHER_NAMES[state.weather.current] || '';
+      const sub = `"All the news that's fit to widget"    Day ${state.day}    ${wi} ${wn}`;
+      const fg2 = SF;
+      for (let i = 0; i < IW; i++) display.draw(CX+i, BOX_Y+2, ' ', BRIGHT_WHITE, BG);
+      const sx = CX + Math.floor((IW - sub.length) / 2);
+      for (let i = 0; i < sub.length; i++) display.draw(sx+i, BOX_Y+2, sub[i], fg2, BG); }
+    // Row 3: ═ separator
+    for (let i = 0; i < IW; i++) display.draw(CX+i, BOX_Y+3, '═', DC, BG);
+    // Row 4: tabs
+    { const tabs = [{ k:'newspaper', lbl:'[ NEWSPAPER ]' }, { k:'influence', lbl:'[ INFLUENCE ]' }];
+      let tx = CX;
+      for (const t of tabs) {
+        const active = npTab === t.k;
+        for (let i = 0; i < t.lbl.length; i++) display.draw(tx+i, BOX_Y+4, t.lbl[i], active ? NC : DC, BG);
+        tx += t.lbl.length + 2;
+      }
+      for (let xi = tx; xi < CX+IW; xi++) display.draw(xi, BOX_Y+4, ' ', BRIGHT_WHITE, BG);
+    }
+    // Row 5: ─ separator
+    for (let i = 0; i < IW; i++) display.draw(CX+i, BOX_Y+5, '─', DC, BG);
+
+    if (npTab === 'newspaper') {
+      drawNewspaperTab();
+    } else {
+      drawInfluenceTab();
+    }
+
+    // Footer
+    { const ay = BOX_Y + BOX_H - 3;
+      for (let i = 0; i < IW; i++) display.draw(CX+i, ay, '─', DC, BG); }
+    { const ay = BOX_Y + BOX_H - 2;
+      const footTxt = npTab === 'influence' && hasSkill && !onCooldown()
+        ? (npConfirm ? '1: confirm  2: cancel' : '↑↓: select  Enter: choose  ←→: tabs  ESC: exit')
+        : '←→: switch tabs   ESC: exit';
+      const fp = menuPad(footTxt.length < IW ? ' '.repeat(Math.floor((IW-footTxt.length)/2)) + footTxt : footTxt, IW);
+      for (let i = 0; i < IW; i++) display.draw(CX+i, ay, fp[i]||' ', DC, BG); }
+  }
+
+  let _npCloseBOX_H = BOX_H;
   npMenuRedrawFn = redraw;
   redraw();
 
-  // Animation ticker (4-tick cycle, ~100ms)
   const npAnimInterval = setInterval(() => {
     if (state.gameState !== 'newspaper') { clearInterval(npAnimInterval); return; }
     state.newspaper.animTick++;
-    redraw();
-  }, 250);
+    if (npTab === 'newspaper') redraw();
+  }, 500);
+
   function closeNP() {
     npMenuRedrawFn = null;
     clearInterval(npAnimInterval);
     window.removeEventListener('keydown', npKeyHandler);
-    const bh = _npCloseBOX_H;
-    const by = Math.max(1, Math.floor((WORLD_ROWS - bh) / 2));
-    clearMenuRegion(BOX_X, by, BOX_W, bh);
+    clearMenuRegion(BOX_X, BOX_Y, BOX_W, BOX_H);
     renderDirty();
     display.draw(state.player.x, state.player.y, '@', state.player.color || BRIGHT_WHITE, BG);
     state.gameState = 'playing';
@@ -10535,11 +10598,16 @@ function openNewspaperMenu() {
 
   function npKeyHandler(e) {
     if (e.key === 'Escape') { if (npConfirm) { npConfirm = false; redraw(); } else { closeNP(); } return; }
-    if (!hasSkill || onCooldown()) return;
+    if (e.key === 'ArrowLeft') {
+      e.preventDefault(); npTab = 'newspaper'; npConfirm = false; redraw(); return;
+    }
+    if (e.key === 'ArrowRight') {
+      e.preventDefault(); npTab = 'influence'; redraw(); return;
+    }
+    if (npTab !== 'influence' || !hasSkill || onCooldown()) return;
 
     const stories = allStories();
     const maxSel  = stories.length - 1;
-
     if (npConfirm) {
       if (e.key === '1') {
         const chosen = stories[npSel];
@@ -10550,12 +10618,9 @@ function openNewspaperMenu() {
         addLog('> Story filed. It will run at dawn.', NC);
         drawStatusBar();
         npConfirm = false; closeNP();
-      } else if (e.key === '2') {
-        npConfirm = false; redraw();
-      }
+      } else if (e.key === '2') { npConfirm = false; redraw(); }
       return;
     }
-
     if (e.key === 'ArrowDown') { e.preventDefault(); npSel = Math.min(npSel + 1, maxSel); redraw(); return; }
     if (e.key === 'ArrowUp')   { e.preventDefault(); npSel = Math.max(npSel - 1, 0);       redraw(); return; }
     if (e.key === 'Enter') { npConfirm = true; redraw(); return; }
@@ -11893,6 +11958,7 @@ setInterval(() => {
       state.newspaper.tomorrowForecastLabel = FORECAST_LABELS.find(([t]) => nxtD > t)[1];
       state.newspaper.animTick = 0;
       addLog(`> [DAILY WIDGET] ${headline}`, COLOR_NP_FRAME);
+      setTimeout(() => addLog('A new edition of The Daily Widget is ready.', COLOR_NP_FRAME), 500);
     }
     // Settle forward contracts due today
     if (state.derivatives.forwards.length > 0) {
