@@ -382,8 +382,9 @@ function saveGame() {
     dayTick:              state.dayTick,
     marketOpen:           state.marketOpen,
     phase:                state.phase,
-    lifetimeGoldEarned: state.lifetimeGoldEarned,
-    logLines:             state.logLines,
+    lifetimeGoldEarned:  state.lifetimeGoldEarned,
+    lifetimeWidgetsMade: state.lifetimeWidgetsMade,
+    logLines:            state.logLines,
     bellFiredToday:       state.bellFiredToday,
     lastAmbientTick:      state.lastAmbientTick,
     lastNarrativeTick:    state.lastNarrativeTick,
@@ -465,6 +466,7 @@ function loadGame() {
     state.marketOpen           = data.marketOpen ?? true;
     state.phase                = data.phase;
     state.lifetimeGoldEarned   = data.lifetimeGoldEarned ?? data.lifetimeCreditsEarned ?? 0;
+    state.lifetimeWidgetsMade  = data.lifetimeWidgetsMade ?? 0;
     state.logLines             = data.logLines || [];
     state.bellFiredToday       = data.bellFiredToday    ?? false;
     state.lastAmbientTick      = data.lastAmbientTick   ?? 0;
@@ -906,7 +908,7 @@ drawArt(0);
 drawPrompt(true);
 
 const CREDIT  = "Created by Adam A.";
-const VERSION = "alpha 1.07.04";
+const VERSION = "alpha 1.07.05";
 
 // ── Sound system ──────────────────────────────────────────────────────────────
 const SOUNDS = {};
@@ -2054,7 +2056,7 @@ function resetState() {
   state.player = { x: 15, y: 14, gold: 10, inventory: { rm: 0, widgets: 0 }, inventoryCaps: { rm: 5, widgets: 5 }, color: '#f0f0f0', colorName: 'DEFAULT', ownedOutfits: [] };
   state.day = 1; state.tick = 0; state.dayTick = 0;
   state.marketOpen = true; state.phase = 1;
-  state.lifetimeGoldEarned = 0; state.logLines = []; state.bellFiredToday = false;
+  state.lifetimeGoldEarned = 0; state.lifetimeWidgetsMade = 0; state.logLines = []; state.bellFiredToday = false;
   state.lastAmbientTick = 0; state.lastNarrativeTick = 0; state.nextAmbientDelay = 45; state.stepsWalked = 0;
   state.stations = {
     launch_facility: { unlocked: false }, storage: { unlocked: false }, general_store: { unlocked: false },
@@ -3924,6 +3926,35 @@ function openMarketMenu(initialTab = 'sell') {
         const centered = menuPad(statusText.length < IW ? ' '.repeat(Math.floor((IW - statusText.length) / 2)) + statusText : statusText, IW);
         for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, statusRow, centered[i] || ' ', statusFg, BG); }
 
+      // Market upgrades section — below status row
+      { const ay = statusRow + 1; border(ay);
+        for (let i = 0; i < IW; i++) display.draw(BOX_X+1+i, ay, '─', DC, BG); }
+      { const ay = statusRow + 2; border(ay);
+        const tag = '[ MARKET UPGRADES ]';
+        const d = IW - tag.length - 2, ld = Math.floor(d/2), rd = d - ld;
+        const hdr = ('─'.repeat(ld) + ' ' + tag + ' ' + '─'.repeat(rd)).slice(0, IW);
+        for (let i = 0; i < IW; i++) {
+          const inTag = i >= ld+1 && i < ld+1+tag.length;
+          display.draw(BOX_X+1+i, ay, hdr[i]||'─', inTag ? TC : '#333333', BG);
+        }
+      }
+      function mtUpgradeRow(row, nk, key) {
+        const node = OFFICE_NODES.find(n => n.key === nk);
+        const ay = statusRow + row; border(ay);
+        const owned = (state.skills[nk] || 0) >= 1;
+        const locked = state.phase < (node?.minPhase || 3);
+        const canAfford = !owned && !locked && state.player.gold >= node?.cost;
+        const cost  = owned ? '✓' : (locked ? '[locked]' : `${node?.cost}g`);
+        const nFg   = owned ? '#888888' : (locked ? '#333333' : '#aaaaaa');
+        const cFg   = owned ? '#66cc66' : (locked ? '#333333' : (canAfford ? '#66cc66' : '#ff5555'));
+        const label = `[${key}] ${node?.name || nk}`;
+        const gap   = Math.max(1, IW - label.length - cost.length - 1);
+        const rp = menuPad(label + ' '.repeat(gap) + cost, IW);
+        for (let i = 0; i < IW; i++) display.draw(BOX_X+1+i, ay, rp[i]||' ', i < label.length ? nFg : cFg, BG);
+      }
+      mtUpgradeRow(3, 'reducedCarry', 'u');
+      mtUpgradeRow(4, 'discountDump', 'v');
+
     } else {
       // ── BUY tab ───────────────────────────────────────────────────────────────
       const offers = state.marketBuyOffers;
@@ -4080,6 +4111,24 @@ function openMarketMenu(initialTab = 'sell') {
       e.preventDefault();
       marketTab = marketTab === 'sell' ? 'buy' : 'sell';
       playSound('click'); redraw(); return;
+    }
+
+    // Market upgrades — available in any tab
+    if (e.key === 'u') {
+      const node = OFFICE_NODES.find(n => n.key === 'reducedCarry');
+      if (!node || state.phase < node.minPhase) { addLog('Reduced Carry Cost not yet available.', '#555555'); return; }
+      if ((state.skills.reducedCarry || 0) >= 1) { addLog('Already purchased.', '#555555'); return; }
+      if (state.player.gold < node.cost) { addLog(`Need ${node.cost}g.`, '#ff5555'); return; }
+      state.player.gold -= node.cost; state.skills.reducedCarry = 1;
+      addLog('Reduced Carry Cost purchased. Storage cost halved.', TC); playSound('bought'); drawStatusBar(); redraw(); return;
+    }
+    if (e.key === 'v') {
+      const node = OFFICE_NODES.find(n => n.key === 'discountDump');
+      if (!node || state.phase < node.minPhase) { addLog('Market Discount Dump not yet available.', '#555555'); return; }
+      if ((state.skills.discountDump || 0) >= 1) { addLog('Already purchased.', '#555555'); return; }
+      if (state.player.gold < node.cost) { addLog(`Need ${node.cost}g.`, '#ff5555'); return; }
+      state.player.gold -= node.cost; state.skills.discountDump = 1;
+      addLog('Market Discount Dump purchased.', TC); playSound('bought'); drawStatusBar(); redraw(); return;
     }
 
     if (marketTab === 'sell') {
@@ -4239,28 +4288,8 @@ function showOfficeMenu() {
     '  _|_____|_   ',
   ];
 
-  // LOGISTICS and TRANSPORT sections are rendered on page 1 (custom dual-panel).
-  // Page 2+ uses only these sections:
-  const SECTIONS = [
-    { header: 'WAREHOUSING', items: [
-      { k: '8', nk: 'storageExp1'  },
-      { k: '9', nk: 'storageExp2'  },
-      { k: 'a', nk: 'reducedCarry' },
-      { k: 'b', nk: 'discountDump' },
-    ]},
-    { header: 'MARKETING', items: [
-      { k: 'j', nk: 'demandHistory' },
-      { k: 'l', nk: 'forecast'      },
-      { k: 's', nk: 'plantStory'    },
-      { k: 't', nk: 'smearCampaign' },
-    ]},
-    { header: 'TRADING', items: [
-      { k: 'm', nk: 'futures'           },
-      { k: 'n', nk: 'optionsBuy'        },
-      { k: 'q', nk: 'optionsWrite'      },
-      { k: 'r', nk: 'volatilitySurface' },
-    ]},
-  ];
+  // Upgrades moved to their home station menus; SECTIONS now empty.
+  const SECTIONS = [];
 
   function drawArtRow(r, ay) {
     const s = OF_ART[r];
@@ -4565,8 +4594,8 @@ function showOfficeMenu() {
     { const ay = BOX_Y + 1;
       border(ay);
       const tabLabel = state.officeTab === 'workers'  ? '[WORKERS]'
-                     : state.officeTab === 'upgrades' ? '[UPGRADES]'
-                     : '[INFO]';
+                     : state.officeTab === 'upgrades' ? '[INFO]'
+                     : '[WORKER LIST]';
       const title = `The Office ${tabLabel}`, hint = 'press esc to exit';
       for (let i = 0; i < IW; i++) {
         const ch = i < title.length ? title[i] : (i >= IW - hint.length ? hint[i-(IW-hint.length)] : ' ');
@@ -4583,7 +4612,7 @@ function showOfficeMenu() {
     { const ay = BOX_Y + 3;
       border(ay);
       // Three-tab bar: WORKERS(17) │ UPGRADES(17) │ INFORMATION(16) = 17+1+17+1+16 = 52
-      const TLBLS = ['[ WORKERS ]', '[ UPGRADES ]', '[ INFORMATION ]'];
+      const TLBLS = ['[ WORKERS ]', '[ INFO ]', '[ WORKER LIST ]'];
       const TABS  = ['workers', 'upgrades', 'info'];
       const SEGS  = [17, 17, 16];
       const DIV1  = 17, DIV2 = 35;
@@ -4637,93 +4666,32 @@ function showOfficeMenu() {
       }
 
     } else if (state.officeTab === 'upgrades') {
-      // Tab 2 — UPGRADES: 2-row item cells (name row + cost/status row) in 2×2 grid per section
-      const HALF = Math.floor(IW / 2); // 26
-      function drawUpgradeCell(xStart, ay, item, isNameRow) {
-        const node = OFFICE_NODES.find(n => n.key === item.nk);
-        if (!node) { for (let i = 0; i < HALF; i++) display.draw(xStart + i, ay, ' ', DC, BG); return; }
-        const { fg, status } = nodeStatus(item.nk);
-        const owned    = status === '[owned]' || status === '[max]';
-        const locked   = fg === DC;
-        const canAfford = fg === '#66cc66';
-        if (isNameRow) {
-          const prefix = `  ${item.k}) `;
-          const full = (prefix + node.name).padEnd(HALF).slice(0, HALF);
-          for (let i = 0; i < HALF; i++) {
-            const ch = full[i] || ' ';
-            let cfG;
-            if (i < prefix.length)  cfG = '#555555';
-            else if (owned)          cfG = '#888888';
-            else if (locked)         cfG = '#444444';
-            else if (canAfford)      cfG = '#aaaaaa';
-            else                     cfG = '#666666';
-            display.draw(xStart + i, ay, ch, cfG, BG);
-          }
-        } else {
-          let costVal;
-          if (node.levelKey) {
-            const lv = state.skills[node.levelKey] || 0;
-            costVal = lv < node.max ? `${node.costs[lv]}g` : '';
-          } else if (node.widgetCost != null) {
-            costVal = `${node.widgetCost}WG`;
-          } else if (node.cost != null) {
-            costVal = `${node.cost}g`;
-          } else {
-            costVal = '';
-          }
-          const indicator  = owned ? '✓' : (locked ? '·' : '●');
-          const indColor   = owned ? '#888888' : (locked ? '#444444' : (canAfford ? '#66cc66' : '#ff5555'));
-          const costColor  = owned ? '#888888' : (locked ? '#444444' : (canAfford ? '#66cc66' : '#ff5555'));
-          const costStr    = ('      ' + costVal).padEnd(HALF - 2).slice(0, HALF - 2);
-          for (let i = 0; i < HALF - 2; i++) display.draw(xStart + i, ay, costStr[i] || ' ', costColor, BG);
-          display.draw(xStart + HALF - 2, ay, indicator, indColor, BG);
-          display.draw(xStart + HALF - 1, ay, ' ', BRIGHT_WHITE, BG);
-        }
-      }
-      let dr = 0;
-      for (const sec of SECTIONS) {
-        if (dr >= PAGE_ROWS) break;
-        // Section header row: ══[ NAME ]═══ with ═ in #333333 and name in colour
-        const hasAvail = sec.items.some(item => nodeStatus(item.nk).fg === '#66cc66');
-        const nameColor = hasAvail ? '#ffd633' : '#555555';
-        { const ay = BOX_Y + 16 + dr; border(ay);
-          const tag = `[ ${sec.header} ]`;
-          const totalDash = IW - tag.length - 2;
-          const lD = Math.floor(totalDash / 2), rD = totalDash - lD;
-          const full = ('═'.repeat(lD) + ' ' + tag + ' ' + '═'.repeat(rD)).slice(0, IW);
-          for (let i = 0; i < IW; i++) {
-            const isTag = i >= lD + 1 && i < lD + 1 + tag.length;
-            display.draw(BOX_X + 1 + i, ay, full[i] || '═', isTag ? nameColor : '#333333', BG);
-          }
-        }
-        dr++;
-        // Items in pairs: 2 rows per pair (name row then cost row)
-        for (let pi = 0; pi < sec.items.length && dr + 1 < PAGE_ROWS; pi += 2) {
-          const nameAy = BOX_Y + 16 + dr;
-          const costAy = BOX_Y + 16 + dr + 1;
-          border(nameAy); border(costAy);
-          drawUpgradeCell(BOX_X + 1,        nameAy, sec.items[pi],     true);
-          drawUpgradeCell(BOX_X + 1,        costAy, sec.items[pi],     false);
-          if (pi + 1 < sec.items.length) {
-            drawUpgradeCell(BOX_X + 1 + HALF, nameAy, sec.items[pi + 1], true);
-            drawUpgradeCell(BOX_X + 1 + HALF, costAy, sec.items[pi + 1], false);
-          } else {
-            for (let i = 0; i < HALF; i++) display.draw(BOX_X + 1 + HALF + i, nameAy, ' ', DC, BG);
-            for (let i = 0; i < HALF; i++) display.draw(BOX_X + 1 + HALF + i, costAy, ' ', DC, BG);
-          }
-          dr += 2;
-        }
-        // Blank spacer after section
-        if (dr < PAGE_ROWS) {
-          const ay = BOX_Y + 16 + dr; border(ay);
-          for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, ay, ' ', BRIGHT_WHITE, BG);
-          dr++;
-        }
-      }
-      for (; dr < PAGE_ROWS; dr++) {
-        const ay = BOX_Y + 16 + dr; border(ay);
+      // Tab 2 — INFO: read-only production stats
+      for (let r = 0; r < PAGE_ROWS; r++) {
+        const ay = BOX_Y + 16 + r; border(ay);
         for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, ay, ' ', BRIGHT_WHITE, BG);
       }
+      const FG_LABEL = '#555555', FG_VAL = '#f0f0f0', FG_GOLD = '#ffd633';
+      function infoRow(row, label, value, vfg) {
+        const ay = BOX_Y + 16 + row; border(ay);
+        const gap = Math.max(1, IW - label.length - value.length);
+        const rp = menuPad(label + ' '.repeat(gap) + value, IW);
+        for (let i = 0; i < IW; i++) {
+          const fg = i < label.length ? FG_LABEL : vfg;
+          display.draw(BOX_X + 1 + i, ay, rp[i] || ' ', fg, BG);
+        }
+      }
+      { const ay = BOX_Y + 16; border(ay);
+        const hdr = menuPad('PRODUCTION INFO', IW);
+        for (let i = 0; i < IW; i++) display.draw(BOX_X+1+i, ay, hdr[i]||' ', LC, BG); }
+      { const ay = BOX_Y + 17; border(ay);
+        for (let i = 0; i < IW; i++) display.draw(BOX_X+1+i, ay, '─', DC, BG); }
+      infoRow(2, 'Widgets made today:',    String(state.stats.widgetsMadeToday),            FG_VAL);
+      infoRow(3, 'Widgets made lifetime:', String(state.lifetimeWidgetsMade || 0),          FG_VAL);
+      infoRow(4, 'Revenue today:',         `${formatCredits(state.stats.revenueToday)}g`,   FG_GOLD);
+      infoRow(5, 'Revenue lifetime:',      `${formatCredits(state.lifetimeGoldEarned)}g`,  FG_GOLD);
+      infoRow(6, 'Days played:',           String(state.day),                               FG_VAL);
+      infoRow(7, 'Current phase:',         String(state.phase),                             FG_VAL);
 
     } else { // Tab 3 — INFO: live worker list
       const allW = [
@@ -4811,7 +4779,7 @@ function showOfficeMenu() {
       if (state.officeTab === 'workers') {
         footerLine = menuPad('[ ← → switch tabs ]   Keys: [number] buy  [space] pause  [n] rename', IW);
       } else if (state.officeTab === 'upgrades') {
-        footerLine = menuPad('[ ← → switch tabs | press key to purchase ]', IW);
+        footerLine = menuPad('[ ← → switch tabs ]  Production stats (read-only)', IW);
       } else {
         const anyWorkers = state.workers.apprentices.length + state.workers.couriers.length > 0;
         if (renameMode) {
@@ -4982,25 +4950,7 @@ function showOfficeMenu() {
       return;
     }
 
-    // ── UPGRADES tab: SECTIONS-based purchase keys ────────────────────────────
-    if (state.officeTab === 'upgrades') {
-      for (const sec of SECTIONS) {
-        for (const item of sec.items) {
-          if (!item.k || item.k !== e.key || !item.nk) continue;
-          const node = OFFICE_NODES.find(n => n.key === item.nk);
-          if (!node || !state.officeUnlocked || state.phase < node.minPhase) return;
-          if (node.requires && !state.skills[node.requires]) return;
-          const level = state.skills[item.nk] || 0;
-          if (level >= (node.max || 1) || state.player.gold < node.cost) return;
-          state.player.gold -= node.cost;
-          state.skills[item.nk] = level + 1;
-          if (item.nk === 'storageExp1') { state.storage.widgetCap = 100;  state.storage.rmCap = 100; }
-          if (item.nk === 'storageExp2') { state.storage.widgetCap = 1000; state.storage.rmCap = 1000; }
-          addLog(`${node.name} purchased.`, '#cc66cc');
-          playSound('bought'); drawStatusBar(); redraw(); return;
-        }
-      }
-    }
+    // INFO tab: no purchasable items, just stats
   }
   window.addEventListener('keydown', officeKeyHandler);
 }
@@ -5572,7 +5522,7 @@ function openStorageMenu() {
   const IW    = 52;
   const AW    = 14;
   const IPW   = 37;
-  const BOX_H = 24;
+  const BOX_H = 30;
   const BOX_X = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
   const BOX_Y = Math.max(1, Math.floor((WORLD_ROWS - BOX_H) / 2));
   const RPX   = BOX_X + 1 + AW + 1;
@@ -5696,19 +5646,64 @@ function openStorageMenu() {
     irow(BOX_Y + 19, '3. Take all raw materials', canTakeR ? '#ff9933' : '#555555');
     irow(BOX_Y + 20, '4. Deposit all raw materials', canDepR ? '#ff9933' : '#555555');
 
-    // Row 21: ═ separator
+    // Row 21: ─ separator before upgrades
     { const ay = BOX_Y + 21; border(ay);
+      for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '─', DC, BG); }
+
+    // Row 22: upgrade section header
+    { const ay = BOX_Y + 22; border(ay);
+      const tag = '[ UPGRADES ]';
+      const dashes = IW - tag.length - 2;
+      const ld = Math.floor(dashes/2), rd = dashes - ld;
+      const hdr = ('─'.repeat(ld) + ' ' + tag + ' ' + '─'.repeat(rd)).slice(0, IW);
+      for (let i = 0; i < IW; i++) {
+        const inTag = i >= ld+1 && i < ld+1+tag.length;
+        display.draw(BOX_X+1+i, ay, hdr[i]||'─', inTag ? '#66ccff' : '#333333', BG);
+      }
+    }
+
+    // Rows 23-24: Storage Expansion I and II
+    function stUpgradeRow(row, nk, key) {
+      const node = OFFICE_NODES.find(n => n.key === nk);
+      const ay = BOX_Y + row; border(ay);
+      const owned = (state.skills[nk] || 0) >= 1;
+      const locked = state.phase < (node?.minPhase || 3);
+      const req = node?.requires && !(state.skills[node.requires] || 0);
+      const canAfford = !owned && !locked && !req && state.player.gold >= node.cost;
+      const marker = owned ? '✓' : (locked || req ? '·' : (canAfford ? '●' : '●'));
+      const mFg   = owned ? '#66cc66' : (locked || req ? '#333333' : (canAfford ? '#66cc66' : '#ff5555'));
+      const nFg   = owned ? '#888888' : (locked || req ? '#333333' : '#aaaaaa');
+      const cFg   = owned ? '#888888' : (locked || req ? '#333333' : (canAfford ? '#66cc66' : '#ff5555'));
+      const label = `[${key}] ${node?.name || nk}`;
+      const cost  = owned ? '✓ owned' : (locked ? '[locked]' : (req ? `[need ${node.requires}]` : `${node.cost}g`));
+      const gap   = Math.max(1, IW - label.length - cost.length - 2);
+      const row_str = label + ' '.repeat(gap) + cost;
+      const rp = menuPad(row_str, IW);
+      for (let i = 0; i < IW; i++) {
+        const fg = i < label.length ? nFg : (i === IW-1 ? mFg : cFg);
+        display.draw(BOX_X+1+i, ay, rp[i]||' ', fg, BG);
+      }
+      display.draw(BOX_X+1+IW-1, ay, marker, mFg, BG);
+    }
+    stUpgradeRow(23, 'storageExp1', 'u');
+    stUpgradeRow(24, 'storageExp2', 'v');
+
+    // Rows 25-26: blank
+    for (let r = 25; r <= 26; r++) { border(BOX_Y+r); for (let x=1;x<BOX_W-1;x++) display.draw(BOX_X+x,BOX_Y+r,' ',BRIGHT_WHITE,BG); }
+
+    // Row 27: ═ separator
+    { const ay = BOX_Y + 27; border(ay);
       for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '═', DC, BG); }
 
-    // Row 22: footer
-    { const ay = BOX_Y + 22; border(ay);
-      const txt = 'Auto-halt: production pauses when storage is full.';
+    // Row 28: footer
+    { const ay = BOX_Y + 28; border(ay);
+      const txt = 'Auto-halt: production pauses when storage is full.  [u/v] buy upgrades';
       const centered = menuPad(txt.length < IW ? ' '.repeat(Math.floor((IW - txt.length) / 2)) + txt : txt, IW);
       for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, centered[i] || ' ', '#555555', BG); }
 
-    // Row 23: ╚═╝
-    display.draw(BOX_X, BOX_Y + 23, '╚', TC, BG); display.draw(BOX_X + BOX_W - 1, BOX_Y + 23, '╝', TC, BG);
-    for (let i = 1; i < BOX_W - 1; i++) display.draw(BOX_X + i, BOX_Y + 23, '═', TC, BG);
+    // Row 29: ╚═╝
+    display.draw(BOX_X, BOX_Y + 29, '╚', TC, BG); display.draw(BOX_X + BOX_W - 1, BOX_Y + 29, '╝', TC, BG);
+    for (let i = 1; i < BOX_W - 1; i++) display.draw(BOX_X + i, BOX_Y + 29, '═', TC, BG);
   }
 
   storageMenuRedrawFn = redraw;
@@ -5748,6 +5743,23 @@ function openStorageMenu() {
       if (dep > 0) { inv.rm -= dep; st.rm += dep;
         addLog(`You deposit ${dep} raw material${dep !== 1 ? 's' : ''} into storage.`, '#ff9933');
         drawStatusBar(); redraw(); }
+    } else if (e.key === 'u') {
+      const node = OFFICE_NODES.find(n => n.key === 'storageExp1');
+      if (!node || state.phase < node.minPhase) { addLog('Storage Expansion I not yet available.', '#555555'); return; }
+      if ((state.skills.storageExp1 || 0) >= 1) { addLog('Storage Expansion I already purchased.', '#555555'); return; }
+      if (state.player.gold < node.cost) { addLog(`Need ${node.cost}g for Storage Expansion I.`, '#ff5555'); return; }
+      state.player.gold -= node.cost; state.skills.storageExp1 = 1;
+      state.storage.widgetCap = 100; state.storage.rmCap = 100;
+      addLog('Storage Expansion I purchased. Capacity: 100.', TC); playSound('bought'); drawStatusBar(); redraw();
+    } else if (e.key === 'v') {
+      const node = OFFICE_NODES.find(n => n.key === 'storageExp2');
+      if (!node || state.phase < node.minPhase) { addLog('Storage Expansion II not yet available.', '#555555'); return; }
+      if (!(state.skills.storageExp1 || 0)) { addLog('Storage Expansion I required first.', '#555555'); return; }
+      if ((state.skills.storageExp2 || 0) >= 1) { addLog('Storage Expansion II already purchased.', '#555555'); return; }
+      if (state.player.gold < node.cost) { addLog(`Need ${node.cost}g for Storage Expansion II.`, '#ff5555'); return; }
+      state.player.gold -= node.cost; state.skills.storageExp2 = 1;
+      state.storage.widgetCap = 1000; state.storage.rmCap = 1000;
+      addLog('Storage Expansion II purchased. Capacity: 1000.', TC); playSound('bought'); drawStatusBar(); redraw();
     }
   }
   window.addEventListener('keydown', storageKeyHandler);
@@ -7044,7 +7056,7 @@ function openDerivativesMenu() {
   const EXPIRIES = [1, 3, 7, 14];
 
   // ── Tab state ─────────────────────────────────────────────────────────────
-  const TABS = ['chart', 'positions', 'trade', 'spreads'];
+  const TABS = ['chart', 'positions', 'trade', 'spreads', 'upgrades'];
   let tab = 'chart';
 
   // ── Trade form state ──────────────────────────────────────────────────────
@@ -7126,8 +7138,8 @@ function openDerivativesMenu() {
   }
 
   // ── Tab bar (68 chars) ────────────────────────────────────────────────────
-  const TAB_BAR = '   [ CHART ]   │   [ POSITIONS ]   │   [ TRADE ]   │   [ SPREADS ]  ';
-  const TAB_RANGES = { chart:[3,11], positions:[19,31], trade:[39,47], spreads:[55,65] };
+  const TAB_BAR = ' [CHART] │[POSITIONS]│ [TRADE] │[SPREADS]│[UPGRADES]';
+  const TAB_RANGES = { chart:[1,7], positions:[10,20], trade:[23,29], spreads:[32,40], upgrades:[42,51] };
 
   // ── Frame drawing ─────────────────────────────────────────────────────────
   function drawFrame() {
@@ -7529,11 +7541,46 @@ function openDerivativesMenu() {
   }
 
   // ── Main redraw ───────────────────────────────────────────────────────────
+  // ── UPGRADES tab ─────────────────────────────────────────────────────────
+  function redrawUpgrades() {
+    const CY = BOX_Y + 5;
+    const UPGS = [
+      { nk: 'futures',           key: '1', label: 'Futures Trading' },
+      { nk: 'optionsBuy',        key: '2', label: 'Options — Buy Side' },
+      { nk: 'optionsWrite',      key: '3', label: 'Options — Write Side', req: 'optionsBuy' },
+      { nk: 'volatilitySurface', key: '4', label: 'Volatility Surface' },
+    ];
+    for (let r = 0; r < 26; r++) { const ay = CY+r; if (ay >= BOX_Y+BOX_H-2) break; irow(ay, '', BRIGHT_WHITE); }
+    irow(CY,   menuPad('TERMINAL UPGRADES', IW), BRIGHT_WHITE);
+    irow(CY+1, menuPad('Unlock trading instruments from here.', IW), WC);
+    irow(CY+2, '─'.repeat(IW), DC);
+    let row = 3;
+    for (const u of UPGS) {
+      const node = OFFICE_NODES.find(n => n.key === u.nk);
+      if (!node) continue;
+      const owned   = (state.skills[u.nk] || 0) >= 1;
+      const locked  = state.phase < node.minPhase;
+      const req     = u.req && !(state.skills[u.req] || 0);
+      const canAffd = !owned && !locked && !req && state.player.gold >= node.cost;
+      const stat    = owned ? '✓ owned' : (locked ? '[phase 4]' : (req ? `[need ${u.req}]` : `${node.cost}g`));
+      const nFg     = owned ? '#888888' : (locked || req ? '#444444' : '#aaaaaa');
+      const sFg     = owned ? '#66cc66' : (locked || req ? '#444444' : (canAffd ? '#66cc66' : '#ff5555'));
+      const label   = `  [${u.key}] ${u.label}`;
+      const gap     = Math.max(1, IW - label.length - stat.length);
+      const rp = menuPad(label + ' '.repeat(gap) + stat, IW);
+      for (let i = 0; i < IW; i++) display.draw(CONT_X+i, CY+row, rp[i]||' ', i < label.length ? nFg : sFg, BG);
+      border(CY+row);
+      row++;
+      irow(CY+row, '', BRIGHT_WHITE); row++;
+    }
+  }
+
   function redraw() {
     drawFrame();
     if (tab === 'chart') redrawChart();
     else if (tab === 'positions') redrawPositions();
     else if (tab === 'trade') redrawTrade();
+    else if (tab === 'upgrades') redrawUpgrades();
     else redrawSpreads();
   }
 
@@ -7578,6 +7625,24 @@ function openDerivativesMenu() {
     if (!tradeInst && !spreadConfirm) {
       if (e.key === 'ArrowLeft')  { tab = TABS[(TABS.indexOf(tab)-1+TABS.length)%TABS.length]; redraw(); return; }
       if (e.key === 'ArrowRight') { tab = TABS[(TABS.indexOf(tab)+1)%TABS.length]; redraw(); return; }
+    }
+
+    // UPGRADES tab: purchase trading instruments
+    if (tab === 'upgrades') {
+      function dvBuy(nk, reqKey) {
+        const node = OFFICE_NODES.find(n => n.key === nk);
+        if (!node || state.phase < node.minPhase) { addLog('Not yet available (Phase 4).', '#555555'); redraw(); return; }
+        if (reqKey && !(state.skills[reqKey] || 0)) { addLog(`Requires ${reqKey} first.`, '#555555'); redraw(); return; }
+        if ((state.skills[nk] || 0) >= 1) { addLog('Already purchased.', '#555555'); return; }
+        if (state.player.gold < node.cost) { addLog(`Need ${node.cost}g.`, '#ff5555'); redraw(); return; }
+        state.player.gold -= node.cost; state.skills[nk] = 1;
+        addLog(`${node.name} purchased.`, TC); playSound('bought'); drawStatusBar(); redraw();
+      }
+      if (e.key === '1') { dvBuy('futures', null); return; }
+      if (e.key === '2') { dvBuy('optionsBuy', null); return; }
+      if (e.key === '3') { dvBuy('optionsWrite', 'optionsBuy'); return; }
+      if (e.key === '4') { dvBuy('volatilitySurface', null); return; }
+      return;
     }
 
     // CHART: close-all shortcut
@@ -7883,6 +7948,7 @@ function renderLargeNumber(display, x, y, numberString, color, availableWidth) {
 // ── Launch Facility menu (§9) ─────────────────────────────────────────────────
 
 const CHANGELOG = [
+  { version: '1.07.05', summary: 'Upgrades moved to home station menus. Office UPGRADES tab replaced with INFO stats.' },
   { version: '1.07.04', summary: 'Demand crash removed from phase trigger. Cheaper manipulations/aquatics. Courier wages. More outfits.' },
   { version: '1.07.03', summary: 'Credits renamed to gold. Clearer stamp text. Credit score explained. Office key legend.' },
   { version: '1.07.02', summary: 'Phase unlock popups, market dimming, mine log, cottage door, ASCII weather icons.' },
@@ -10611,14 +10677,45 @@ function openNewspaperMenu() {
     const hasSkillNow  = !!state.skills.plantStory;
     const hasSmearNow  = !!state.skills.smearCampaign;
     let cr = BOX_Y + 7;
+    // Market intelligence upgrades — always shown
+    { const dh = state.skills.demandHistory; const fc = state.skills.forecast;
+      const dhNode = OFFICE_NODES.find(n => n.key === 'demandHistory');
+      const fcNode = OFFICE_NODES.find(n => n.key === 'forecast');
+      irow(cr++, '─── MARKET INTELLIGENCE ─────────────────────────────────────────────', '#333333');
+      const dhLocked = state.phase < (dhNode?.minPhase || 3);
+      const dhStr = dh ? '✓ owned' : (dhLocked ? '[phase 3]' : `${dhNode?.cost}g`);
+      const dhFg  = dh ? '#66cc66' : (dhLocked ? '#333333' : (state.player.gold >= (dhNode?.cost||50) ? '#aaaaaa' : '#ff5555'));
+      irow(cr++, `  [j] Demand History              ${dhStr}`, dhFg);
+      const fcLocked = state.phase < (fcNode?.minPhase || 3);
+      const fcStr = fc ? '✓ owned' : (fcLocked ? '[phase 3]' : `${fcNode?.cost}g`);
+      const fcFg  = fc ? '#66cc66' : (fcLocked ? '#333333' : (state.player.gold >= (fcNode?.cost||1500) ? '#aaaaaa' : '#ff5555'));
+      irow(cr++, `  [l] 7-Day Forecast              ${fcStr}`, fcFg);
+      irow(cr++, '', BRIGHT_WHITE);
+      // Plant Story / Smear Campaign
+      const psNode = OFFICE_NODES.find(n => n.key === 'plantStory');
+      const scNode = OFFICE_NODES.find(n => n.key === 'smearCampaign');
+      irow(cr++, '─── INFLUENCE ────────────────────────────────────────────────────────', '#333333');
+      if (!hasSkillNow) {
+        const psLocked = state.phase < (psNode?.minPhase || 3);
+        const psStr = psLocked ? '[phase 3]' : `${psNode?.cost}g`;
+        const psFg  = psLocked ? '#333333' : (state.player.gold >= (psNode?.cost||750) ? '#aaaaaa' : '#ff5555');
+        irow(cr++, `  [p] Plant a Story              ${psStr}`, psFg);
+        const scStr = '[need Plant a Story first]';
+        irow(cr++, `  [r] Smear Campaign             ${scStr}`, '#333333');
+      } else if (!hasSmearNow) {
+        irow(cr++, '  [p] Plant a Story              ✓ owned', '#66cc66');
+        const scLocked = state.phase < (scNode?.minPhase || 3);
+        const scStr = scLocked ? '[phase 3]' : `${scNode?.cost}g`;
+        const scFg  = scLocked ? '#333333' : (state.player.gold >= (scNode?.cost||2000) ? '#aaaaaa' : '#ff5555');
+        irow(cr++, `  [r] Smear Campaign             ${scStr}`, scFg);
+      } else {
+        irow(cr++, '  [p] Plant a Story              ✓ owned', '#66cc66');
+        irow(cr++, '  [r] Smear Campaign             ✓ owned', '#66cc66');
+      }
+      irow(cr++, '', BRIGHT_WHITE);
+    }
     if (!hasSkillNow) {
-      irow(cr++, 'This is a standard subscription.', SF);
-      irow(cr++, '', BRIGHT_WHITE);
-      irow(cr++, 'Influence options available via the Office', SF);
-      irow(cr++, '(MARKETING section).', SF);
-      irow(cr++, '', BRIGHT_WHITE);
-      irow(cr++, '  Plant a Story:   1,500g', SF);
-      irow(cr++, '  Run a Smear:     4,000g', SF);
+      // No stories available yet
     } else if (onCooldown()) {
       const nextDay = (state.stations.newspaper.lastManipulationDay ?? 0) + 3;
       irow(cr++, 'Cooldown active.', SF);
@@ -10732,6 +10829,43 @@ function openNewspaperMenu() {
     if (e.key === 'ArrowRight') {
       e.preventDefault(); npTab = 'influence'; redraw(); return;
     }
+    // Intelligence / influence purchases — handled in influence tab regardless of plant story ownership
+    if (npTab === 'influence') {
+      if (e.key === 'j') {
+        const node = OFFICE_NODES.find(n => n.key === 'demandHistory');
+        if (!node || state.phase < node.minPhase) { addLog('Demand History not yet available (Phase 3).', '#555555'); redraw(); return; }
+        if (state.skills.demandHistory) { addLog('Demand History already purchased.', '#555555'); return; }
+        if (state.player.gold < node.cost) { addLog(`Need ${node.cost}g for Demand History.`, '#ff5555'); redraw(); return; }
+        state.player.gold -= node.cost; state.skills.demandHistory = 1;
+        addLog('Demand History purchased.', NC); playSound('bought'); drawStatusBar(); redraw(); return;
+      }
+      if (e.key === 'l') {
+        const node = OFFICE_NODES.find(n => n.key === 'forecast');
+        if (!node || state.phase < node.minPhase) { addLog('7-Day Forecast not yet available (Phase 3).', '#555555'); redraw(); return; }
+        if (state.skills.forecast) { addLog('7-Day Forecast already purchased.', '#555555'); return; }
+        if (state.player.gold < node.cost) { addLog(`Need ${node.cost}g for 7-Day Forecast.`, '#ff5555'); redraw(); return; }
+        state.player.gold -= node.cost; state.skills.forecast = 1;
+        addLog('7-Day Forecast purchased.', NC); playSound('bought'); drawStatusBar(); redraw(); return;
+      }
+      if (e.key === 'p') {
+        const node = OFFICE_NODES.find(n => n.key === 'plantStory');
+        if (!node || state.phase < node.minPhase) { addLog('Plant a Story not yet available (Phase 3).', '#555555'); redraw(); return; }
+        if (state.skills.plantStory) { addLog('Plant a Story already purchased.', '#555555'); return; }
+        if (state.player.gold < node.cost) { addLog(`Need ${node.cost}g for Plant a Story.`, '#ff5555'); redraw(); return; }
+        state.player.gold -= node.cost; state.skills.plantStory = 1;
+        addLog('Plant a Story purchased. File stories from the Influence tab.', NC); playSound('bought'); drawStatusBar(); redraw(); return;
+      }
+      if (e.key === 'r') {
+        const node = OFFICE_NODES.find(n => n.key === 'smearCampaign');
+        if (!node || state.phase < node.minPhase) { addLog('Smear Campaign not yet available (Phase 3).', '#555555'); redraw(); return; }
+        if (!state.skills.plantStory) { addLog('Plant a Story required first.', '#555555'); return; }
+        if (state.skills.smearCampaign) { addLog('Smear Campaign already purchased.', '#555555'); return; }
+        if (state.player.gold < node.cost) { addLog(`Need ${node.cost}g for Smear Campaign.`, '#ff5555'); redraw(); return; }
+        state.player.gold -= node.cost; state.skills.smearCampaign = 1;
+        addLog('Smear Campaign purchased.', NC); playSound('bought'); drawStatusBar(); redraw(); return;
+      }
+    }
+
     if (npTab !== 'influence' || !hasSkill || onCooldown()) return;
 
     const stories = allStories();
@@ -10845,6 +10979,7 @@ function tickApprentices() {
           if (stUnlocked) state.storage.widgets++;
           else             state.workbenchWidgets++;
           state.stats.widgetsMadeToday++;
+          state.lifetimeWidgetsMade = (state.lifetimeWidgetsMade || 0) + 1;
           w.carryRM--;
           if (w.carryRM > 0) { w.craftTimer = 3; }
           else                { w.workerState = 'idle'; }
@@ -12319,6 +12454,7 @@ setInterval(() => {
       playSound('crafted');
       state.widgetsMade++;
       state.stats.widgetsMadeToday++;
+      state.lifetimeWidgetsMade = (state.lifetimeWidgetsMade || 0) + 1;
       drawStatusBar();
       { const wbD = STATION_DEFS.find(s => s.label === 'WB'); if (wbD) effectsManager.sparkBurst(wbD.x + 1, wbD.y + 1, state.widgetsMade); }
       if (craftQueue > 0) {
