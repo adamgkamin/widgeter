@@ -903,7 +903,7 @@ drawArt(0);
 drawPrompt(true);
 
 const CREDIT  = "Created by Adam A.";
-const VERSION = "alpha 1.07.01";
+const VERSION = "alpha 1.07.02";
 
 // ── Sound system ──────────────────────────────────────────────────────────────
 const SOUNDS = {};
@@ -1103,8 +1103,8 @@ function drawStatusBar() {
   drawTimeIndicator();
   drawPhaseGoal();
   if (state.phase >= 2) {
-    const WEATHER_ICONS = { clear: ['☀', '#ffd633'], rain: ['☂', '#4a8aaa'], fog: ['▓', '#666666'], heatwave: ['♨', '#ff6633'], storm: ['⚡', '#ffaa00'] };
-    const [icon, color] = WEATHER_ICONS[state.weather.current] || ['☀', '#ffd633'];
+    const WEATHER_ICONS = { clear: ['*', '#ffd633'], rain: ['~', '#4a8aaa'], fog: ['%', '#666666'], heatwave: ['^', '#ff6633'], storm: ['!', '#ffaa00'] };
+    const [icon, color] = WEATHER_ICONS[state.weather.current] || ['*', '#ffd633'];
     display.draw(DISPLAY_WIDTH - 2, STATUS_ROW, icon, color, BG);
   }
 }
@@ -3457,6 +3457,7 @@ function checkPhase2Trigger() {
     logHistory('Hired first worker.');
     state.stations.storage.unlocked       = true;
     state.stations.general_store.unlocked = true;
+    queuePopup('NEW STATIONS UNLOCKED', ['Office, Storage, and', 'General Store are now open.'], '#66ccff');
     addLog('Something stirs. The Office door swings open.', '#cc66cc');
     setTimeout(() => addLog('You can afford to hire help.', '#cc66cc'), 2000);
     setTimeout(() => {
@@ -3518,6 +3519,7 @@ function checkPhase3Trigger() {
     state.stations.newspaper.unlocked = true;
     logHistory('The market began fluctuating.');
     calculateDailyDemand();
+    queuePopup('NEW STATIONS UNLOCKED', ['Bank and Newspaper', 'are now open.', 'Terminal: Forwards available.'], '#66ccff');
     addLog('The bank lights come on for the first time.', '#66cc66');
     setTimeout(() => addLog('New possibilities are available.', '#66cc66'), 2000);
     setTimeout(() => colorInStation('BK', '#66cc66', '#aaffaa', '#449944'), 4000);
@@ -3535,6 +3537,7 @@ function checkPhase4Trigger() {
     state.terminalUnlocked = true;
     state.stations.terminal = { unlocked: true };
     logHistory('A man in a clean suit appeared.');
+    queuePopup('TERMINAL EXPANDED', ['Futures and Options', 'are now available.'], '#66ccff');
     addLog('A man in a clean suit appears at the market.', '#cc66cc');
     setTimeout(() => addLog("He offers you a contract. Lock in tomorrow's price, he says.", '#cc66cc'), 2000);
     setTimeout(() => {
@@ -3549,6 +3552,7 @@ function checkPhase5Trigger() {
     state.phase = 5;
     phaseGoalLastValue = -1;
     logHistory('The launch facility opened.');
+    queuePopup('LAUNCH FACILITY OPEN', ['Load 5,000 widgets', 'into the rocket to launch.'], '#ff5555');
     addLog('Something has been under construction this whole time.', '#cc66cc');
     setTimeout(() => addLog('The structure in the corner. You always wondered.', '#cc66cc'), 3000);
     setTimeout(() => {
@@ -7857,6 +7861,7 @@ function renderLargeNumber(display, x, y, numberString, color, availableWidth) {
 // ── Launch Facility menu (§9) ─────────────────────────────────────────────────
 
 const CHANGELOG = [
+  { version: '1.07.02', summary: 'Phase unlock popups, market dimming, mine log, cottage door, ASCII weather icons.' },
   { version: '1.07.01', summary: 'Bugfixes: escape/fullscreen, stamps, rain on menus, mine flicker, cottage exit.' },
   { version: '1.06.02', summary: 'Newspaper redesigned as full daily edition — market, weather, production, finance sections.' },
   { version: '1.06.01', summary: 'Weather system: clear, rain, fog, heat wave, storm. Affects demand, worker speed, crafting, mining.' },
@@ -8983,6 +8988,75 @@ function openFishingMenu() {
 
 let mineRedrawFn = null;
 let rainDrops    = [];
+let pendingPopups = [];
+let activePopup   = null;
+
+function queuePopup(title, lines, color) {
+  pendingPopups.push({ title, lines, color });
+}
+
+function showNextPopup() {
+  if (pendingPopups.length === 0 || state.gameState !== 'playing') return;
+  activePopup = pendingPopups.shift();
+  const PC    = activePopup.color || '#66ccff';
+  const TC    = '#ffd633';
+  const WC    = '#f0f0f0';
+  const DC    = '#555555';
+  const content = activePopup.lines;
+  const maxLineLen = Math.max(activePopup.title.length, ...content.map(l => l.length), 18);
+  const BOX_IW = maxLineLen + 4;
+  const BOX_W  = BOX_IW + 2;
+  const BOX_H  = content.length + 6;
+  const BOX_X  = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
+  const BOX_Y  = Math.floor((WORLD_ROWS - BOX_H) / 2);
+  // Top
+  display.draw(BOX_X, BOX_Y, '╔', PC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y, '╗', PC, BG);
+  for (let i = 1; i < BOX_W-1; i++) display.draw(BOX_X+i, BOX_Y, '═', PC, BG);
+  // Title row
+  { const t = ('★ ' + activePopup.title + ' ★');
+    const pad = ' '.repeat(Math.max(0, Math.floor((BOX_IW - t.length) / 2)));
+    const line = (pad + t).padEnd(BOX_IW);
+    display.draw(BOX_X, BOX_Y+1, '║', PC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y+1, '║', PC, BG);
+    for (let i = 0; i < BOX_IW; i++) display.draw(BOX_X+1+i, BOX_Y+1, line[i]||' ', TC, BG); }
+  // Separator
+  display.draw(BOX_X, BOX_Y+2, '╠', PC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y+2, '╣', PC, BG);
+  for (let i = 1; i < BOX_W-1; i++) display.draw(BOX_X+i, BOX_Y+2, '═', PC, BG);
+  // Blank row
+  display.draw(BOX_X, BOX_Y+3, '║', PC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y+3, '║', PC, BG);
+  for (let i = 1; i < BOX_W-1; i++) display.draw(BOX_X+i, BOX_Y+3, ' ', BRIGHT_WHITE, BG);
+  // Content rows
+  for (let li = 0; li < content.length; li++) {
+    const row = BOX_Y + 4 + li;
+    const pad = ' '.repeat(Math.max(0, Math.floor((BOX_IW - content[li].length) / 2)));
+    const line = ('  ' + content[li]).padEnd(BOX_IW);
+    display.draw(BOX_X, row, '║', PC, BG); display.draw(BOX_X+BOX_W-1, row, '║', PC, BG);
+    for (let i = 0; i < BOX_IW; i++) display.draw(BOX_X+1+i, row, line[i]||' ', WC, BG);
+  }
+  // Hint row
+  const hint = '[ press any key ]';
+  const hintPad = ' '.repeat(Math.max(0, Math.floor((BOX_IW - hint.length) / 2)));
+  const hintLine = (hintPad + hint).padEnd(BOX_IW);
+  const hr = BOX_Y + 4 + content.length;
+  display.draw(BOX_X, hr, '║', PC, BG); display.draw(BOX_X+BOX_W-1, hr, '║', PC, BG);
+  for (let i = 0; i < BOX_IW; i++) display.draw(BOX_X+1+i, hr, hintLine[i]||' ', DC, BG);
+  // Bottom
+  const br = BOX_Y + BOX_H - 1;
+  display.draw(BOX_X, br, '╚', PC, BG); display.draw(BOX_X+BOX_W-1, br, '╝', PC, BG);
+  for (let i = 1; i < BOX_W-1; i++) display.draw(BOX_X+i, br, '═', PC, BG);
+
+  function popupKeyHandler(e) {
+    e.preventDefault();
+    window.removeEventListener('keydown', popupKeyHandler);
+    activePopup = null;
+    clearMenuRegion(BOX_X, BOX_Y, BOX_W, BOX_H);
+    renderDirty();
+    display.draw(state.player.x, state.player.y, '@', state.player.color || BRIGHT_WHITE, BG);
+    for (const w of state.workers.apprentices) display.draw(w.x, w.y, 'a', '#66ccff', BG);
+    for (const c of state.workers.couriers)    display.draw(c.x, c.y, 'c', '#cc66cc', BG);
+    showNextPopup();
+  }
+  window.addEventListener('keydown', popupKeyHandler);
+}
 
 function generateMineTiles() {
   const period = Math.floor(state.day / 2);
@@ -9194,6 +9268,15 @@ function enterMine() {
     } else if (state.skills.lantern) {
       const lanternHint = 'Lantern active — ore glows through rock.';
       for (let i = 0; i < lanternHint.length; i++) display.draw(2 + i, hudY + 2, lanternHint[i], '#555555', BG);
+    }
+
+    // Last 3 log entries below HUD
+    const logY = hudY + 4;
+    const recentLogs = state.logLines.slice(-3);
+    for (let i = 0; i < recentLogs.length; i++) {
+      const entry = recentLogs[i];
+      const text = ('> ' + entry.text).slice(0, DISPLAY_WIDTH - 4);
+      for (let j = 0; j < DISPLAY_WIDTH - 4; j++) display.draw(2 + j, logY + i, j < text.length ? text[j] : ' ', j < text.length ? (entry.color || '#aaaaaa') : BRIGHT_WHITE, BG);
     }
   }
 
@@ -10322,7 +10405,7 @@ function showInventory() {
 
 function workerLabel(w, idx, type) {
   if (w.nickname) return w.nickname;
-  return type === 'courier' ? `Courier ${idx + 1}` : `Apprentice ${idx + 1}`;
+  return (type === 'courier' || type === 'cour') ? `Courier ${idx + 1}` : `Apprentice ${idx + 1}`;
 }
 
 // ── Newspaper menu (§13) ──────────────────────────────────────────────────────
@@ -10409,7 +10492,7 @@ function openNewspaperMenu() {
     for (let i = 0; i < iw; i++) display.draw(x+1+i, ay, str[i]||' ', fg, BG);
   }
 
-  const WEATHER_ICONS = { clear: '☀', rain: '☂', fog: '▓', heatwave: '♨', storm: '⚡' };
+  const WEATHER_ICONS = { clear: '*', rain: '~', fog: '%', heatwave: '^', storm: '!' };
   const WEATHER_COLORS = { clear: '#ffd633', rain: '#4a8aaa', fog: '#666666', heatwave: '#ff6633', storm: '#ffaa00' };
   const WEATHER_NAMES  = { clear: 'Clear', rain: 'Rain', fog: 'Fog', heatwave: 'Heat Wave', storm: 'Storm' };
   const WEATHER_EFFECTS = {
@@ -10558,7 +10641,7 @@ function openNewspaperMenu() {
       for (let i = 0; i < IW; i++) display.draw(CX+i, BOX_Y+1, ' ', BRIGHT_WHITE, BG);
       for (let i = 0; i < title.length; i++) display.draw(tx+i, BOX_Y+1, title[i], LC, BG); }
     // Row 2: subtitle
-    { const wi = WEATHER_ICONS[state.weather.current] || '☀';
+    { const wi = WEATHER_ICONS[state.weather.current] || '*';
       const wn = WEATHER_NAMES[state.weather.current] || '';
       const sub = `"All the news that's fit to widget"    Day ${state.day}    ${wi} ${wn}`;
       const fg2 = SF;
@@ -11914,7 +11997,17 @@ setInterval(() => {
   }
   const prevMarketOpen = state.marketOpen;
   state.marketOpen = state.dayTick < 180;
-  if (state.marketOpen !== prevMarketOpen) startDayNightFlash(state.marketOpen ? 'open' : 'close');
+  if (state.marketOpen !== prevMarketOpen) {
+    startDayNightFlash(state.marketOpen ? 'open' : 'close');
+    // Dim MT label tiles when market closes, restore when it opens
+    const mtDef = STATION_DEFS.find(s => s.label === 'MT');
+    if (mtDef && tileMap[mtDef.x+1]?.[mtDef.y+1] && tileMap[mtDef.x+2]?.[mtDef.y+1]) {
+      const lc = state.marketOpen ? (mtDef.lc || '#ffea66') : '#333333';
+      tileMap[mtDef.x+1][mtDef.y+1].fg = lc;
+      tileMap[mtDef.x+2][mtDef.y+1].fg = lc;
+      markDirty(mtDef.x+1, mtDef.y+1); markDirty(mtDef.x+2, mtDef.y+1);
+    }
+  }
   if (state.dayTick === 0 && !state.bellFiredToday) {
     state.bellFiredToday = true;
     // Weather system — Phase 2+ only
@@ -12588,6 +12681,9 @@ setInterval(() => {
 
   // LF chyron live scroll (calls drawChyron closure inside openLFMenu)
   if (state.gameState === 'lf_menu' && lfChyronFn) lfChyronFn();
+
+  // Show queued popup when overworld is idle
+  if (activePopup === null && pendingPopups.length > 0 && state.gameState === 'playing') showNextPopup();
 
   // ── Weather visual effects ────────────────────────────────────────────────────
 
