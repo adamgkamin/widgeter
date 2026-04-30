@@ -560,7 +560,7 @@ function loadGame() {
     state.workers.couriers     = state.workers.couriers ?? []; // normalise old saves
     // Migrate old saves: ensure nickname field exists on all workers
     for (const w of state.workers.apprentices) w.nickname = w.nickname ?? '';
-    for (const c of state.workers.couriers)    c.nickname = c.nickname ?? '';
+    for (const c of state.workers.couriers)    { c.nickname = c.nickname ?? ''; c.paused = c.paused ?? false; }
     state.stats                = data.stats ?? { rmLastTen: [], widgetsLastTen: [], creditsLastTen: [], widgetsMadeToday: 0, revenueToday: 0, costsToday: 0 };
     state.rocketWidgets        = data.rocketWidgets       ?? 0;
     state.rocketFull           = data.rocketFull          ?? false;
@@ -906,7 +906,7 @@ drawArt(0);
 drawPrompt(true);
 
 const CREDIT  = "Created by Adam A.";
-const VERSION = "alpha 1.07.03";
+const VERSION = "alpha 1.07.04";
 
 // ── Sound system ──────────────────────────────────────────────────────────────
 const SOUNDS = {};
@@ -3534,7 +3534,7 @@ function checkPhase3Trigger() {
 }
 
 function checkPhase4Trigger() {
-  if (state.phase === 3 && (state.demandCrashOccurred || state.lifetimeGoldEarned >= 2000)) {
+  if (state.phase === 3 && state.lifetimeGoldEarned >= 2000) {
     state.phase = 4;
     phaseGoalLastValue = -1;
     state.terminalUnlocked = true;
@@ -4191,8 +4191,8 @@ const OFFICE_NODES = [
   // Marketing
   { key: 'demandHistory', name: 'Demand History',   cost:   50, max: 1, minPhase: 3 },
   { key: 'forecast',      name: '7-Day Forecast',   cost: 1500, max: 1, minPhase: 3 },
-  { key: 'plantStory',    name: 'Plant a Story',    cost: 1500, max: 1, minPhase: 3 },
-  { key: 'smearCampaign', name: 'Run a Smear',      cost: 4000, max: 1, minPhase: 3, requires: 'plantStory', requiresLabel: 'Plant a Story first' },
+  { key: 'plantStory',    name: 'Plant a Story',    cost:  750, max: 1, minPhase: 3 },
+  { key: 'smearCampaign', name: 'Run a Smear',      cost: 2000, max: 1, minPhase: 3, requires: 'plantStory', requiresLabel: 'Plant a Story first' },
   // Trading
   { key: 'futures',           name: 'Futures Trading',      cost: 1000, max: 1, minPhase: 4 },
   { key: 'optionsBuy',        name: 'Options — Buy Side',   cost: 2500, max: 1, minPhase: 4 },
@@ -4626,6 +4626,15 @@ function showOfficeMenu() {
         border(ay);
         for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, ay, ' ', BRIGHT_WHITE, BG);
       }
+      // Courier wages info row
+      const cc = state.workers.couriers.length;
+      if (cc > 0) {
+        const wageRow = BOX_Y + 16 + 19;
+        border(wageRow);
+        const wageStr = `Daily courier wages: ${cc * 5}g  (5g × ${cc} courier${cc > 1 ? 's' : ''})`;
+        const wp = menuPad(wageStr, IW);
+        for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, wageRow, wp[i] || ' ', '#555555', BG);
+      }
 
     } else if (state.officeTab === 'upgrades') {
       // Tab 2 — UPGRADES: 2-row item cells (name row + cost/status row) in 2×2 grid per section
@@ -4938,7 +4947,7 @@ function showOfficeMenu() {
         state.storage.widgets -= node.widgetCost;
         state.skills.courierCount = count + 1;
         const ofDef = STATION_DEFS.find(s => s.label === 'OF');
-        state.workers.couriers.push({ x: ofDef.x+1, y: ofDef.y+2, courierState: 'idle', carryWidgets: 0, target: {x:0,y:0}, nickname: '' });
+        state.workers.couriers.push({ x: ofDef.x+1, y: ofDef.y+2, courierState: 'idle', carryWidgets: 0, target: {x:0,y:0}, nickname: '', paused: false });
         state.couriersOwned++;
         addLog(`> ${node.widgetCost} widgets consumed. Courier built.`, '#cc66cc');
         state.officeAnim.courierFlash = 3;
@@ -5167,34 +5176,37 @@ let cottageLookX     = 1;
 let cottageLookY     = 1;
 let bookshelfOverlayActive = false;
 
-// Outfit definitions — ten purchasable colors for the player @ glyph
+// Outfit definitions — purchasable colors for the player @ glyph. Prices in stamps.
 const OUTFITS = [
-  { key: 'crimson', name: 'CRIMSON', color: '#cc2233' },
-  { key: 'cobalt',  name: 'COBALT',  color: '#2255cc' },
-  { key: 'amber',   name: 'AMBER',   color: '#cc7700' },
-  { key: 'forest',  name: 'FOREST',  color: '#226622' },
-  { key: 'rose',    name: 'ROSE',    color: '#cc5588' },
-  { key: 'slate',   name: 'SLATE',   color: '#667788' },
-  { key: 'gold',    name: 'GOLD',    color: '#ccaa00' },
-  { key: 'teal',    name: 'TEAL',    color: '#229988' },
-  { key: 'ivory',   name: 'IVORY',   color: '#ddddcc' },
-  { key: 'violet',  name: 'VIOLET',  color: '#8844cc' },
+  { key: 'crimson', name: 'CRIMSON',        color: '#cc2233', price: 15 },
+  { key: 'cobalt',  name: 'COBALT',         color: '#2255cc', price: 15 },
+  { key: 'amber',   name: 'AMBER',          color: '#cc7700', price: 15 },
+  { key: 'forest',  name: 'FOREST',         color: '#226622', price: 15 },
+  { key: 'rose',    name: 'ROSE',           color: '#cc5588', price: 15 },
+  { key: 'slate',   name: 'SLATE',          color: '#667788', price: 15 },
+  { key: 'gold',    name: 'GOLD',           color: '#ccaa00', price: 15 },
+  { key: 'teal',    name: 'TEAL',           color: '#229988', price: 15 },
+  { key: 'ivory',   name: 'IVORY',          color: '#ddddcc', price: 15 },
+  { key: 'violet',  name: 'VIOLET',         color: '#8844cc', price: 15 },
+  { key: 'cloak',   name: 'CRIMSON CLOAK',  color: '#cc2222', price: 25 },
+  { key: 'midnight',name: 'MIDNIGHT ROBE',  color: '#1a1a4a', price: 30 },
+  { key: 'golden',  name: 'GOLDEN THREADS', color: '#ccaa33', price: 50 },
 ];
 
 // HOME GOODS catalog (§4.2) — 12 purchasable items in order A–L. Prices in stamps (§13).
 const FURNITURE_DEFS = [
-  { key: 'cottage',      name: 'COTTAGE',       price: 150, glyph: '⌂', color: '#886633' },
-  { key: 'rug',          name: 'BRAIDED RUG',   price:   8, glyph: '≈', color: '#886633' },
-  { key: 'table',        name: 'WOODEN TABLE',  price:  12, glyph: '=', color: '#aa7744' },
-  { key: 'fireplace',    name: 'FIREPLACE',     price:  32, glyph: '{', color: '#ff9933' },
-  { key: 'bookshelf',    name: 'BOOKSHELF',     price:  20, glyph: '[', color: '#886633' },
-  { key: 'clock',        name: 'CLOCK',         price:   8, glyph: 'o', color: '#aaaaaa' },
-  { key: 'cat',          name: 'PET (CAT)',     price:  24, glyph: 'f', color: '#cc9933' },
-  { key: 'kitchen',      name: 'KITCHEN',       price:  36, glyph: '#', color: '#aaaaaa' },
-  { key: 'bed',          name: 'BED',           price:  24, glyph: 'z', color: '#6688cc' },
-  { key: 'candles',      name: 'CANDLES',       price:   4, glyph: 'i', color: '#ffd633' },
-  { key: 'rockingchair', name: 'ROCKING CHAIR', price:  12, glyph: '~', color: '#aa7744' },
-  { key: 'mat',          name: 'WELCOME MAT',   price:   8, glyph: '-', color: '#aa7744' },
+  { key: 'cottage',      name: 'COTTAGE',       price: 195, glyph: '⌂', color: '#886633' },
+  { key: 'rug',          name: 'BRAIDED RUG',   price:  10, glyph: '≈', color: '#886633' },
+  { key: 'table',        name: 'WOODEN TABLE',  price:  16, glyph: '=', color: '#aa7744' },
+  { key: 'fireplace',    name: 'FIREPLACE',     price:  42, glyph: '{', color: '#ff9933' },
+  { key: 'bookshelf',    name: 'BOOKSHELF',     price:  26, glyph: '[', color: '#886633' },
+  { key: 'clock',        name: 'CLOCK',         price:  10, glyph: 'o', color: '#aaaaaa' },
+  { key: 'cat',          name: 'PET (CAT)',     price:  31, glyph: 'f', color: '#cc9933' },
+  { key: 'kitchen',      name: 'KITCHEN',       price:  47, glyph: '#', color: '#aaaaaa' },
+  { key: 'bed',          name: 'BED',           price:  31, glyph: 'z', color: '#6688cc' },
+  { key: 'candles',      name: 'CANDLES',       price:   5, glyph: 'i', color: '#ffd633' },
+  { key: 'rockingchair', name: 'ROCKING CHAIR', price:  16, glyph: '~', color: '#aa7744' },
+  { key: 'mat',          name: 'WELCOME MAT',   price:  10, glyph: '-', color: '#aa7744' },
 ];
 
 function openGeneralStoreMenu() {
@@ -5209,7 +5221,7 @@ function openGeneralStoreMenu() {
   const IW    = 52;
   const AW    = 14;
   const IPW   = 37;
-  const BOX_H = 31;
+  const BOX_H = 33;
   const BOX_X = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
   const BOX_Y = Math.max(1, Math.floor((WORLD_ROWS - BOX_H) / 2));
   const RPX   = BOX_X + 1 + AW + 1;
@@ -5235,7 +5247,7 @@ function openGeneralStoreMenu() {
   function drp(ay,text,fg) { const p=menuPad(text,IPW); for(let i=0;i<IPW;i++) display.draw(RPX+i,ay,p[i]||' ',fg,BG); }
 
   function drawOutfitCell(cx, ay, outfit, idx) {
-    const letter=('abcdefghij')[idx], owned=state.player.ownedOutfits.includes(outfit.key), equipped=state.player.colorName===outfit.name, canAfford=state.player.stamps>=10;
+    const letter=('abcdefghijklm')[idx], owned=state.player.ownedOutfits.includes(outfit.key), equipped=state.player.colorName===outfit.name, canAfford=state.player.stamps>=(outfit.price||15);
     let marker=' ',markerFg=BRIGHT_WHITE,bracketFg=canAfford?TC:DC;
     if(equipped){marker='»';markerFg=LC;bracketFg=LC;}else if(owned){marker='✓';markerFg='#66cc66';bracketFg=TC;}
     const nameFg=equipped?LC:(owned?'#aaaaaa':(canAfford?'#aaaaaa':'#555555'));
@@ -5325,7 +5337,7 @@ function openGeneralStoreMenu() {
     // Right pane (rows 6-12)
     if(gsTab==='clothing'){
       drp(BOX_Y+6,'CLOTHING SHOP',TC); drp(BOX_Y+7,'Change your look.','#555555');
-      drp(BOX_Y+9,'Each item: 10 stamps','#555555'); drp(BOX_Y+11,'Current look:','#555555');
+      drp(BOX_Y+9,'Prices: 15–50 stamps','#555555'); drp(BOX_Y+11,'Current look:','#555555');
       { const ay=BOX_Y+12; const cn=(state.player.colorName==='DEFAULT')?'default white':state.player.colorName.toLowerCase();
         drp(ay,`@ ${cn}`,'#555555'); display.draw(RPX,ay,'@',state.player.color||BRIGHT_WHITE,BG); }
     } else if(gsTab==='home_goods'){
@@ -5373,14 +5385,16 @@ function openGeneralStoreMenu() {
     if(gsTab==='mining'){
       for(let row=0;row<6;row++){const ay=BOX_Y+22+row;border(ay);for(let i=0;i<IW;i++) display.draw(BOX_X+1+i,ay,' ',BRIGHT_WHITE,BG);}
     } else if(gsTab==='clothing'){
-      for(let row=0;row<5;row++){
+      const rows=Math.ceil(OUTFITS.length/2);
+      for(let row=0;row<rows;row++){
         const ay=BOX_Y+22+row; border(ay);
         let cx=BOX_X+3;
-        cx=drawOutfitCell(cx,ay,OUTFITS[row*2],row*2); cx+=2;
-        cx=drawOutfitCell(cx,ay,OUTFITS[row*2+1],row*2+1);
+        if(row*2 < OUTFITS.length)   cx=drawOutfitCell(cx,ay,OUTFITS[row*2],row*2);
+        cx+=2;
+        if(row*2+1 < OUTFITS.length) cx=drawOutfitCell(cx,ay,OUTFITS[row*2+1],row*2+1);
         while(cx<BOX_X+1+IW) display.draw(cx++,ay,' ',BRIGHT_WHITE,BG);
       }
-      { const ay=BOX_Y+27; border(ay); for(let i=0;i<IW;i++) display.draw(BOX_X+1+i,ay,' ',BRIGHT_WHITE,BG); }
+      { const ay=BOX_Y+29; border(ay); for(let i=0;i<IW;i++) display.draw(BOX_X+1+i,ay,' ',BRIGHT_WHITE,BG); }
     } else if(gsTab==='home_goods'){
       for(let row=0;row<6;row++){
         const ay=BOX_Y+22+row; border(ay);
@@ -5398,17 +5412,17 @@ function openGeneralStoreMenu() {
         if(ri<GARDEN_DEFS.length) drawGardenCell(BOX_X+28,ay,GARDEN_DEFS[ri],letters[ri]);
       }
     }
-    // Row 28: ═
-    { const ay=BOX_Y+28; border(ay); for(let i=0;i<IW;i++) display.draw(BOX_X+1+i,ay,'═',DC,BG); }
-    // Row 29: footer
-    { const ay=BOX_Y+29; border(ay);
-      const txt=gsTab==='clothing'?'a–j: buy/equip  →: next tab  ESC: exit':gsTab==='home_goods'?'a–l: buy/visit  ←→: switch tab  ESC: exit':gsTab==='garden'?'a–l: plant  ←→: switch tab  ESC: exit':'a–d: buy/sell  ←: prev tab  ESC: exit';
+    // Row 30: ═
+    { const ay=BOX_Y+30; border(ay); for(let i=0;i<IW;i++) display.draw(BOX_X+1+i,ay,'═',DC,BG); }
+    // Row 31: footer
+    { const ay=BOX_Y+31; border(ay);
+      const txt=gsTab==='clothing'?'a–m: buy/equip  →: next tab  ESC: exit':gsTab==='home_goods'?'a–l: buy/visit  ←→: switch tab  ESC: exit':gsTab==='garden'?'a–l: plant  ←→: switch tab  ESC: exit':'a–d: buy/sell  ←: prev tab  ESC: exit';
       const pad=' '.repeat(Math.max(0,Math.floor((IW-txt.length)/2)));
       const padded=menuPad(pad+txt,IW);
       for(let i=0;i<IW;i++) display.draw(BOX_X+1+i,ay,padded[i]||' ','#555555',BG); }
-    // Row 30: ╚═╝
-    display.draw(BOX_X,BOX_Y+30,'╚',TC,BG); display.draw(BOX_X+BOX_W-1,BOX_Y+30,'╝',TC,BG);
-    for(let i=1;i<BOX_W-1;i++) display.draw(BOX_X+i,BOX_Y+30,'═',TC,BG);
+    // Row 32: ╚═╝
+    display.draw(BOX_X,BOX_Y+32,'╚',TC,BG); display.draw(BOX_X+BOX_W-1,BOX_Y+32,'╝',TC,BG);
+    for(let i=1;i<BOX_W-1;i++) display.draw(BOX_X+i,BOX_Y+32,'═',TC,BG);
   }
 
   gsMenuRedrawFn = redraw;
@@ -5527,8 +5541,8 @@ function openGeneralStoreMenu() {
       drawStatusBar(); redraw(); return;
     }
 
-    // CLOTHING tab: a–j
-    const letterIdx = 'abcdefghij'.indexOf(e.key);
+    // CLOTHING tab: a–m
+    const letterIdx = 'abcdefghijklm'.indexOf(e.key);
     if (letterIdx < 0) return;
     const outfit = OUTFITS[letterIdx]; if (!outfit) return;
     const owned=state.player.ownedOutfits.includes(outfit.key), equipped=state.player.colorName===outfit.name;
@@ -5538,8 +5552,9 @@ function openGeneralStoreMenu() {
       markDirty(state.player.x,state.player.y); renderDirty(); display.draw(state.player.x,state.player.y,'@',state.player.color,BG);
       addLog(`You change into something ${outfit.name.toLowerCase()}.`,outfit.color); redraw(); return;
     }
-    if (state.player.stamps<10) { addLog(`You need ${10-state.player.stamps} more stamps.`,'#ff5555'); return; }
-    state.player.stamps-=10; state.player.ownedOutfits.push(outfit.key); state.player.color=outfit.color; state.player.colorName=outfit.name;
+    const price=outfit.price||15;
+    if (state.player.stamps<price) { addLog(`You need ${price-state.player.stamps} more stamps.`,'#ff5555'); return; }
+    state.player.stamps-=price; state.player.ownedOutfits.push(outfit.key); state.player.color=outfit.color; state.player.colorName=outfit.name;
     markDirty(state.player.x,state.player.y); renderDirty(); display.draw(state.player.x,state.player.y,'@',state.player.color,BG);
     addLog(`You purchase and put on the ${outfit.name.toLowerCase()} outfit.`,outfit.color); playSound('bought'); drawStatusBar(); redraw();
   }
@@ -7868,6 +7883,7 @@ function renderLargeNumber(display, x, y, numberString, color, availableWidth) {
 // ── Launch Facility menu (§9) ─────────────────────────────────────────────────
 
 const CHANGELOG = [
+  { version: '1.07.04', summary: 'Demand crash removed from phase trigger. Cheaper manipulations/aquatics. Courier wages. More outfits.' },
   { version: '1.07.03', summary: 'Credits renamed to gold. Clearer stamp text. Credit score explained. Office key legend.' },
   { version: '1.07.02', summary: 'Phase unlock popups, market dimming, mine log, cottage door, ASCII weather icons.' },
   { version: '1.07.01', summary: 'Bugfixes: escape/fullscreen, stamps, rain on menus, mine flicker, cottage exit.' },
@@ -9946,7 +9962,7 @@ function showInventory() {
   const SKILL_DEFS = [
     { key: 'endurance',   name: 'ENDURANCE',   maxPips: 3, costs: [500, 5000, 50000],
       descs: ['You can carry more than before.', 'Your carrying capacity has grown significantly.', 'You can carry a remarkable amount.'] },
-    { key: 'aquatics',    name: 'AQUATICS',    maxPips: 1, costs: [5000],
+    { key: 'aquatics',    name: 'AQUATICS',    maxPips: 1, costs: [3000],
       descs: ['The water no longer stops you.'] },
     { key: 'interfacing', name: 'INTERFACING', maxPips: 3, costs: [500, 5000, 50000],
       descs: ['You no longer need the bench to work.', 'Your technique is improving.', "You've refined this to near-instinct."] },
@@ -10874,6 +10890,7 @@ function tickCouriers() {
 
   for (const c of state.workers.couriers) {
     markDirty(c.x, c.y);
+    if (c.paused) continue;
 
     if (c.courierState === 'idle') {
       if (state.storage.widgets > 0) {
@@ -11305,7 +11322,7 @@ function devUnlockEverything() {
     for (let i = 0; i < 5; i++)
       state.workers.apprentices.push({ x: ofDef.x+1, y: ofDef.y+2, workerState: 'idle', carryRM: 0, carryWidgets: 0, target: {x:0,y:0}, craftTimer: 0, paused: false, nickname: '' });
     for (let i = 0; i < 4; i++)
-      state.workers.couriers.push({ x: ofDef.x+1, y: ofDef.y+2, courierState: 'idle', carryWidgets: 0, target: {x:0,y:0}, nickname: '' });
+      state.workers.couriers.push({ x: ofDef.x+1, y: ofDef.y+2, courierState: 'idle', carryWidgets: 0, target: {x:0,y:0}, nickname: '', paused: false });
   }
 
   // Storage maxed
@@ -12366,6 +12383,20 @@ setInterval(() => {
       addLog(`Storage cost: ${carryCost}g for ${state.storage.widgets} widgets held.`, '#ff5555');
       drawStatusBar();
       checkBankruptcyStipend();
+    }
+    // Courier daily maintenance
+    const courierCount = state.workers.couriers.length;
+    const maintenanceCost = courierCount * 5;
+    if (maintenanceCost > 0) {
+      if (state.player.gold >= maintenanceCost) {
+        state.player.gold -= maintenanceCost;
+        for (const c of state.workers.couriers) c.paused = false;
+        addLog(`Courier wages: ${maintenanceCost}g for ${courierCount} courier${courierCount > 1 ? 's' : ''}.`, '#aaaaaa');
+      } else {
+        for (const c of state.workers.couriers) c.paused = true;
+        addLog(`Can't afford courier wages (${maintenanceCost}g). Couriers idle today.`, '#ff5555');
+      }
+      drawStatusBar();
     }
     // Emergency RM at the shed — if player is broke
     if (state.player.gold <= 0 && state.player.inventory.rm < state.player.inventoryCaps.rm) {
