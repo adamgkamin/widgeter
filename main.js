@@ -563,7 +563,7 @@ function loadGame() {
     state.workers              = data.workers           ?? { apprentices: [], couriers: [] };
     state.workers.couriers     = state.workers.couriers ?? []; // normalise old saves
     // Migrate old saves: ensure nickname field exists on all workers
-    for (const w of state.workers.apprentices) w.nickname = w.nickname ?? '';
+    for (const w of state.workers.apprentices) { w.nickname = w.nickname ?? ''; w.buyOnCredit = w.buyOnCredit ?? false; }
     for (const c of state.workers.couriers)    { c.nickname = c.nickname ?? ''; c.paused = c.paused ?? false; }
     state.stats                = data.stats ?? { rmLastTen: [], widgetsLastTen: [], creditsLastTen: [], widgetsMadeToday: 0, revenueToday: 0, costsToday: 0 };
     state.rocketWidgets        = data.rocketWidgets       ?? 0;
@@ -912,7 +912,7 @@ drawArt(0);
 drawPrompt(true);
 
 const CREDIT  = "Created by Adam A.";
-const VERSION = "alpha 1.07.06";
+const VERSION = "alpha 1.07.07";
 
 // ── Sound system ──────────────────────────────────────────────────────────────
 const SOUNDS = {};
@@ -2938,11 +2938,12 @@ function openRMShedMenu() {
     { const ay = BOX_Y + 21; border(ay);
       for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '═', DC, BG); }
 
-    // Row 22: status
+    // Row 22: status / card hint
     let statusText, statusFg;
     if (rmSpace <= 0)                              { statusText = 'Inventory full.'; statusFg = '#ff5555'; }
     else if (!canBuy1)                             { statusText = 'Insufficient gold.'; statusFg = '#ff5555'; }
     else if (storageRM > 0)                        { statusText = `${storageRM} RM in storage — used first.`; statusFg = '#ff6600'; }
+    else if (state.bank?.card?.tier)               { statusText = 'Hold SHIFT to pay on credit card.'; statusFg = '#555555'; }
     else                                           { statusText = 'Press a key to purchase.'; statusFg = '#555555'; }
     { const ay = BOX_Y + 22; border(ay);
       const centered = menuPad(statusText.length < IW ? ' '.repeat(Math.floor((IW-statusText.length)/2)) + statusText : statusText, IW);
@@ -2979,43 +2980,49 @@ function openRMShedMenu() {
     const maxGet2        = Math.min(rmSpace, storageRM2 + Math.floor(state.player.gold / effectiveCost));
     const canGet1        = (state.player.gold >= effectiveCost || storageRM2 > 0) && rmSpace > 0;
 
-    if (e.key === '1' && canGet1) {
+    const useCard = e.shiftKey && !!state.bank?.card?.tier;
+    if (e.key === '1' && (canGet1 || (useCard && rmSpace > 0))) {
       if (storageRM2 > 0) {
         state.storage.rm--;
         state.player.inventory.rm++;
         addLog('Took 1 RM from storage.', '#ff6600');
       } else {
-        state.player.gold -= effectiveCost;
+        if (!payForItem(effectiveCost, useCard)) { redraw(); return; }
         state.player.inventory.rm++;
-        if (isBronzePlus2 && effectiveCost < COST) addLog(`> Card discount applied: -${COST - effectiveCost}g.`, '#cc7733');
-        addLog('You buy 1 raw material.', '#ff9933');
+        if (!useCard && isBronzePlus2 && effectiveCost < COST) addLog(`> Card discount applied: -${COST - effectiveCost}g.`, '#cc7733');
+        if (!useCard) addLog('You buy 1 raw material.', '#ff9933');
         { const rmD = STATION_DEFS.find(s => s.label === 'RM'); if (rmD) effectsManager.coinDrain(state.player.x, state.player.y, rmD.x+1, rmD.y+2, effectiveCost); }
       }
       playSound('bought'); drawStatusBar(); redraw();
       return;
     }
-    if (e.key === '2' && maxGet2 > 0 && canGet1) {
+    if (e.key === '2' && maxGet2 > 0 && (canGet1 || useCard)) {
       const fromSt = Math.min(maxGet2, storageRM2);
       const fromCr = maxGet2 - fromSt;
       state.storage.rm -= fromSt;
-      state.player.gold -= fromCr * effectiveCost;
-      state.player.inventory.rm += maxGet2;
+      if (fromCr > 0) {
+        if (!payForItem(fromCr * effectiveCost, useCard)) { state.storage.rm += fromSt; redraw(); return; }
+        if (!useCard) addLog(`Bought ${fromCr} RM for ${formatCredits(fromCr * effectiveCost)}g.`, '#ff9933');
+      }
       if (fromSt > 0) addLog(`Took ${fromSt} RM from storage.`, '#ff6600');
-      if (fromCr > 0) addLog(`Bought ${fromCr} RM for ${formatCredits(fromCr * effectiveCost)}g.`, '#ff9933');
+      state.player.inventory.rm += maxGet2;
       playSound('bought'); drawStatusBar(); redraw();
       return;
     }
-    if (e.key === '3' && canGet1) {
+    if (e.key === '3' && (canGet1 || useCard)) {
+      const maxCard = useCard ? Math.min(rmSpace, storageRM2 + Math.floor(Math.max(0,(state.bank.card.limit||0)-(state.bank.card.balance||0)) / effectiveCost)) : maxGet2;
       window.removeEventListener('keydown', rmKeyHandler);
-      showNumericPrompt(`Get RM (max ${maxGet2})`, maxGet2,
+      showNumericPrompt(`Get RM (max ${maxCard})`, maxCard,
         (n) => {
           const fromSt3 = Math.min(n, storageRM2);
           const fromCr3 = n - fromSt3;
           state.storage.rm -= fromSt3;
-          state.player.gold -= fromCr3 * effectiveCost;
-          state.player.inventory.rm += n;
+          if (fromCr3 > 0) {
+            if (!payForItem(fromCr3 * effectiveCost, useCard)) { state.storage.rm += fromSt3; openRMShedMenu(); return; }
+            if (!useCard) addLog(`Bought ${fromCr3} RM for ${formatCredits(fromCr3 * effectiveCost)}g.`, '#ff9933');
+          }
           if (fromSt3 > 0) addLog(`Took ${fromSt3} RM from storage.`, '#ff6600');
-          if (fromCr3 > 0) addLog(`Bought ${fromCr3} RM for ${formatCredits(fromCr3 * effectiveCost)}g.`, '#ff9933');
+          state.player.inventory.rm += n;
           playSound('bought'); drawStatusBar();
           openRMShedMenu();
         },
@@ -3987,6 +3994,11 @@ function openMarketMenu(initialTab = 'sell') {
       }
       mtUpgradeRow(3, 'reducedCarry', 'u');
       mtUpgradeRow(4, 'discountDump', 'v');
+      if (state.bank?.card?.tier) {
+        const ay = statusRow + 7; border(ay);
+        const ht = menuPad('Hold SHIFT to pay upgrades on credit card.', IW);
+        for (let i = 0; i < IW; i++) display.draw(BOX_X+1+i, ay, ht[i]||' ', '#555555', BG);
+      }
       // Loading Port upgrades
       { const lp = state.loadingPort;
         const lpOwned = lp?.unlocked;
@@ -4164,37 +4176,39 @@ function openMarketMenu(initialTab = 'sell') {
     }
 
     // Market upgrades — available in any tab
-    if (e.key === 'u') {
-      const node = OFFICE_NODES.find(n => n.key === 'reducedCarry');
-      if (!node || state.phase < node.minPhase) { addLog('Reduced Carry Cost not yet available.', '#555555'); return; }
-      if ((state.skills.reducedCarry || 0) >= 1) { addLog('Already purchased.', '#555555'); return; }
-      if (state.player.gold < node.cost) { addLog(`Need ${node.cost}g.`, '#ff5555'); return; }
-      state.player.gold -= node.cost; state.skills.reducedCarry = 1;
-      addLog('Reduced Carry Cost purchased. Storage cost halved.', TC); playSound('bought'); drawStatusBar(); redraw(); return;
-    }
-    if (e.key === 'v') {
-      const node = OFFICE_NODES.find(n => n.key === 'discountDump');
-      if (!node || state.phase < node.minPhase) { addLog('Market Discount Dump not yet available.', '#555555'); return; }
-      if ((state.skills.discountDump || 0) >= 1) { addLog('Already purchased.', '#555555'); return; }
-      if (state.player.gold < node.cost) { addLog(`Need ${node.cost}g.`, '#ff5555'); return; }
-      state.player.gold -= node.cost; state.skills.discountDump = 1;
-      addLog('Market Discount Dump purchased.', TC); playSound('bought'); drawStatusBar(); redraw(); return;
-    }
-    if (e.key === 'w') {
-      if (state.loadingPort?.unlocked) { addLog('Loading Port already unlocked.', '#555555'); return; }
-      if (state.player.gold < 500) { addLog('Need 500g for Loading Port.', '#ff5555'); return; }
-      state.player.gold -= 500; state.loadingPort.unlocked = true;
-      stampLoadingPort();
-      addLog('Loading Port unlocked. Couriers now deposit here; auto-sells at dawn.', '#88cc88');
-      playSound('bought'); drawStatusBar(); redraw(); return;
-    }
-    if (e.key === 'x') {
-      if (!state.loadingPort?.unlocked) { addLog('Unlock Loading Port first.', '#555555'); return; }
-      if ((state.loadingPort?.capacity || 100) >= 200) { addLog('Loading Port already at max capacity.', '#555555'); return; }
-      if (state.player.gold < 800) { addLog('Need 800g to expand Loading Port.', '#ff5555'); return; }
-      state.player.gold -= 800; state.loadingPort.capacity = 200;
-      addLog('Loading Port expanded to 200 widget capacity.', '#88cc88');
-      playSound('bought'); drawStatusBar(); redraw(); return;
+    { const _uc = e.shiftKey && !!state.bank?.card?.tier;
+      if (e.key === 'u') {
+        const node = OFFICE_NODES.find(n => n.key === 'reducedCarry');
+        if (!node || state.phase < node.minPhase) { addLog('Reduced Carry Cost not yet available.', '#555555'); return; }
+        if ((state.skills.reducedCarry || 0) >= 1) { addLog('Already purchased.', '#555555'); return; }
+        if (!payForItem(node.cost, _uc)) { redraw(); return; }
+        state.skills.reducedCarry = 1;
+        addLog('Reduced Carry Cost purchased. Storage cost halved.', TC); playSound('bought'); drawStatusBar(); redraw(); return;
+      }
+      if (e.key === 'v') {
+        const node = OFFICE_NODES.find(n => n.key === 'discountDump');
+        if (!node || state.phase < node.minPhase) { addLog('Market Discount Dump not yet available.', '#555555'); return; }
+        if ((state.skills.discountDump || 0) >= 1) { addLog('Already purchased.', '#555555'); return; }
+        if (!payForItem(node.cost, _uc)) { redraw(); return; }
+        state.skills.discountDump = 1;
+        addLog('Market Discount Dump purchased.', TC); playSound('bought'); drawStatusBar(); redraw(); return;
+      }
+      if (e.key === 'w') {
+        if (state.loadingPort?.unlocked) { addLog('Loading Port already unlocked.', '#555555'); return; }
+        if (!payForItem(500, _uc)) { redraw(); return; }
+        state.loadingPort.unlocked = true;
+        stampLoadingPort();
+        addLog('Loading Port unlocked. Couriers now deposit here; auto-sells at dawn.', '#88cc88');
+        playSound('bought'); drawStatusBar(); redraw(); return;
+      }
+      if (e.key === 'x') {
+        if (!state.loadingPort?.unlocked) { addLog('Unlock Loading Port first.', '#555555'); return; }
+        if ((state.loadingPort?.capacity || 100) >= 200) { addLog('Loading Port already at max capacity.', '#555555'); return; }
+        if (!payForItem(800, _uc)) { redraw(); return; }
+        state.loadingPort.capacity = 200;
+        addLog('Loading Port expanded to 200 widget capacity.', '#88cc88');
+        playSound('bought'); drawStatusBar(); redraw(); return;
+      }
     }
 
     if (marketTab === 'sell') {
@@ -4822,8 +4836,17 @@ function showOfficeMenu() {
             statsLine = `    Carry: ${w.carryWidgets}/${courCarryMax}   Speed: ${COURIER_SPEEDS[state.skills.courierSpeedLevel||0].toFixed(1)}   ${task}`;
           }
           irow(base + 2, statsLine, '#555555');
+          const creditMark = (type === 'appr' && w.buyOnCredit && state.bank?.card?.tier) ? '[$]' : '';
+          if (creditMark) {
+            const ay2 = base + 1; border(ay2);
+            display.draw(BOX_X + 1 + IW - 4, ay2, creditMark[0], '#aaaaaa', BG);
+            display.draw(BOX_X + 1 + IW - 3, ay2, creditMark[1], '#aaaaaa', BG);
+            display.draw(BOX_X + 1 + IW - 2, ay2, creditMark[2], '#aaaaaa', BG);
+          }
           const hintLine = isSel
-            ? (type === 'appr' ? '    [1:pause/resume]  [2:rename]  [↑↓:navigate]' : '    [2:rename]  [↑↓:navigate]')
+            ? (type === 'appr'
+                ? `    [1:pause/resume]  [2:rename]  [c:${w.buyOnCredit ? 'cash' : 'credit'}]  [↑↓:navigate]`
+                : '    [2:rename]  [↑↓:navigate]')
             : '    ↑↓ to select';
           irow(base + 3, hintLine, DC);
           contentRow += 4;
@@ -4843,7 +4866,8 @@ function showOfficeMenu() {
     { const ay = BOX_Y + 38; border(ay);
       let footerLine, footerFg = '#555555';
       if (state.officeTab === 'workers') {
-        footerLine = menuPad('[ ← → switch tabs ]   Keys: [number] buy  [space] pause  [n] rename', IW);
+        const cardHint = state.bank?.card?.tier ? '  SHIFT=card' : '';
+        footerLine = menuPad(`[ ← → switch tabs ]   Keys: [number] buy  [space] pause  [n] rename${cardHint}`, IW);
       } else if (state.officeTab === 'upgrades') {
         footerLine = menuPad('[ ← → switch tabs ]  Production stats (read-only)', IW);
       } else {
@@ -4923,6 +4947,13 @@ function showOfficeMenu() {
         addLog(`${workerLabel(w, idx, 'appr')} ${w.paused ? 'paused' : 'resumed'}.`, '#66ccff');
         redraw(); return;
       }
+      if (e.key === 'c' && allW[workerSel] && allW[workerSel].type === 'appr') {
+        if (!state.bank?.card?.tier) { addLog('Need a credit card first.', '#555555'); return; }
+        const { idx, w } = allW[workerSel];
+        w.buyOnCredit = !w.buyOnCredit;
+        addLog(`${workerLabel(w, idx, 'appr')} now buys RM with ${w.buyOnCredit ? 'credit card' : 'gold'}.`, '#aaaaaa');
+        redraw(); return;
+      }
       if (e.key === '2' && allW[workerSel]) {
         renameMode = true; renameBuf = allW[workerSel].w.nickname || ''; renameTarget = workerSel;
         redraw(); return;
@@ -4932,16 +4963,16 @@ function showOfficeMenu() {
 
     // ── WORKERS tab: keys 1-6 for apprentice/courier upgrades ────────────────
     if (state.officeTab === 'workers') {
+      const useCard = e.shiftKey && !!state.bank?.card?.tier;
       if (e.key === '1') {
         const count = state.skills.apprenticeCount;
         if (count >= 5) return;
         const node = OFFICE_NODES.find(n => n.countKey === 'apprenticeCount' && n.tier === count + 1);
         if (!node || !state.officeUnlocked || state.phase < node.minPhase) return;
-        if (state.player.gold < node.cost) return;
-        state.player.gold -= node.cost;
+        if (!payForItem(node.cost, useCard)) { redraw(); return; }
         state.skills.apprenticeCount = count + 1;
         const ofDef = STATION_DEFS.find(s => s.label === 'OF');
-        state.workers.apprentices.push({ x: ofDef.x+1, y: ofDef.y+2, workerState: 'idle', carryRM: 0, carryWidgets: 0, target: {x:0,y:0}, craftTimer: 0, paused: false, nickname: '' });
+        state.workers.apprentices.push({ x: ofDef.x+1, y: ofDef.y+2, workerState: 'idle', carryRM: 0, carryWidgets: 0, target: {x:0,y:0}, craftTimer: 0, paused: false, nickname: '', buyOnCredit: false });
         addLog('Apprentice hired.', '#cc66cc');
         state.officeAnim.apprenticeFlash = 3;
         playSound('bought'); drawStatusBar(); redraw(); return;
@@ -4952,8 +4983,7 @@ function showOfficeMenu() {
         const lv = state.skills.workerCarryLevel || 0;
         if (lv >= node.max) return;
         const cost = node.costs[lv];
-        if (state.player.gold < cost) return;
-        state.player.gold -= cost;
+        if (!payForItem(cost, useCard)) { redraw(); return; }
         state.skills.workerCarryLevel = lv + 1;
         addLog(`> Increase Apprentice Inventory level ${lv + 1}.`, '#cc66cc');
         state.officeAnim.apprenticeFlash = 3;
@@ -4965,8 +4995,7 @@ function showOfficeMenu() {
         const lv = state.skills.workerSpeedLevel || 0;
         if (lv >= node.max) return;
         const cost = node.costs[lv];
-        if (state.player.gold < cost) return;
-        state.player.gold -= cost;
+        if (!payForItem(cost, useCard)) { redraw(); return; }
         state.skills.workerSpeedLevel = lv + 1;
         addLog(`> Train Apprentice Speed level ${lv + 1}.`, '#cc66cc');
         state.officeAnim.apprenticeFlash = 3;
@@ -5763,7 +5792,8 @@ function openStorageMenu() {
 
     // Row 28: footer
     { const ay = BOX_Y + 28; border(ay);
-      const txt = 'Auto-halt: production pauses when storage is full.  [u/v] buy upgrades';
+      const cardTip = state.bank?.card?.tier ? '  SHIFT=card' : '';
+      const txt = `Auto-halt: storage full pauses production.  [u/v] upgrades${cardTip}`;
       const centered = menuPad(txt.length < IW ? ' '.repeat(Math.floor((IW - txt.length) / 2)) + txt : txt, IW);
       for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, centered[i] || ' ', '#555555', BG); }
 
@@ -5813,8 +5843,8 @@ function openStorageMenu() {
       const node = OFFICE_NODES.find(n => n.key === 'storageExp1');
       if (!node || state.phase < node.minPhase) { addLog('Storage Expansion I not yet available.', '#555555'); return; }
       if ((state.skills.storageExp1 || 0) >= 1) { addLog('Storage Expansion I already purchased.', '#555555'); return; }
-      if (state.player.gold < node.cost) { addLog(`Need ${node.cost}g for Storage Expansion I.`, '#ff5555'); return; }
-      state.player.gold -= node.cost; state.skills.storageExp1 = 1;
+      if (!payForItem(node.cost, e.shiftKey && !!state.bank?.card?.tier)) { redraw(); return; }
+      state.skills.storageExp1 = 1;
       state.storage.widgetCap = 100; state.storage.rmCap = 100;
       addLog('Storage Expansion I purchased. Capacity: 100.', TC); playSound('bought'); drawStatusBar(); redraw();
     } else if (e.key === 'v') {
@@ -5822,8 +5852,8 @@ function openStorageMenu() {
       if (!node || state.phase < node.minPhase) { addLog('Storage Expansion II not yet available.', '#555555'); return; }
       if (!(state.skills.storageExp1 || 0)) { addLog('Storage Expansion I required first.', '#555555'); return; }
       if ((state.skills.storageExp2 || 0) >= 1) { addLog('Storage Expansion II already purchased.', '#555555'); return; }
-      if (state.player.gold < node.cost) { addLog(`Need ${node.cost}g for Storage Expansion II.`, '#ff5555'); return; }
-      state.player.gold -= node.cost; state.skills.storageExp2 = 1;
+      if (!payForItem(node.cost, e.shiftKey && !!state.bank?.card?.tier)) { redraw(); return; }
+      state.skills.storageExp2 = 1;
       state.storage.widgetCap = 1000; state.storage.rmCap = 1000;
       addLog('Storage Expansion II purchased. Capacity: 1000.', TC); playSound('bought'); drawStatusBar(); redraw();
     }
@@ -6066,6 +6096,21 @@ const CARD_TIERS = {
 };
 
 const CARD_TIER_ORDER = ['bronze', 'silver', 'gold', 'black'];
+
+// Helper: charge cost to card (Shift held) or gold. Returns true on success.
+function payForItem(cost, useCard) {
+  if (useCard) {
+    const avail = Math.max(0, (state.bank.card.limit || 0) - (state.bank.card.balance || 0));
+    if (avail < cost) { addLog('Card limit reached.', '#ff5555'); return false; }
+    state.bank.card.balance = Math.round((state.bank.card.balance + cost) * 10) / 10;
+    addLog(`Charged ${formatCredits(cost)}g to card.`, '#aaaaaa');
+    return true;
+  } else {
+    if (state.player.gold < cost) { addLog(`Need ${formatCredits(cost)}g.`, '#ff5555'); return false; }
+    state.player.gold = Math.round((state.player.gold - cost) * 10) / 10;
+    return true;
+  }
+}
 
 function cardTierAtLeast(minTier) {
   const order = ['bronze', 'silver', 'gold', 'black'];
@@ -6390,8 +6435,9 @@ function openBankMenu() {
         }
         const can4 = minPay > 0 && state.player.gold >= minPay;
         const can5 = card.balance > 0 && state.player.gold > 0;
+        const can6 = card.balance > 0 && state.player.gold > 0;
         srow(BOX_Y + 25, '', BRIGHT_WHITE);
-        srow(BOX_Y + 26, ` 4. Pay minimum (${formatCredits(minPay)}g)  5. Pay in full`, can4 ? tCol : DC);
+        srow(BOX_Y + 26, ` 4. Pay min (${formatCredits(minPay)}g)  5. Pay full  6. Pre-pay`, can4||can5||can6 ? tCol : DC);
         srow(BOX_Y + 27, ' → Press → for CARDS tab details', DC);
       }
       sbox_bot(BOX_Y + 28);
@@ -6637,6 +6683,25 @@ function openBankMenu() {
         }
         addLog(`Card payment: ${formatCredits(pay)}g. Remaining: ${formatCredits(card.balance)}g.`, getCardTierColor(card.tier));
         drawStatusBar(); redraw(); return;
+      }
+      if (e.key === '6' && card.tier) {
+        if (card.balance <= 0) { addLog('Card balance is zero.', '#555555'); return; }
+        if (state.player.gold <= 0) { addLog('No gold to pre-pay with.', '#ff5555'); return; }
+        const maxPre = Math.min(card.balance, state.player.gold);
+        window.removeEventListener('keydown', bankKeyHandler);
+        bankMenuRedrawFn = null;
+        showNumericPrompt(`Pre-pay card (max ${formatCredits(maxPre)}g)`, Math.floor(maxPre),
+          (val) => {
+            if (val <= 0) { openBankMenu(); return; }
+            const actual = Math.min(val, maxPre);
+            state.player.gold = Math.round((state.player.gold - actual) * 10) / 10;
+            card.balance       = Math.round((card.balance - actual) * 10) / 10;
+            changeRating(+0.1, 'Card pre-payment');
+            addLog(`Pre-paid ${formatCredits(actual)}g on card. Score improved.`, getCardTierColor(card.tier));
+            drawStatusBar(); openBankMenu();
+          },
+          () => openBankMenu());
+        return;
       }
     } else {
       // CARDS tab
@@ -8014,6 +8079,7 @@ function renderLargeNumber(display, x, y, numberString, color, availableWidth) {
 // ── Launch Facility menu (§9) ─────────────────────────────────────────────────
 
 const CHANGELOG = [
+  { version: '1.07.07', summary: 'Shift to pay on credit card anywhere. Pre-pay at bank. Apprentice credit toggle.' },
   { version: '1.07.06', summary: 'Loading Port at market — courier delivery, auto-sell at dawn, capacity upgrade.' },
   { version: '1.07.05', summary: 'Upgrades moved to home station menus. Office UPGRADES tab replaced with INFO stats.' },
   { version: '1.07.04', summary: 'Demand crash removed from phase trigger. Cheaper manipulations/aquatics. Courier wages. More outfits.' },
@@ -11005,11 +11071,23 @@ function tickApprentices() {
           bought++;
         }
         const boughtFree = bought;
-        while (bought < space && state.player.gold >= 3) {
-          state.player.gold -= 3;
-          w.carryRM++;
-          bought++;
-          if (bought === boughtFree + 1) { const rmD = STATION_DEFS.find(s => s.label === 'RM'); if (rmD) effectsManager.coinDrain(w.x, w.y, rmD.x + 1, rmD.y + 2, 3); }
+        const useCardForRM = w.buyOnCredit && !!state.bank?.card?.tier;
+        if (useCardForRM) {
+          const cardAvail = Math.max(0, (state.bank.card.limit||0) - (state.bank.card.balance||0));
+          const canBuyCard = Math.floor(cardAvail / 3);
+          while (bought < space && bought - boughtFree < canBuyCard) {
+            state.bank.card.balance = Math.round((state.bank.card.balance + 3) * 10) / 10;
+            w.carryRM++;
+            bought++;
+            if (bought === boughtFree + 1) { const rmD = STATION_DEFS.find(s => s.label === 'RM'); if (rmD) effectsManager.coinDrain(w.x, w.y, rmD.x + 1, rmD.y + 2, 3); }
+          }
+        } else {
+          while (bought < space && state.player.gold >= 3) {
+            state.player.gold -= 3;
+            w.carryRM++;
+            bought++;
+            if (bought === boughtFree + 1) { const rmD = STATION_DEFS.find(s => s.label === 'RM'); if (rmD) effectsManager.coinDrain(w.x, w.y, rmD.x + 1, rmD.y + 2, 3); }
+          }
         }
         if (bought > 0) drawStatusBar();
         w.target = { ...wbDoor };
@@ -11537,7 +11615,7 @@ function devUnlockEverything() {
   const ofDef = STATION_DEFS.find(s => s.label === 'OF');
   if (ofDef) {
     for (let i = 0; i < 5; i++)
-      state.workers.apprentices.push({ x: ofDef.x+1, y: ofDef.y+2, workerState: 'idle', carryRM: 0, carryWidgets: 0, target: {x:0,y:0}, craftTimer: 0, paused: false, nickname: '' });
+      state.workers.apprentices.push({ x: ofDef.x+1, y: ofDef.y+2, workerState: 'idle', carryRM: 0, carryWidgets: 0, target: {x:0,y:0}, craftTimer: 0, paused: false, nickname: '', buyOnCredit: false });
     for (let i = 0; i < 4; i++)
       state.workers.couriers.push({ x: ofDef.x+1, y: ofDef.y+2, courierState: 'idle', carryWidgets: 0, target: {x:0,y:0}, nickname: '', paused: false });
   }
