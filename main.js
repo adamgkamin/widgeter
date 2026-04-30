@@ -242,6 +242,8 @@ const state = {
     matLoggedThisVisit: false,
   },
   garden: {},
+  gardenRegrow: {},
+  cooking: { activeBuff: null },
   bookshelfLog: [],
   officeUnlocked:      false,
   officeTab:           'workers',  // 'workers' | 'upgrades' | 'info'
@@ -429,6 +431,8 @@ function saveGame() {
     craftingTimeRemote:   state.craftingTimeRemote,
     cottage:              state.cottage,
     garden:               state.garden,
+    gardenRegrow:         state.gardenRegrow,
+    cooking:              state.cooking,
     bookshelfLog:         state.bookshelfLog,
     mine:                 state.mine,
     weather:              state.weather,
@@ -622,6 +626,9 @@ function loadGame() {
     state.cottage.catY      = state.cottage.catY      ?? 7;
     state.cottage.matLoggedThisVisit = state.cottage.matLoggedThisVisit ?? false;
     state.garden = data.garden ?? {};
+    state.gardenRegrow = data.gardenRegrow ?? {};
+    state.cooking = data.cooking ?? { activeBuff: null };
+    state.cooking.activeBuff = state.cooking.activeBuff ?? null;
     state.bookshelfLog = data.bookshelfLog ?? [];
     // Stamps (§13)
     state.player.stamps            = data.stamps            ?? 0;
@@ -912,7 +919,7 @@ drawArt(0);
 drawPrompt(true);
 
 const CREDIT  = "Created by Adam A.";
-const VERSION = "alpha 1.07.07";
+const VERSION = "alpha 1.07.08";
 
 // ── Sound system ──────────────────────────────────────────────────────────────
 const SOUNDS = {};
@@ -1115,6 +1122,9 @@ function drawStatusBar() {
     const WEATHER_ICONS = { clear: ['*', '#ffd633'], rain: ['~', '#4a8aaa'], fog: ['%', '#666666'], heatwave: ['^', '#ff6633'], storm: ['!', '#ffaa00'] };
     const [icon, color] = WEATHER_ICONS[state.weather.current] || ['*', '#ffd633'];
     display.draw(DISPLAY_WIDTH - 2, STATUS_ROW, icon, color, BG);
+  }
+  if (state.cooking?.activeBuff) {
+    display.draw(DISPLAY_WIDTH - 4, STATUS_ROW, '♨', state.cooking.activeBuff.color, BG);
   }
 }
 
@@ -1688,20 +1698,19 @@ function placeMineEntrance() {
 // Called from buildTileMap() and immediately after purchase so the cottage
 // appears without waiting for the next full drawWorld() call.
 const GARDEN_DEFS = [
-  // Flowers — cosmetic
-  { key: 'sunflower', name: 'Sunflower', price:  5, glyph: '*', fg: '#ffd633', type: 'flower' },
-  { key: 'rose',      name: 'Rose',      price:  8, glyph: '*', fg: '#ff5555', type: 'flower' },
-  { key: 'tulip',     name: 'Tulip',     price:  6, glyph: '*', fg: '#ff66aa', type: 'flower' },
-  { key: 'daisy',     name: 'Daisy',     price:  4, glyph: '*', fg: '#ffffff', type: 'flower' },
-  { key: 'lavender',  name: 'Lavender',  price:  7, glyph: '*', fg: '#aa66cc', type: 'flower' },
-  { key: 'bluebell',  name: 'Bluebell',  price:  5, glyph: '*', fg: '#6688cc', type: 'flower' },
-  // Vegetables — edible (eaten removes them)
-  { key: 'tomato',  name: 'Tomato',  price:  6, glyph: 'o', fg: '#ff4444', type: 'veggie' },
-  { key: 'carrot',  name: 'Carrot',  price:  4, glyph: '!', fg: '#ff8833', type: 'veggie' },
-  { key: 'pumpkin', name: 'Pumpkin', price: 10, glyph: 'O', fg: '#ff8800', type: 'veggie' },
-  { key: 'corn',    name: 'Corn',    price:  5, glyph: '|', fg: '#ccaa33', type: 'veggie' },
-  { key: 'potato',  name: 'Potato',  price:  3, glyph: '·', fg: '#aa8855', type: 'veggie' },
-  { key: 'cabbage', name: 'Cabbage', price:  4, glyph: '@', fg: '#44aa44', type: 'veggie' },
+  // Vegetables — edible (eaten → regrow in 2 days)
+  { key: 'tomato',   name: 'Tomato',   price:  6, glyph: 'o', fg: '#ff4444', type: 'veggie' },
+  { key: 'carrot',   name: 'Carrot',   price:  4, glyph: '!', fg: '#ff8833', type: 'veggie' },
+  { key: 'pumpkin',  name: 'Pumpkin',  price: 10, glyph: 'O', fg: '#ff8800', type: 'veggie' },
+  { key: 'corn',     name: 'Corn',     price:  5, glyph: '|', fg: '#ccaa33', type: 'veggie' },
+  { key: 'potato',   name: 'Potato',   price:  3, glyph: '·', fg: '#aa8855', type: 'veggie' },
+  { key: 'cabbage',  name: 'Cabbage',  price:  4, glyph: '@', fg: '#44aa44', type: 'veggie' },
+  { key: 'onion',    name: 'Onion',    price:  4, glyph: 'o', fg: '#ccaa55', type: 'veggie' },
+  { key: 'pepper',   name: 'Pepper',   price:  5, glyph: '!', fg: '#ff3333', type: 'veggie' },
+  { key: 'lettuce',  name: 'Lettuce',  price:  3, glyph: '@', fg: '#55cc55', type: 'veggie' },
+  { key: 'beet',     name: 'Beet',     price:  5, glyph: '●', fg: '#882255', type: 'veggie' },
+  { key: 'celery',   name: 'Celery',   price:  3, glyph: '|', fg: '#66aa44', type: 'veggie' },
+  { key: 'mushroom', name: 'Mushroom', price:  6, glyph: '♠', fg: '#886655', type: 'veggie' },
 ];
 
 function placeCottageTiles() {
@@ -1774,11 +1783,14 @@ function placeGardenTiles() {
     const item = GARDEN_DEFS[i];
     const px = GARDEN_INNER_X + (i % 4);
     const py = GARDEN_INNER_Y + Math.floor(i / 4);
-    if (state.garden[item.key]) {
+    if (state.garden[item.key] === true) {
       const t = mk(item.glyph, item.fg, true);
-      t.description = item.type === 'veggie'
-        ? `A ${item.name}. Looks ripe. Press Space to eat.`
-        : `A ${item.name} grows here.`;
+      t.description = `A ${item.name}. Looks ripe. Press Space to eat.`;
+      tileMap[px][py] = t;
+    } else if (state.garden[item.key] === 'eaten') {
+      const regrowDay = state.gardenRegrow[item.key] ?? '?';
+      const t = mk('·', '#445533', true);
+      t.description = `The ${item.name} was eaten. Regrows day ${regrowDay}.`;
       tileMap[px][py] = t;
     } else {
       const t = mk('·', SOIL, true);
@@ -2147,6 +2159,8 @@ function resetState() {
   state.lakeEasterEgg = { discovered: false };
   state.cottage = { owned: false, mapX: 40, mapY: 21, playerX: 10, playerY: 5, furniture: {}, visited: false, catX: 9, catY: 7, matLoggedThisVisit: false };
   state.garden = {};
+  state.gardenRegrow = {};
+  state.cooking = { activeBuff: null };
   state.bookshelfLog = [];
   state.officeAnim = { apprenticeFlash: 0, courierFlash: 0 };
   state.player.stamps            = 0;
@@ -3531,7 +3545,11 @@ function calculateDailyDemand() {
   if (state.weather.current === 'rain')     state.demand = Math.max(5, Math.round(state.demand * 0.90));
   if (state.weather.current === 'storm')    state.demand = Math.max(5, Math.round(state.demand * 0.80));
   if (state.weather.current === 'heatwave') state.demand = Math.round(state.demand * 1.20);
+  // Cooking buff: demand
+  if (state.cooking?.activeBuff?.buff === 'demand') state.demand = Math.round(state.demand * state.cooking.activeBuff.value);
   state.marketPrice = Math.round(8 * Math.pow(state.demand / 50, 0.5) * 10) / 10;
+  // Cooking buff: price
+  if (state.cooking?.activeBuff?.buff === 'price') state.marketPrice = Math.round(state.marketPrice * state.cooking.activeBuff.value * 10) / 10;
   if (state.demand < 20 && !state.demandCrashOccurred) logHistory('The market collapsed.');
   if (state.demand < 20) state.demandCrashOccurred = true;
   state.demandHistory.push({ day: state.day, demand: state.demand, price: state.marketPrice });
@@ -5541,7 +5559,8 @@ function openGeneralStoreMenu() {
       if (idx < 0 || !GARDEN_DEFS[idx]) return;
       const item = GARDEN_DEFS[idx];
       if (!state.cottage.owned) { addLog('You need a cottage first.', '#555555'); return; }
-      if (state.garden[item.key]) { addLog('Already growing.', '#555555'); return; }
+      if (state.garden[item.key] === true) { addLog('Already growing.', '#555555'); return; }
+      if (state.garden[item.key] === 'eaten') { addLog(`${item.name} is regrowing. Wait a couple days.`, '#555555'); return; }
       if (state.player.stamps < item.price) { addLog(`You need ${item.price - state.player.stamps} more stamps.`, '#ff5555'); return; }
       state.player.stamps -= item.price;
       state.garden[item.key] = true;
@@ -8079,6 +8098,7 @@ function renderLargeNumber(display, x, y, numberString, color, availableWidth) {
 // ── Launch Facility menu (§9) ─────────────────────────────────────────────────
 
 const CHANGELOG = [
+  { version: '1.07.08', summary: 'Garden is veggies-only. Kitchen cooking with 4 recipes for daily buffs. Veggies regrow.' },
   { version: '1.07.07', summary: 'Shift to pay on credit card anywhere. Pre-pay at bank. Apprentice credit toggle.' },
   { version: '1.07.06', summary: 'Loading Port at market — courier delivery, auto-sell at dawn, capacity upgrade.' },
   { version: '1.07.05', summary: 'Upgrades moved to home station menus. Office UPGRADES tab replaced with INFO stats.' },
@@ -8487,7 +8507,16 @@ function buildInteriorTileMap() {
     }
   }
   const fur = state.cottage.furniture;
-  if (fur.kitchen)      stamp(1,7, 1,3, 'kitchen',      '┌', '#886633', 'A modest kitchen. Functional.', false);
+  if (fur.kitchen) {
+    stamp(1,7, 1,3, 'kitchen', '┌', '#886633', 'A modest kitchen. Functional.', false);
+    // Stove tile at (3,2) — walkable=false, interactive
+    if (interiorTileMap[3] && interiorTileMap[3][2]) {
+      interiorTileMap[3][2].glyph = 'π'; interiorTileMap[3][2].fg = '#ff6633';
+      interiorTileMap[3][2].description = 'The stove. Press Space to cook.';
+      interiorTileMap[3][2].furniture = 'stove';
+    }
+  }
+  if (!fur.kitchen && false) { } // no-op
   if (fur.fireplace)    stamp(8,14,1,3, 'fireplace',    '╔', '#886633', 'A small fireplace. The warmth is real.', false);
   if (fur.bed)          stamp(12,18,1,4, 'bed',         '┌', '#6688cc', 'A small bed. Adequate.', false);
   if (fur.clock)        stamp(1,3, 2,4, 'clock',        '┌', '#aaaaaa', 'A wall clock. It keeps better time than you do.', false);
@@ -8503,6 +8532,121 @@ function buildInteriorTileMap() {
     if (cx >= 1 && cx <= 18 && cy >= 1 && cy <= 9)
       interiorTileMap[cx][cy].description = 'Your cat. It has opinions but shares few of them.';
   }
+}
+
+const RECIPES = [
+  { key: 'tomatoSoup',  name: 'Tomato Soup',   ingredients: { tomato: 2 },                buff: 'demand',    value: 1.10, desc: '+10% demand',           color: '#ff4444' },
+  { key: 'carrotStew',  name: 'Carrot Stew',   ingredients: { carrot: 2, potato: 1 },     buff: 'apprSpeed', value: 1.15, desc: 'Apprentices +15% speed', color: '#ff8833' },
+  { key: 'pumpkinPie',  name: 'Pumpkin Pie',   ingredients: { pumpkin: 1, corn: 1 },      buff: 'price',     value: 1.20, desc: '+20% market price',      color: '#ff8800' },
+  { key: 'gardenSalad', name: 'Garden Salad',  ingredients: { _any3: true },               buff: 'carryCost', value: 0.50, desc: 'Carry cost halved',       color: '#44aa44' },
+];
+
+function canCook(recipe) {
+  if (recipe.ingredients._any3) {
+    const planted = GARDEN_DEFS.filter(g => state.garden[g.key] === true);
+    return planted.length >= 3;
+  }
+  for (const [ing, qty] of Object.entries(recipe.ingredients)) {
+    let count = 0;
+    for (let q = 0; q < qty; q++) {
+      if (state.garden[ing] === true) count++;
+    }
+    if (count < qty) return false;
+  }
+  return true;
+}
+
+function consumeIngredients(recipe) {
+  if (recipe.ingredients._any3) {
+    const planted = GARDEN_DEFS.filter(g => state.garden[g.key] === true);
+    const toConsume = planted.slice(0, 3);
+    for (const g of toConsume) {
+      state.garden[g.key] = 'eaten';
+      state.gardenRegrow[g.key] = state.day + 2;
+    }
+    placeGardenTiles();
+    return;
+  }
+  for (const [ing, qty] of Object.entries(recipe.ingredients)) {
+    for (let q = 0; q < qty; q++) {
+      state.garden[ing] = 'eaten';
+      state.gardenRegrow[ing] = state.day + 2;
+    }
+  }
+  placeGardenTiles();
+}
+
+function openCookingMenu() {
+  state.gameState = 'cooking_menu';
+  const OX = 25, OY = 10, OW = 32, OH = 26;
+  const TC = '#ff6633', DC = '#333333', LC = '#ffffff';
+
+  function drawMenu() {
+    for (let r = 0; r < OH; r++) for (let x = 0; x < OW; x++) display.draw(OX+x, OY+r, ' ', LC, BG);
+    display.draw(OX, OY, '╔', TC, BG); display.draw(OX+OW-1, OY, '╗', TC, BG);
+    for (let i = 1; i < OW-1; i++) display.draw(OX+i, OY, '═', TC, BG);
+    display.draw(OX, OY+OH-1, '╚', TC, BG); display.draw(OX+OW-1, OY+OH-1, '╝', TC, BG);
+    for (let i = 1; i < OW-1; i++) display.draw(OX+i, OY+OH-1, '═', TC, BG);
+    for (let r = 1; r < OH-1; r++) { display.draw(OX, OY+r, '║', TC, BG); display.draw(OX+OW-1, OY+r, '║', TC, BG); }
+    function row(r, text, fg) {
+      const p = menuPad(text, OW-2);
+      for (let i = 0; i < OW-2; i++) display.draw(OX+1+i, OY+r, p[i]||' ', fg, BG);
+    }
+    row(1, '  KITCHEN', TC);
+    row(2, '─'.repeat(OW-2), DC);
+    const letters = 'abcd';
+    let rr = 3;
+    for (let ri = 0; ri < RECIPES.length; ri++) {
+      const rec = RECIPES[ri];
+      const ok = canCook(rec);
+      const key = letters[ri];
+      row(rr++, `  ${key}) ${rec.name}`, ok ? rec.color : '#555555');
+      // Ingredient list
+      if (rec.ingredients._any3) {
+        const planted = GARDEN_DEFS.filter(g => state.garden[g.key] === true).length;
+        row(rr++, `     Any 3 veggies  [${planted}/3]`, planted >= 3 ? '#66cc66' : '#ff5555');
+      } else {
+        const ingStr = Object.entries(rec.ingredients).map(([k,v]) => {
+          const have = state.garden[k] === true ? 1 : 0;
+          return `${v}x ${k} [${have}/${v}]`;
+        }).join(', ');
+        row(rr++, `     ${ingStr}`, ok ? '#555555' : '#ff5555');
+      }
+      row(rr++, `     → ${rec.desc}`, '#555555');
+      row(rr++, '', DC);
+    }
+    const buff = state.cooking?.activeBuff;
+    if (buff) {
+      row(rr++, '─'.repeat(OW-2), DC);
+      row(rr++, `  Active: ${buff.name}`, buff.color);
+      row(rr++, `  Expires: day ${buff.expiresDay}`, '#555555');
+    } else {
+      row(rr++, '─'.repeat(OW-2), DC);
+      row(rr++, '  No active buff.', DC);
+    }
+    row(OH-2, '  ESC: close', DC);
+  }
+
+  drawMenu();
+
+  function closeCooking() {
+    window.removeEventListener('keydown', cookKeyHandler);
+    state.gameState = 'cottage';
+    drawCottageInterior();
+  }
+
+  function cookKeyHandler(e) {
+    if (e.key === 'Escape') { closeCooking(); return; }
+    const idx = 'abcd'.indexOf(e.key);
+    if (idx < 0 || !RECIPES[idx]) return;
+    const rec = RECIPES[idx];
+    if (!canCook(rec)) { addLog(`Missing ingredients for ${rec.name}.`, '#ff5555'); return; }
+    consumeIngredients(rec);
+    state.cooking.activeBuff = { ...rec, expiresDay: state.day + 1 };
+    addLog(`You cook ${rec.name}. Buff active: ${rec.desc}.`, rec.color);
+    renderLog(); drawMenu();
+  }
+  window.addEventListener('keydown', cookKeyHandler);
 }
 
 function getCottageGlyphAt(ix, iy) {
@@ -8530,6 +8674,7 @@ function drawInteriorFurniture() {
       const fg = r === 1 ? TC : WC;
       for (let i = 0; i < row.length; i++) dp(1+i, 1+r, row[i], fg);
     });
+    dp(3, 2, 'π', '#ff6633'); // stove
   }
 
   // D — Fireplace (8,1): 7w × 3h, two-frame animation
@@ -8611,6 +8756,8 @@ function drawInteriorFurniture() {
 function handleCottageInteract() {
   const px = state.cottage.playerX, py = state.cottage.playerY;
   const fur = state.cottage.furniture;
+  // Stove adjacent (3,2) — open cooking menu
+  if (fur.kitchen && Math.abs(px-3)<=1 && Math.abs(py-2)<=1) { openCookingMenu(); return true; }
   // Cat adjacent
   if (fur.cat) {
     if (Math.abs(px-state.cottage.catX)<=1 && Math.abs(py-state.cottage.catY)<=1) {
@@ -9666,8 +9813,9 @@ function handleInteract() {
     for (let i = 0; i < GARDEN_DEFS.length; i++) {
       const item = GARDEN_DEFS[i];
       const gpx = gix + (i % 4), gpy = giy + Math.floor(i / 4);
-      if (px === gpx && py === gpy && state.garden[item.key] && item.type === 'veggie') {
-        delete state.garden[item.key];
+      if (px === gpx && py === gpy && state.garden[item.key] === true && item.type === 'veggie') {
+        state.garden[item.key] = 'eaten';
+        state.gardenRegrow[item.key] = state.day + 2;
         placeGardenTiles(); markDirty(gpx, gpy); renderDirty();
         display.draw(px, py, '@', state.player.color || BRIGHT_WHITE, BG);
         addLog(`> You eat the ${item.name.toLowerCase()}. Not bad.`, item.fg);
@@ -11032,7 +11180,8 @@ function tickApprentices() {
   const wbDoor = { x: wbDef.x + 1, y: wbDef.y + 2 };  // (35, 10)
   const _silverPlus = cardTierAtLeast('silver');
   const weatherSpeedMult = state.weather.current === 'storm' ? 0.7 : state.weather.current === 'rain' ? 0.8 : 1.0;
-  const speed    = Math.max(1, Math.round(WORKER_SPEEDS[state.skills.workerSpeedLevel || 0] * (_silverPlus ? 1.10 : 1.0) * weatherSpeedMult));
+  const cookingSpeedMult = state.cooking?.activeBuff?.buff === 'apprSpeed' ? state.cooking.activeBuff.value : 1.0;
+  const speed    = Math.max(1, Math.round(WORKER_SPEEDS[state.skills.workerSpeedLevel || 0] * (_silverPlus ? 1.10 : 1.0) * weatherSpeedMult * cookingSpeedMult));
   const carryMax = WORKER_CARRY_CAPS[state.skills.workerCarryLevel || 0];
 
   for (const w of state.workers.apprentices) {
@@ -12330,6 +12479,23 @@ setInterval(() => {
   }
   if (state.dayTick === 0 && !state.bellFiredToday) {
     state.bellFiredToday = true;
+    // Garden regrowth
+    if (state.gardenRegrow) {
+      for (const [key, regrowDay] of Object.entries(state.gardenRegrow)) {
+        if (state.day >= regrowDay) {
+          state.garden[key] = true;
+          delete state.gardenRegrow[key];
+          const def = GARDEN_DEFS.find(g => g.key === key);
+          if (def) addLog(`Your ${def.name} has regrown.`, def.fg);
+          if (state.cottage.owned) placeGardenTiles();
+        }
+      }
+    }
+    // Cooking buff expiry
+    if (state.cooking?.activeBuff && state.day >= state.cooking.activeBuff.expiresDay) {
+      addLog(`Your ${state.cooking.activeBuff.name} buff has worn off.`, state.cooking.activeBuff.color);
+      state.cooking.activeBuff = null;
+    }
     // Loading Port auto-sell at market open
     if (state.loadingPort?.unlocked && state.loadingPort.widgets > 0 && state.marketOpen) {
       const toSell = Math.min(state.loadingPort.widgets, state.phase >= 3 ? Math.max(0, state.demand - state.widgetsSoldToday) : state.loadingPort.widgets);
@@ -12684,7 +12850,8 @@ setInterval(() => {
     }
     // Then: charge carry cost on stored widgets
     // Cost of carry — capped at 50cr/day max
-    const mult      = state.skills.reducedCarry ? 0.1 : 0.2;
+    const cookCarryMult = state.cooking?.activeBuff?.buff === 'carryCost' ? state.cooking.activeBuff.value : 1.0;
+    const mult      = (state.skills.reducedCarry ? 0.1 : 0.2) * cookCarryMult;
     let carryCost   = Math.round(state.storage.widgets * mult * 10) / 10;
     carryCost       = Math.min(50, carryCost); // cap at 50cr
     if (carryCost > 0) {
