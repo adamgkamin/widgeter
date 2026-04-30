@@ -864,7 +864,7 @@ drawArt(0);
 drawPrompt(true);
 
 const CREDIT  = "Created by Adam A.";
-const VERSION = "alpha 1.05.02";
+const VERSION = "alpha 1.05.03";
 
 // ── Sound system ──────────────────────────────────────────────────────────────
 const SOUNDS = {};
@@ -979,41 +979,47 @@ function drawTimeIndicator() {
   for (let i = 0; i < text.length; i++) display.draw(TIMER_X + i, STATUS_ROW, text[i], fg, BG);
 }
 
+let phaseGoalFlashUntil = 0;
+let phaseGoalLastValue  = -1;
+
 function drawPhaseGoal() {
   if (state.gameState !== 'playing' && state.gameState !== 'crafting') return;
-  let goalText = '', goalFg = '#555555';
+  let goalText = '', goalFg = '#aaaaaa';
 
+  let currentRemaining = 0;
   if (state.phase === 1) {
-    const remaining = 100 - state.lifetimeCreditsEarned;
-    if (remaining > 0) { goalText = `Phase 2 in ${Math.ceil(remaining)}cr`; goalFg = '#555555'; }
+    currentRemaining = Math.max(0, 100 - state.lifetimeCreditsEarned);
+    if (currentRemaining > 0) { goalText = `PHASE 2 IN ${Math.ceil(currentRemaining)}cr`; }
   } else if (state.phase === 2) {
-    const remaining = 1000 - state.lifetimeCreditsEarned;
-    if (remaining > 0) { goalText = `Phase 3 in ${Math.ceil(remaining)}cr`; goalFg = '#555555'; }
+    currentRemaining = Math.max(0, 1000 - state.lifetimeCreditsEarned);
+    if (currentRemaining > 0) { goalText = `PHASE 3 IN ${Math.ceil(currentRemaining)}cr`; }
   } else if (state.phase === 3) {
-    const remaining = 2000 - state.lifetimeCreditsEarned;
-    if (remaining > 0 && !state.demandCrashOccurred) {
-      goalText = `Phase 4 in ${Math.ceil(remaining)}cr`;
-    } else if (!state.demandCrashOccurred) {
-      goalText = `Phase 4 in ${Math.ceil(remaining)}cr`;
-    }
-    goalFg = '#555555';
+    currentRemaining = Math.max(0, 2000 - state.lifetimeCreditsEarned);
+    if (currentRemaining > 0) { goalText = `PHASE 4 IN ${Math.ceil(currentRemaining)}cr`; }
   } else if (state.phase === 4) {
-    const remaining = 10000 - state.lifetimeCreditsEarned;
-    if (remaining > 0) { goalText = `Phase 5 in ${Math.ceil(remaining)}cr`; goalFg = '#555555'; }
+    currentRemaining = Math.max(0, 10000 - state.lifetimeCreditsEarned);
+    if (currentRemaining > 0) { goalText = `PHASE 5 IN ${Math.ceil(currentRemaining)}cr`; }
   } else if (state.phase === 5) {
-    const remaining = 5000 - state.rocketWidgets;
-    if (remaining > 0) { goalText = `Rocket: ${state.rocketWidgets}/${5000}`; goalFg = '#ff5555'; }
+    currentRemaining = Math.max(0, 5000 - state.rocketWidgets);
+    if (currentRemaining > 0) { goalText = `ROCKET: ${state.rocketWidgets.toLocaleString()}/5,000`; goalFg = '#ff5555'; }
     else { goalText = 'LAUNCH READY'; goalFg = '#ff5555'; }
   }
+
+  if (phaseGoalLastValue >= 0 && currentRemaining < phaseGoalLastValue) {
+    phaseGoalFlashUntil = Date.now() + 1000;
+  }
+  phaseGoalLastValue = currentRemaining;
+
+  if (Date.now() < phaseGoalFlashUntil) goalFg = '#66ff66';
 
   if (!goalText) return;
 
   const boxText = goalText;
   const startX = DISPLAY_WIDTH - boxText.length - 3;
   for (let i = startX - 1; i < DISPLAY_WIDTH; i++) display.draw(i, HINT_ROW, ' ', BRIGHT_WHITE, BG);
-  display.draw(startX, HINT_ROW, '[', '#333333', BG);
+  display.draw(startX, HINT_ROW, '[', '#555555', BG);
   for (let i = 0; i < boxText.length; i++) display.draw(startX + 1 + i, HINT_ROW, boxText[i], goalFg, BG);
-  display.draw(startX + 1 + boxText.length, HINT_ROW, ']', '#333333', BG);
+  display.draw(startX + 1 + boxText.length, HINT_ROW, ']', '#555555', BG);
 }
 
 // worst-case: "Credits: 9999.0  Raw: 5  Widgets: 5/5  Price: 20cr" (50) + "[== market open 180s ==]" (24) = 74 chars ≤ 78
@@ -7701,6 +7707,7 @@ function renderLargeNumber(display, x, y, numberString, color, availableWidth) {
 // ── Launch Facility menu (§9) ─────────────────────────────────────────────────
 
 const CHANGELOG = [
+  { version: '1.05.03', summary: 'Phase tracker: brighter, all caps, green flash on progress.' },
   { version: '1.05.02', summary: 'Phase goal countdown tracker on hint row. Hint bar shortened.' },
   { version: '1.05.01', summary: 'The Mine — procedural cave dungeon with mining, 4 layouts, GS mining tab, inventory equip tab.' },
   { version: '1.04.02', summary: 'Rocket full message updated.' },
