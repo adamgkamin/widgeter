@@ -309,12 +309,24 @@ const state = {
     volatilitySurface:  0,
     plantStory:         0,
     smearCampaign:      0,
+    pickaxeLevel: 0,
+    lantern:      false,
     endurance:    { pips: 0 },
     aquatics:     { purchased: false },
     interfacing:  { pips: 0 },
   },
   craftingTimeRemote: 10,
   lakeEasterEgg: { discovered: false },
+  mine: {
+    discovered: false,
+    tiles: [],
+    lastGenDay: -1,
+    playerX: 12,
+    playerY: 13,
+    playerDir: { x: 0, y: -1 },
+    totalMined: 0,
+    crystals: 0,
+  },
   fishing: {
     totalCatches:  0,
     catchesToday:  0,
@@ -390,6 +402,7 @@ function saveGame() {
     cottage:              state.cottage,
     garden:               state.garden,
     bookshelfLog:         state.bookshelfLog,
+    mine:                 state.mine,
     stamps:               state.player.stamps,
     stampWalkCounter:     state.player.stampWalkCounter,
     stampLookTiles:       Array.from(state.player.stampLookTiles),
@@ -637,6 +650,20 @@ function loadGame() {
         }
       }
     }
+    // Mine (§Mine)
+    { const _m = state.mine = data.mine ?? {};
+      _m.discovered  = _m.discovered  ?? false;
+      _m.tiles       = _m.tiles       ?? [];
+      _m.lastGenDay  = _m.lastGenDay  ?? -1;
+      _m.playerX     = _m.playerX     ?? 12;
+      _m.playerY     = _m.playerY     ?? 13;
+      _m.playerDir   = _m.playerDir   ?? { x: 0, y: -1 };
+      _m.totalMined  = _m.totalMined  ?? 0;
+      _m.crystals    = _m.crystals    ?? 0;
+    }
+    // Mine skills
+    state.skills.pickaxeLevel = state.skills.pickaxeLevel ?? 0;
+    state.skills.lantern      = state.skills.lantern      ?? false;
   } catch (_) {
     // corrupt save — start fresh
   }
@@ -837,7 +864,7 @@ drawArt(0);
 drawPrompt(true);
 
 const CREDIT  = "Created by Adam A.";
-const VERSION = "alpha 1.04.02";
+const VERSION = "alpha 1.05.01";
 
 // ── Sound system ──────────────────────────────────────────────────────────────
 const SOUNDS = {};
@@ -1506,6 +1533,14 @@ function buildTileMap() {
   if (tileMap[4]?.[12])  tileMap[4][12].description  = 'Something glints between the trees. You catch it for a moment, then it\'s gone. It comes back.';
   if (tileMap[41]?.[8])  tileMap[41][8].description  = 'A flash of yellow in the grass. Gone before you could focus. It will be again.';
   if (tileMap[73]?.[36]) tileMap[73][36].description = 'Something blue blinks here. Sometimes once an hour, sometimes more often.';
+
+  // Mine entrance — always visible in rocky outcrop when phase >= 3 (§Mine)
+  if (state.phase >= 3) {
+    const mineX = 38, mineY = 38;
+    tileMap[mineX][mineY] = mk('Ω', '#777777', true);
+    tileMap[mineX][mineY].description = 'A dark opening between the rocks. Press Space to enter.';
+    tileMap[mineX][mineY].station = 'mine';
+  }
 }
 
 // Inject cottage tiles into the live tileMap and mark them dirty.
@@ -1960,7 +1995,8 @@ function resetState() {
     state.settings = { fullscreen: savedFS ? JSON.parse(savedFS) : false, currentFontSize: state.settings?.currentFontSize ?? 16 }; }
   state.workers = { apprentices: [], couriers: [] };
   state.stats = { rmLastTen: [], widgetsLastTen: [], creditsLastTen: [], widgetsMadeToday: 0, revenueToday: 0, costsToday: 0 };
-  state.skills = { apprenticeCount: 0, courierCount: 0, workerCarryLevel: 0, workerSpeedLevel: 0, courierCarryLevel: 0, courierSpeedLevel: 0, storageExp1: 0, storageExp2: 0, reducedCarry: 0, discountDump: 0, demandHistory: 0, forecast: 0, futures: 0, optionsBuy: 0, optionsWrite: 0, volatilitySurface: 0, plantStory: 0, smearCampaign: 0, endurance: { pips: 0 }, aquatics: { purchased: false }, interfacing: { pips: 0 } };
+  state.skills = { apprenticeCount: 0, courierCount: 0, workerCarryLevel: 0, workerSpeedLevel: 0, courierCarryLevel: 0, courierSpeedLevel: 0, storageExp1: 0, storageExp2: 0, reducedCarry: 0, discountDump: 0, demandHistory: 0, forecast: 0, futures: 0, optionsBuy: 0, optionsWrite: 0, volatilitySurface: 0, plantStory: 0, smearCampaign: 0, pickaxeLevel: 0, lantern: false, endurance: { pips: 0 }, aquatics: { purchased: false }, interfacing: { pips: 0 } };
+  state.mine = { discovered: false, tiles: [], lastGenDay: -1, playerX: 12, playerY: 13, playerDir: { x: 0, y: -1 }, totalMined: 0, crystals: 0 };
   state.craftingTimeRemote = 10;
   state.stats.pondStepsWalked = 0;
   state.fishing = { totalCatches: 0, catchesToday: 0, dailyLimit: 5, currentPhase: 'menu', fishTimer: 0, biteTimer: 0, fishX: 0, animTick: 0 };
@@ -2711,7 +2747,14 @@ function openRMShedMenu() {
     const discountedCost = isBronzePlus ? Math.max(1, Math.floor(COST * 0.95)) : COST;
     const discStr = isBronzePlus ? `${formatCredits(discountedCost)}cr (-5%)` : `${formatCredits(COST)}cr`;
     drp(BOX_Y + 11, `Cost per unit:  ${discStr}`, isBronzePlus ? '#cc7733' : '#f0f0f0');
-    drp(BOX_Y + 12, '', DC);
+    if (state.stations.storage?.unlocked) {
+      const srm = state.storage.rm, scap = state.storage.rmCap;
+      const BAR_W = 8, filled = scap > 0 ? Math.min(Math.round(srm/scap*BAR_W), BAR_W) : 0;
+      let bar = '['; for (let i=0;i<BAR_W;i++) bar += i<filled?'█':' '; bar += ']';
+      drp(BOX_Y + 12, `Storage RM: ${bar} ${srm}/${scap}`, '#ff6600');
+    } else {
+      drp(BOX_Y + 12, '', DC);
+    }
 
     // Row 13: ─ action separator
     { const ay = BOX_Y + 13; border(ay);
@@ -4965,7 +5008,7 @@ function openGeneralStoreMenu() {
   const BOX_Y = Math.max(1, Math.floor((WORLD_ROWS - BOX_H) / 2));
   const RPX   = BOX_X + 1 + AW + 1;
 
-  let gsTab = 'clothing'; // 'clothing' | 'home_goods' | 'garden'
+  let gsTab = 'clothing'; // 'clothing' | 'home_goods' | 'garden' | 'mining'
 
   const GS_ART = [
     '  +--------+  ', ' /  GENERAL\\ ', '/    STORE  \\ ',
@@ -5054,15 +5097,17 @@ function openGeneralStoreMenu() {
       for(let i=0;i<IW;i++){const ch=i<title.length?title[i]:(i>=IW-hint.length?hint[i-(IW-hint.length)]:'');const fg=i<title.length?LC:(i>=IW-hint.length?DC:BRIGHT_WHITE);display.draw(BOX_X+1+i,ay,ch||' ',fg,BG);} }
     // Row 2: ═
     { const ay=BOX_Y+2; border(ay); for(let i=0;i<IW;i++) display.draw(BOX_X+1+i,ay,'═',DC,BG); }
-    // Row 3: tab bar — three tabs: CLOTHING (17) | HOME GOODS (17) | GARDEN (16) = 52
+    // Row 3: tab bar — four tabs: CLOTHING(13) | HOME GOODS(12) | GARDEN(12) | MINING(12) = 52 (with 3 separators)
     { const ay=BOX_Y+3; border(ay);
-      const T1='[ CLOTHING ]', T2='[ HOME GOODS ]', T3='[ GARDEN ]';
-      const lp1=Math.floor((17-T1.length)/2), lp2=Math.floor((17-T2.length)/2), lp3=Math.floor((16-T3.length)/2);
-      for(let i=0;i<17;i++){const ci=i-lp1;const ch=(ci>=0&&ci<T1.length)?T1[ci]:' ';display.draw(BOX_X+1+i,ay,ch,(gsTab==='clothing'&&ch!==' ')?TC:DC,BG);}
-      display.draw(BOX_X+18,ay,'│',DC,BG);
-      for(let i=0;i<17;i++){const ci=i-lp2;const ch=(ci>=0&&ci<T2.length)?T2[ci]:' ';display.draw(BOX_X+19+i,ay,ch,(gsTab==='home_goods'&&ch!==' ')?TC:DC,BG);}
-      display.draw(BOX_X+36,ay,'│',DC,BG);
-      for(let i=0;i<16;i++){const ci=i-lp3;const ch=(ci>=0&&ci<T3.length)?T3[ci]:' ';display.draw(BOX_X+37+i,ay,ch,(gsTab==='garden'&&ch!==' ')?TC:DC,BG);}
+      const tabs=[{k:'clothing',lbl:'[CLOTHING ]',w:13},{k:'home_goods',lbl:'[HOME GOODS]',w:12},{k:'garden',lbl:'[ GARDEN  ]',w:12},{k:'mining',lbl:'[ MINING  ]',w:12}];
+      let cx=BOX_X+1;
+      for(let ti=0;ti<tabs.length;ti++){
+        const t=tabs[ti],active=gsTab===t.k;
+        const lp=Math.floor((t.w-t.lbl.length)/2);
+        for(let i=0;i<t.w;i++){const ci=i-lp;const ch=(ci>=0&&ci<t.lbl.length)?t.lbl[ci]:' ';display.draw(cx+i,ay,ch,(active&&ch!==' ')?TC:DC,BG);}
+        cx+=t.w;
+        if(ti<tabs.length-1){display.draw(cx,ay,'│',DC,BG);cx++;}
+      }
     }
     // Row 4: ─
     { const ay=BOX_Y+4; border(ay); for(let i=0;i<IW;i++) display.draw(BOX_X+1+i,ay,'─',DC,BG); }
@@ -5083,12 +5128,21 @@ function openGeneralStoreMenu() {
       drp(BOX_Y+10,'Cottage required for B–L.','#555555');
       if(state.cottage.owned) drp(BOX_Y+12,'Cottage: OWNED','#66cc66');
       else drp(BOX_Y+12,'Cottage: not yet','#555555');
-    } else {
+    } else if(gsTab==='garden'){
       drp(BOX_Y+6,'GARDEN SHOP',TC); drp(BOX_Y+7,'Grow something beautiful.','#555555');
       drp(BOX_Y+9,'Flowers are forever.','#555555');
       drp(BOX_Y+10,'Vegetables can be eaten.','#555555');
       if(state.cottage.owned) drp(BOX_Y+12,'Cottage: OWNED','#66cc66');
       else drp(BOX_Y+12,'Need a cottage first.','#555555');
+    } else {
+      drp(BOX_Y+6,'MINING EQUIPMENT',TC); drp(BOX_Y+7,'Tools for the underground.','#555555');
+      drp(BOX_Y+9,`a. Pickaxe           ${state.skills.pickaxeLevel>=1?'✓ owned':'15 stamps'}`,(state.skills.pickaxeLevel>=1)?'#66cc66':'#aaaaaa');
+      drp(BOX_Y+10,`b. Brand Name Pickaxe ${state.skills.pickaxeLevel>=2?'✓ owned':'40 stamps'}`,(state.skills.pickaxeLevel>=2)?'#66cc66':'#aaaaaa');
+      drp(BOX_Y+11,`c. Lantern           ${state.skills.lantern?'✓ owned':'20 stamps'}`,(state.skills.lantern)?'#66cc66':'#aaaaaa');
+      drp(BOX_Y+12,'─'.repeat(IPW),DC);
+      drp(BOX_Y+13,`Sell crystal: 25cr each`,'#555555');
+      drp(BOX_Y+14,`d. Sell 1 crystal${state.mine.crystals>0?'  +25cr':'  [none]'}`,state.mine.crystals>0?'#66cc66':'#444444');
+      drp(BOX_Y+15,`Crystals: ${state.mine.crystals}/5`,'#66ccff');
     }
     // Rows 15-20: shopkeeper note in left pane only (shared between both tabs)
     { const NOTE = [
@@ -5110,7 +5164,9 @@ function openGeneralStoreMenu() {
     { const ay=BOX_Y+21; border(ay); for(let i=0;i<IW;i++) display.draw(BOX_X+1+i,ay,'─',DC,BG); }
     // Rows 22-27: grid (6 rows)
     const letters='abcdefghijkl';
-    if(gsTab==='clothing'){
+    if(gsTab==='mining'){
+      for(let row=0;row<6;row++){const ay=BOX_Y+22+row;border(ay);for(let i=0;i<IW;i++) display.draw(BOX_X+1+i,ay,' ',BRIGHT_WHITE,BG);}
+    } else if(gsTab==='clothing'){
       for(let row=0;row<5;row++){
         const ay=BOX_Y+22+row; border(ay);
         let cx=BOX_X+3;
@@ -5140,7 +5196,7 @@ function openGeneralStoreMenu() {
     { const ay=BOX_Y+28; border(ay); for(let i=0;i<IW;i++) display.draw(BOX_X+1+i,ay,'═',DC,BG); }
     // Row 29: footer
     { const ay=BOX_Y+29; border(ay);
-      const txt=gsTab==='clothing'?'a–j: buy/equip  →: home goods  ESC: exit':gsTab==='home_goods'?'a–l: buy/visit  ←→: switch tab  ESC: exit':'a–l: plant  ←: home goods  ESC: exit';
+      const txt=gsTab==='clothing'?'a–j: buy/equip  →: next tab  ESC: exit':gsTab==='home_goods'?'a–l: buy/visit  ←→: switch tab  ESC: exit':gsTab==='garden'?'a–l: plant  ←→: switch tab  ESC: exit':'a–d: buy/sell  ←: prev tab  ESC: exit';
       const pad=' '.repeat(Math.max(0,Math.floor((IW-txt.length)/2)));
       const padded=menuPad(pad+txt,IW);
       for(let i=0;i<IW;i++) display.draw(BOX_X+1+i,ay,padded[i]||' ','#555555',BG); }
@@ -5167,12 +5223,51 @@ function openGeneralStoreMenu() {
       e.preventDefault();
       if (gsTab === 'clothing') { gsTab = 'home_goods'; playSound('click'); redraw(); }
       else if (gsTab === 'home_goods') { gsTab = 'garden'; playSound('click'); redraw(); }
+      else if (gsTab === 'garden') { gsTab = 'mining'; playSound('click'); redraw(); }
       return;
     }
     if (e.key === 'ArrowLeft') {
       e.preventDefault();
       if (gsTab === 'home_goods') { gsTab = 'clothing'; playSound('click'); redraw(); }
       else if (gsTab === 'garden') { gsTab = 'home_goods'; playSound('click'); redraw(); }
+      else if (gsTab === 'mining') { gsTab = 'garden'; playSound('click'); redraw(); }
+      return;
+    }
+
+    if (gsTab === 'mining') {
+      if (e.key === 'a') {
+        if (!state.mine.discovered) { addLog('Find the mine first.', '#555555'); return; }
+        if (state.skills.pickaxeLevel >= 1) { addLog('You already own a pickaxe.', '#555555'); return; }
+        if (state.player.stamps < 15) { addLog(`Need ${15 - state.player.stamps} more stamps.`, '#ff5555'); return; }
+        state.player.stamps -= 15; state.skills.pickaxeLevel = 1;
+        addLog('You buy a pickaxe. Mining is now faster.', '#ff9933'); playSound('bought'); drawStatusBar(); redraw();
+        return;
+      }
+      if (e.key === 'b') {
+        if (!state.mine.discovered) { addLog('Find the mine first.', '#555555'); return; }
+        if (state.skills.pickaxeLevel < 1) { addLog('You need a pickaxe first.', '#555555'); return; }
+        if (state.skills.pickaxeLevel >= 2) { addLog('You already own the brand name pickaxe.', '#555555'); return; }
+        if (state.player.stamps < 40) { addLog(`Need ${40 - state.player.stamps} more stamps.`, '#ff5555'); return; }
+        state.player.stamps -= 40; state.skills.pickaxeLevel = 2;
+        addLog('Brand Name Pickaxe purchased. One hit per rock.', '#ff9933'); playSound('bought'); drawStatusBar(); redraw();
+        return;
+      }
+      if (e.key === 'c') {
+        if (!state.mine.discovered) { addLog('Find the mine first.', '#555555'); return; }
+        if (state.skills.lantern) { addLog('You already own a lantern.', '#555555'); return; }
+        if (state.player.stamps < 20) { addLog(`Need ${20 - state.player.stamps} more stamps.`, '#ff5555'); return; }
+        state.player.stamps -= 20; state.skills.lantern = true;
+        addLog('Lantern purchased. Ore veins visible through rock.', '#ffd633'); playSound('bought'); drawStatusBar(); redraw();
+        return;
+      }
+      if (e.key === 'd') {
+        if (state.mine.crystals < 1) { addLog('No crystals to sell.', '#555555'); return; }
+        state.mine.crystals--;
+        state.player.credits = Math.round((state.player.credits + 25) * 10) / 10;
+        state.lifetimeCreditsEarned = Math.round((state.lifetimeCreditsEarned + 25) * 10) / 10;
+        addLog('Sold 1 crystal for 25cr.', '#66ccff'); playSound('sold'); drawStatusBar(); redraw();
+        return;
+      }
       return;
     }
 
@@ -7567,6 +7662,7 @@ function renderLargeNumber(display, x, y, numberString, color, availableWidth) {
 // ── Launch Facility menu (§9) ─────────────────────────────────────────────────
 
 const CHANGELOG = [
+  { version: '1.05.01', summary: 'The Mine — procedural cave dungeon with mining, 4 layouts, GS mining tab, inventory equip tab.' },
   { version: '1.04.02', summary: 'Rocket full message updated.' },
   { version: '1.04.01', summary: 'Major balance: rocket target reduced to 5,000. Bankruptcy stipend. Carry cost capped. Recycle widgets at RM shed. Phase 3 trigger raised.' },
   { version: '1.03.11', summary: 'Hammer animation extracted to hammer.js — 10 frames with anvil.' },
@@ -8676,8 +8772,266 @@ function openFishingMenu() {
   requestAnimationFrame(fishingLoop);
 }
 
+// ── Mine (§Mine) ─────────────────────────────────────────────────────────────
+
+let mineRedrawFn = null;
+
+function generateMineTiles() {
+  const period = Math.floor(state.day / 2);
+  if (period === state.mine.lastGenDay) return;
+  state.mine.lastGenDay = period;
+  state.mine.playerX = 12;
+  state.mine.playerY = 13;
+
+  const W = 25, H = 15;
+  const layout = period % 4;
+  const tiles = [];
+  for (let x = 0; x < W; x++) {
+    tiles[x] = [];
+    for (let y = 0; y < H; y++) {
+      const isBorder = x === 0 || x === W-1 || y === 0 || y === H-1;
+      tiles[x][y] = {
+        glyph: isBorder ? '#' : '█',
+        fg: isBorder ? '#333333' : '#4a4a4a',
+        walkable: false,
+        hp: isBorder ? -1 : 3,
+        ore: null,
+        collected: false,
+      };
+    }
+  }
+
+  function carve(x1, y1, x2, y2) {
+    for (let x = Math.max(1,x1); x <= Math.min(W-2,x2); x++)
+      for (let y = Math.max(1,y1); y <= Math.min(H-2,y2); y++)
+        tiles[x][y] = { glyph: '.', fg: '#2a2a1a', walkable: true, hp: 0, ore: null, collected: false };
+  }
+  function corridor(x1, y1, x2, y2) {
+    const dx = x2 > x1 ? 1 : x2 < x1 ? -1 : 0;
+    const dy = y2 > y1 ? 1 : y2 < y1 ? -1 : 0;
+    let cx = x1, cy = y1;
+    while (cx !== x2 || cy !== y2) {
+      if (cx > 0 && cx < W-1 && cy > 0 && cy < H-1)
+        tiles[cx][cy] = { glyph: '.', fg: '#2a2a1a', walkable: true, hp: 0, ore: null, collected: false };
+      if (cx !== x2) cx += dx; else cy += dy;
+    }
+  }
+
+  if (layout === 0) {
+    carve(2,2,7,5); carve(10,1,16,4); carve(19,2,23,6);
+    carve(3,9,9,13); carve(14,8,20,12);
+    corridor(7,4,10,4); corridor(16,3,19,3);
+    corridor(6,5,6,9); corridor(15,4,15,8);
+  } else if (layout === 1) {
+    carve(1,1,5,6); carve(8,3,14,7); carve(17,1,23,5);
+    carve(2,9,8,13); carve(11,10,17,13); carve(20,8,23,13);
+    corridor(5,4,8,4); corridor(14,5,17,5);
+    corridor(4,6,4,9); corridor(14,7,14,10); corridor(20,5,20,8);
+  } else if (layout === 2) {
+    carve(1,1,23,3);
+    carve(1,6,6,10); carve(10,5,15,9); carve(19,6,23,10);
+    carve(5,11,20,13);
+    corridor(3,3,3,6); corridor(12,3,12,5); corridor(21,3,21,6);
+    corridor(6,8,10,8); corridor(15,8,19,8);
+    corridor(10,9,10,11);
+  } else {
+    carve(2,1,10,4); carve(15,1,23,3);
+    carve(1,7,8,11); carve(12,6,18,10); carve(21,7,23,11);
+    carve(5,12,19,13);
+    corridor(10,3,15,3); corridor(5,4,5,7); corridor(15,3,15,6);
+    corridor(8,9,12,9); corridor(18,8,21,8);
+    corridor(12,10,12,12);
+  }
+
+  carve(11,12,13,13);
+  tiles[12][13] = { glyph: '>', fg: '#aaaaaa', walkable: true, hp: 0, ore: null, collected: false, isExit: true };
+
+  const seed = period * 7919;
+  for (let x = 1; x < W-1; x++) {
+    for (let y = 1; y < H-1; y++) {
+      if (tiles[x][y].hp <= 0) continue;
+      const hash = ((x * 1664525 + y * 1013904223 + seed) >>> 16) % 100;
+      if (hash < 70)      tiles[x][y].ore = 'rm';
+      else if (hash < 90) tiles[x][y].ore = 'crystal';
+      else                tiles[x][y].ore = 'stamp';
+    }
+  }
+
+  const beamPositions = [[5,5],[12,7],[20,5],[8,11],[17,11]];
+  for (const [bx,by] of beamPositions) {
+    if (bx > 0 && bx < W-1 && by > 0 && by < H-1 && tiles[bx][by].walkable) {
+      tiles[bx][by] = { glyph: 'H', fg: '#886633', walkable: false, hp: -1, ore: null, collected: false };
+    }
+  }
+
+  if (tiles[2][12].walkable) tiles[2][12] = { glyph: '~', fg: '#1a4a6a', walkable: false, hp: -1, ore: null, collected: false };
+  if (tiles[3][12].walkable) tiles[3][12] = { glyph: '~', fg: '#1a4a6a', walkable: false, hp: -1, ore: null, collected: false };
+
+  state.mine.tiles = tiles;
+  if (period > 0) addLog('The mine has shifted. New deposits available.', '#aaaaaa');
+}
+
+function enterMine() {
+  generateMineTiles();
+  state.gameState = 'mine';
+
+  function drawMineInterior() {
+    clearScreen();
+    const W = 25, H = 15;
+    const OX = Math.floor((DISPLAY_WIDTH - W) / 2);
+    const OY = Math.floor((WORLD_ROWS - H) / 2);
+    const tiles = state.mine.tiles;
+    const hitsNeeded = [3, 2, 1][state.skills.pickaxeLevel] || 3;
+
+    for (let x = 0; x < W; x++) {
+      for (let y = 0; y < H; y++) {
+        const t = tiles[x][y];
+        let glyph = t.glyph, fg = t.fg;
+
+        if (state.skills.lantern && t.hp > 0 && t.ore && !t.collected) {
+          const pulse = (state.tick + x * 3 + y * 7) % 40 < 8;
+          if (pulse) {
+            if (t.ore === 'rm')           fg = '#663300';
+            else if (t.ore === 'crystal') fg = '#334466';
+            else if (t.ore === 'stamp')   fg = '#665500';
+          }
+        }
+
+        if (t.hp === 0 && t.ore && !t.collected) {
+          if (t.ore === 'rm')           { glyph = '●'; fg = '#ff6600'; }
+          else if (t.ore === 'crystal') { glyph = '◆'; fg = '#66ccff'; }
+          else if (t.ore === 'stamp')   { glyph = '★'; fg = '#ffd633'; }
+        }
+
+        if (t.hp > 0 && t.hp < hitsNeeded) {
+          if (t.hp === 2) { glyph = '▓'; fg = '#555555'; }
+          else if (t.hp === 1) { glyph = '░'; fg = '#666666'; }
+        }
+
+        display.draw(OX + x, OY + y, glyph, fg, BG);
+      }
+    }
+
+    display.draw(OX + state.mine.playerX, OY + state.mine.playerY, '@', state.player.color || BRIGHT_WHITE, BG);
+
+    const hudY = OY + H + 1;
+    const pickName = ['Bare Hands', 'Pickaxe', 'Brand Name Pickaxe'][state.skills.pickaxeLevel] || 'Bare Hands';
+    const hudLine = `THE MINE   Tool: ${pickName}   Crystals: ${state.mine.crystals}/5   Mined: ${state.mine.totalMined}`;
+    for (let i = 0; i < DISPLAY_WIDTH; i++) display.draw(i, hudY, ' ', BRIGHT_WHITE, BG);
+    for (let i = 0; i < hudLine.length; i++) display.draw(2 + i, hudY, hudLine[i], '#aaaaaa', BG);
+
+    const hintLine = 'arrows: move   space: mine/collect   esc: exit';
+    for (let i = 0; i < DISPLAY_WIDTH; i++) display.draw(i, hudY + 1, ' ', BRIGHT_WHITE, BG);
+    for (let i = 0; i < hintLine.length; i++) display.draw(2 + i, hudY + 1, hintLine[i], '#555555', BG);
+
+    if (state.skills.lantern) {
+      const lanternHint = 'Lantern active — ore glows through rock.';
+      for (let i = 0; i < DISPLAY_WIDTH; i++) display.draw(i, hudY + 2, ' ', BRIGHT_WHITE, BG);
+      for (let i = 0; i < lanternHint.length; i++) display.draw(2 + i, hudY + 2, lanternHint[i], '#555555', BG);
+    }
+  }
+
+  mineRedrawFn = drawMineInterior;
+  drawMineInterior();
+
+  function mineKeyHandler(e) {
+    const tiles = state.mine.tiles;
+    const W = 25, H = 15;
+
+    if (e.key === 'Escape') {
+      mineRedrawFn = null;
+      window.removeEventListener('keydown', mineKeyHandler);
+      clearScreen(); drawWorld(); drawStatusBar(); renderLog();
+      display.draw(state.player.x, state.player.y, '@', state.player.color || BRIGHT_WHITE, BG);
+      state.gameState = 'playing';
+      return;
+    }
+
+    const DIRS = { ArrowLeft:[-1,0], ArrowRight:[1,0], ArrowUp:[0,-1], ArrowDown:[0,1] };
+    const d = DIRS[e.key];
+    if (d) {
+      e.preventDefault();
+      state.mine.playerDir = { x: d[0], y: d[1] };
+      const nx = state.mine.playerX + d[0];
+      const ny = state.mine.playerY + d[1];
+      if (nx >= 0 && nx < W && ny >= 0 && ny < H && tiles[nx][ny].walkable) {
+        state.mine.playerX = nx;
+        state.mine.playerY = ny;
+        if (tiles[nx][ny].isExit) {
+          mineRedrawFn = null;
+          window.removeEventListener('keydown', mineKeyHandler);
+          clearScreen(); drawWorld(); drawStatusBar(); renderLog();
+          display.draw(state.player.x, state.player.y, '@', state.player.color || BRIGHT_WHITE, BG);
+          state.gameState = 'playing';
+          return;
+        }
+      }
+      drawMineInterior();
+      return;
+    }
+
+    if (e.key === ' ') {
+      e.preventDefault();
+      const px = state.mine.playerX, py = state.mine.playerY;
+      const here = tiles[px][py];
+      if (here.ore && here.hp === 0 && !here.collected) {
+        here.collected = true;
+        state.mine.totalMined++;
+        if (here.ore === 'rm') {
+          if (state.storage.widgets !== undefined && state.stations.storage?.unlocked) {
+            state.storage.rm = Math.min(state.storage.rm + 1, state.storage.rmCap);
+            addLog('Mined raw material. Stored at the RM shed.', '#ff6600');
+          } else {
+            state.player.inventory.rm = Math.min(state.player.inventory.rm + 1, state.player.inventoryCaps.rm);
+            addLog('Mined raw material. Added to inventory.', '#ff6600');
+          }
+        } else if (here.ore === 'crystal') {
+          if (state.mine.crystals < 5) {
+            state.mine.crystals++;
+            addLog('Found a rare crystal!', '#66ccff');
+          } else {
+            addLog('Crystal pouch is full (5/5).', '#555555');
+          }
+        } else if (here.ore === 'stamp') {
+          state.player.stamps += 3;
+          addLog('Found a stamp nugget! +3 stamps.', '#ffd633');
+        }
+        here.glyph = '.'; here.fg = '#2a2a1a';
+        playSound('bought');
+        drawMineInterior(); drawStatusBar();
+        return;
+      }
+
+      const tx = px + state.mine.playerDir.x;
+      const ty = py + state.mine.playerDir.y;
+      if (tx < 0 || tx >= W || ty < 0 || ty >= H) return;
+      const target = tiles[tx][ty];
+      if (target.hp <= 0) return;
+      target.hp--;
+      playSound('crafted');
+      if (target.hp <= 0) {
+        target.hp = 0;
+        target.walkable = true;
+        if (!target.ore) { target.glyph = '.'; target.fg = '#2a2a1a'; }
+      }
+      drawMineInterior();
+      return;
+    }
+  }
+  window.addEventListener('keydown', mineKeyHandler);
+}
+
 function handleInteract() {
   const px = state.player.x, py = state.player.y;
+  // Mine entrance check
+  if (tileMap[px]?.[py]?.station === 'mine') {
+    if (!state.mine.discovered) {
+      state.mine.discovered = true;
+      addLog('You notice a dark opening between the rocks.', '#aaaaaa');
+    }
+    enterMine();
+    return;
+  }
   // Shiny rock collection — Space on exact tile (first priority, always wins)
   for (const color of ['red', 'yellow', 'blue']) {
     const rock = state.shinyRocks?.[color];
@@ -9169,7 +9523,7 @@ function showInventory() {
   let skillErrMsg   = null;
   let skillErrTimer = null;
 
-  const TABS    = ['stocks', 'ops', 'skills', 'card'];
+  const TABS    = ['stocks', 'ops', 'skills', 'card', 'equip'];
   const BOX_W   = 54;
   const BOX_H   = 25; // rows 0–24
   const BOX_X   = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
@@ -9183,9 +9537,9 @@ function showInventory() {
   const CONT_X  = BOX_X + 1; // left edge of inner content
 
   // Tab bar string exactly 52 chars
-  const TAB_BAR = ' [STOCKS] │ [OPERATIONS] │ [SKILLS] │ [CARD]        ';
-  const TAB_RANGES = { stocks: [1,8], ops: [12,23], skills: [27,33], card: [37,42] };
-  const TAB_NAMES  = { stocks: 'STOCKS', ops: 'OPERATIONS', skills: 'SKILLS', card: 'CARD' };
+  const TAB_BAR = '[STOCKS]│[OPS]│[SKILLS]│[CARD]│[EQUIP]              ';
+  const TAB_RANGES = { stocks: [0,7], ops: [9,13], skills: [15,22], card: [24,29], equip: [31,37] };
+  const TAB_NAMES  = { stocks: 'STOCKS', ops: 'OPERATIONS', skills: 'SKILLS', card: 'CARD', equip: 'EQUIP' };
 
   const SKILL_DEFS = [
     { key: 'endurance',   name: 'ENDURANCE',   maxPips: 3, costs: [500, 5000, 50000],
@@ -9587,11 +9941,27 @@ function showInventory() {
   }
 
   // ── Main redraw ───────────────────────────────────────────────────────────
+  function redrawEquip() {
+    for (let r = 4; r <= 21; r++) { border(BOX_Y+r); for (let i = 0; i < IW; i++) display.draw(CONT_X+i, BOX_Y+r, ' ', BRIGHT_WHITE, BG); }
+    irow(BOX_Y+4, 'EQUIPMENT', BC);
+    irow(BOX_Y+5, '─'.repeat(IW), DC);
+    const pickNames = ['None', 'Pickaxe', 'Brand Name Pickaxe'];
+    irow(BOX_Y+6,  `Pickaxe:  ${pickNames[state.skills.pickaxeLevel] || 'None'}`, BRIGHT_WHITE);
+    irow(BOX_Y+7,  `Lantern:  ${state.skills.lantern ? 'Yes' : 'No'}`, BRIGHT_WHITE);
+    irow(BOX_Y+8,  `Crystals: ${state.mine.crystals} / 5`, '#66ccff');
+    irow(BOX_Y+9, '─'.repeat(IW), DC);
+    const daysToReset = 2 - (state.day % 2);
+    irow(BOX_Y+10, `Mine resets in: ${daysToReset} day${daysToReset !== 1 ? 's' : ''}`, WC);
+    irow(BOX_Y+11, `Total mined: ${state.mine.totalMined}`, WC);
+    irow(BOX_Y+23, 'Mining equipment from the General Store.', WC);
+  }
+
   function redraw() {
     drawFrame();
     if (tab === 'stocks') redrawStocks();
     else if (tab === 'ops') redrawOps();
     else if (tab === 'skills') redrawSkills();
+    else if (tab === 'equip') redrawEquip();
     else redrawCard();
   }
 
@@ -10530,6 +10900,12 @@ function devUnlockEverything() {
   state.gameState = 'playing';
   clearScreen();
   drawWorld();
+  // Mine
+  state.mine.discovered = true;
+  state.mine.crystals = 3;
+  state.skills.pickaxeLevel = 2;
+  state.skills.lantern = true;
+
   addLog('DEV: Everything unlocked. Rocket at 4,990. Couriers set to market.', '#ff5555');
   addLog('Toggle couriers to rocket when ready for the finale.', '#ff5555');
 }
@@ -11089,7 +11465,7 @@ setInterval(() => {
     if (officeMenuRedrawFn && state.officeTab === 'workers') officeMenuRedrawFn();
   }
 
-  if (state.gameState !== 'playing' && state.gameState !== 'crafting' && state.gameState !== 'dashboard' && state.gameState !== 'inventory' && state.gameState !== 'lf_menu' && state.gameState !== 'rm_menu' && state.gameState !== 'wb_menu' && state.gameState !== 'mt_menu' && state.gameState !== 'dv_menu' && state.gameState !== 'cottage' && state.gameState !== 'fishing' && state.gameState !== 'casino') return;
+  if (state.gameState !== 'playing' && state.gameState !== 'crafting' && state.gameState !== 'dashboard' && state.gameState !== 'inventory' && state.gameState !== 'lf_menu' && state.gameState !== 'rm_menu' && state.gameState !== 'wb_menu' && state.gameState !== 'mt_menu' && state.gameState !== 'dv_menu' && state.gameState !== 'cottage' && state.gameState !== 'fishing' && state.gameState !== 'casino' && state.gameState !== 'mine') return;
 
   // Stats: snapshot before tick for delta computation
   const _sCr = state.player.credits;
@@ -11766,6 +12142,11 @@ setInterval(() => {
         renderDirty();
       }
     }
+  }
+
+  // Mine lantern pulse — redraw mine at 60fps when lantern active
+  if (state.gameState === 'mine' && mineRedrawFn && state.skills.lantern) {
+    mineRedrawFn();
   }
 
   // Animate pause menu cube at 60fps
