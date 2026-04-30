@@ -319,6 +319,7 @@ const state = {
   lakeEasterEgg: { discovered: false },
   mine: {
     discovered: false,
+    discoveredDay: -1,
     tiles: [],
     lastGenDay: -1,
     playerX: 12,
@@ -326,6 +327,12 @@ const state = {
     playerDir: { x: 0, y: -1 },
     totalMined: 0,
     crystals: 0,
+    bareHandHits: 0,
+    handsBloodied: false,
+    kickedOut: false,
+    kickedOutUntilPeriod: -1,
+    enemyX: -1,
+    enemyY: -1,
   },
   fishing: {
     totalCatches:  0,
@@ -652,14 +659,21 @@ function loadGame() {
     }
     // Mine (§Mine)
     { const _m = state.mine = data.mine ?? {};
-      _m.discovered  = _m.discovered  ?? false;
-      _m.tiles       = _m.tiles       ?? [];
-      _m.lastGenDay  = _m.lastGenDay  ?? -1;
-      _m.playerX     = _m.playerX     ?? 12;
-      _m.playerY     = _m.playerY     ?? 13;
-      _m.playerDir   = _m.playerDir   ?? { x: 0, y: -1 };
-      _m.totalMined  = _m.totalMined  ?? 0;
-      _m.crystals    = _m.crystals    ?? 0;
+      _m.discovered            = _m.discovered            ?? false;
+      _m.discoveredDay         = _m.discoveredDay         ?? -1;
+      _m.tiles                 = _m.tiles                 ?? [];
+      _m.lastGenDay            = _m.lastGenDay            ?? -1;
+      _m.playerX               = _m.playerX               ?? 12;
+      _m.playerY               = _m.playerY               ?? 13;
+      _m.playerDir             = _m.playerDir             ?? { x: 0, y: -1 };
+      _m.totalMined            = _m.totalMined            ?? 0;
+      _m.crystals              = _m.crystals              ?? 0;
+      _m.bareHandHits          = _m.bareHandHits          ?? 0;
+      _m.handsBloodied         = _m.handsBloodied         ?? false;
+      _m.kickedOut             = _m.kickedOut             ?? false;
+      _m.kickedOutUntilPeriod  = _m.kickedOutUntilPeriod  ?? -1;
+      _m.enemyX                = _m.enemyX                ?? -1;
+      _m.enemyY                = _m.enemyY                ?? -1;
     }
     // Mine skills
     state.skills.pickaxeLevel = state.skills.pickaxeLevel ?? 0;
@@ -864,7 +878,7 @@ drawArt(0);
 drawPrompt(true);
 
 const CREDIT  = "Created by Adam A.";
-const VERSION = "alpha 1.05.05";
+const VERSION = "alpha 1.05.06";
 
 // ── Sound system ──────────────────────────────────────────────────────────────
 const SOUNDS = {};
@@ -1602,13 +1616,31 @@ function buildTileMap() {
   if (tileMap[41]?.[8])  tileMap[41][8].description  = 'A flash of yellow in the grass. Gone before you could focus. It will be again.';
   if (tileMap[73]?.[36]) tileMap[73][36].description = 'Something blue blinks here. Sometimes once an hour, sometimes more often.';
 
-  // Mine entrance — always visible in rocky outcrop when phase >= 3 (§Mine)
-  if (state.phase >= 3) {
-    const mineX = 38, mineY = 38;
-    tileMap[mineX][mineY] = mk('Ω', '#777777', true);
-    tileMap[mineX][mineY].description = 'A dark opening between the rocks. Press Space to enter.';
-    tileMap[mineX][mineY].station = 'mine';
-  }
+  // Mine entrance — stamp when discovered (§Mine)
+  if (state.mine.discovered) placeMineEntrance();
+}
+
+function placeMineEntrance() {
+  const mk = (g, fg, w) => ({ glyph: g, fg, bg: BG, walkable: w });
+  const mx = 38, my = 38;
+  const wc = '#aa6633', lc = '#ffaa55', dc = '#885522';
+  tileMap[mx  ][my  ] = mk('╔', wc, false);
+  tileMap[mx+1][my  ] = mk('═', wc, false);
+  tileMap[mx+2][my  ] = mk('═', wc, false);
+  tileMap[mx+3][my  ] = mk('╗', wc, false);
+  tileMap[mx  ][my+1] = mk('║', wc, false);
+  tileMap[mx+1][my+1] = mk('M', lc, false);
+  tileMap[mx+2][my+1] = mk('N', lc, false);
+  tileMap[mx+3][my+1] = mk('║', wc, false);
+  tileMap[mx  ][my+2] = mk('╚', wc, false);
+  tileMap[mx+1][my+2] = mk('Ω', dc, true);
+  tileMap[mx+2][my+2] = mk('═', wc, false);
+  tileMap[mx+3][my+2] = mk('╝', wc, false);
+  tileMap[mx+1][my+2].station = 'mine';
+  tileMap[mx+1][my+2].description = 'The mine entrance. A dark opening in the earth.';
+  for (let dx = 0; dx < 4; dx++)
+    for (let dy = 0; dy < 3; dy++)
+      markDirty(mx + dx, my + dy);
 }
 
 // Inject cottage tiles into the live tileMap and mark them dirty.
@@ -2065,7 +2097,7 @@ function resetState() {
   state.workers = { apprentices: [], couriers: [] };
   state.stats = { rmLastTen: [], widgetsLastTen: [], creditsLastTen: [], widgetsMadeToday: 0, revenueToday: 0, costsToday: 0 };
   state.skills = { apprenticeCount: 0, courierCount: 0, workerCarryLevel: 0, workerSpeedLevel: 0, courierCarryLevel: 0, courierSpeedLevel: 0, storageExp1: 0, storageExp2: 0, reducedCarry: 0, discountDump: 0, demandHistory: 0, forecast: 0, futures: 0, optionsBuy: 0, optionsWrite: 0, volatilitySurface: 0, plantStory: 0, smearCampaign: 0, pickaxeLevel: 0, lantern: false, endurance: { pips: 0 }, aquatics: { purchased: false }, interfacing: { pips: 0 } };
-  state.mine = { discovered: false, tiles: [], lastGenDay: -1, playerX: 12, playerY: 13, playerDir: { x: 0, y: -1 }, totalMined: 0, crystals: 0 };
+  state.mine = { discovered: false, discoveredDay: -1, tiles: [], lastGenDay: -1, playerX: 12, playerY: 13, playerDir: { x: 0, y: -1 }, totalMined: 0, crystals: 0, bareHandHits: 0, handsBloodied: false, kickedOut: false, kickedOutUntilPeriod: -1, enemyX: -1, enemyY: -1 };
   state.craftingTimeRemote = 10;
   state.stats.pondStepsWalked = 0;
   state.fishing = { totalCatches: 0, catchesToday: 0, dailyLimit: 5, currentPhase: 'menu', fishTimer: 0, biteTimer: 0, fishX: 0, animTick: 0 };
@@ -3273,6 +3305,7 @@ function applyPhaseUnlocks(phase) {
       state.courierDestination = state.courierDestination ?? 'market';
     }
   }
+  if (state.mine.discovered) placeMineEntrance();
 }
 
 function colorInStation(label, wc, lc, dc) {
@@ -7736,6 +7769,7 @@ function renderLargeNumber(display, x, y, numberString, color, availableWidth) {
 // ── Launch Facility menu (§9) ─────────────────────────────────────────────────
 
 const CHANGELOG = [
+  { version: '1.05.06', summary: 'The Mine — enemy, bare hands limit, water shimmer, full-screen clear, station entrance, random discovery.' },
   { version: '1.05.05', summary: 'Phase tracker: green text, white flash on progress, bordered box on log area.' },
   { version: '1.05.03', summary: 'Phase tracker: brighter, all caps, green flash on progress.' },
   { version: '1.05.02', summary: 'Phase goal countdown tracker on hint row. Hint bar shortened.' },
@@ -8856,9 +8890,15 @@ let mineRedrawFn = null;
 function generateMineTiles() {
   const period = Math.floor(state.day / 2);
   if (period === state.mine.lastGenDay) return;
+
+  if (state.mine.kickedOut && period < state.mine.kickedOutUntilPeriod) return;
+  state.mine.kickedOut = false;
+
   state.mine.lastGenDay = period;
   state.mine.playerX = 12;
   state.mine.playerY = 13;
+  state.mine.bareHandHits = 0;
+  state.mine.handsBloodied = false;
 
   const W = 25, H = 15;
   const layout = period % 4;
@@ -8884,14 +8924,14 @@ function generateMineTiles() {
         tiles[x][y] = { glyph: '.', fg: '#2a2a1a', walkable: true, hp: 0, ore: null, collected: false };
   }
   function corridor(x1, y1, x2, y2) {
-    const dx = x2 > x1 ? 1 : x2 < x1 ? -1 : 0;
-    const dy = y2 > y1 ? 1 : y2 < y1 ? -1 : 0;
     let cx = x1, cy = y1;
     while (cx !== x2 || cy !== y2) {
       if (cx > 0 && cx < W-1 && cy > 0 && cy < H-1)
         tiles[cx][cy] = { glyph: '.', fg: '#2a2a1a', walkable: true, hp: 0, ore: null, collected: false };
-      if (cx !== x2) cx += dx; else cy += dy;
+      if (cx !== x2) cx += (x2 > cx ? 1 : -1); else if (cy !== y2) cy += (y2 > cy ? 1 : -1);
     }
+    if (cx > 0 && cx < W-1 && cy > 0 && cy < H-1)
+      tiles[cx][cy] = { glyph: '.', fg: '#2a2a1a', walkable: true, hp: 0, ore: null, collected: false };
   }
 
   if (layout === 0) {
@@ -8934,29 +8974,65 @@ function generateMineTiles() {
     }
   }
 
-  const beamPositions = [[5,5],[12,7],[20,5],[8,11],[17,11]];
-  for (const [bx,by] of beamPositions) {
-    if (bx > 0 && bx < W-1 && by > 0 && by < H-1 && tiles[bx][by].walkable) {
+  for (const [bx,by] of [[5,5],[12,7],[20,5],[8,11],[17,11]]) {
+    if (bx > 0 && bx < W-1 && by > 0 && by < H-1 && tiles[bx][by].walkable)
       tiles[bx][by] = { glyph: 'H', fg: '#886633', walkable: false, hp: -1, ore: null, collected: false };
-    }
   }
 
-  if (tiles[2][12].walkable) tiles[2][12] = { glyph: '~', fg: '#1a4a6a', walkable: false, hp: -1, ore: null, collected: false };
-  if (tiles[3][12].walkable) tiles[3][12] = { glyph: '~', fg: '#1a4a6a', walkable: false, hp: -1, ore: null, collected: false };
+  const waterPools = [
+    [2,12],[3,12],[3,11],
+    [21,2],[22,2],[22,3],
+    [10,7],[11,7],
+    [18,12],[19,12],[19,11],[20,12],
+    [1,4],[1,5],
+  ];
+  for (const [wx,wy] of waterPools) {
+    if (wx > 0 && wx < W-1 && wy > 0 && wy < H-1 && tiles[wx][wy].walkable)
+      tiles[wx][wy] = { glyph: '~', fg: '#1a4a6a', walkable: false, hp: -1, ore: null, collected: false };
+  }
+
+  // Enemy — place in top half, away from entrance
+  let enemyPlaced = false;
+  for (let attempts = 0; attempts < 50; attempts++) {
+    const ex = 1 + ((seed + attempts * 31) % (W - 2));
+    const ey = 1 + ((seed + attempts * 47) % (H - 4));
+    if (tiles[ex][ey].walkable && !(ex >= 11 && ex <= 13 && ey >= 12)) {
+      state.mine.enemyX = ex;
+      state.mine.enemyY = ey;
+      enemyPlaced = true;
+      break;
+    }
+  }
+  if (!enemyPlaced) { state.mine.enemyX = 5; state.mine.enemyY = 3; }
 
   state.mine.tiles = tiles;
-  if (period > 0) addLog('The mine has shifted. New deposits available.', '#aaaaaa');
+  if (state.mine.totalMined > 0) addLog('The mine has shifted. New deposits available.', '#aaaaaa');
 }
 
 function enterMine() {
+  if (state.mine.kickedOut) {
+    const currentPeriod = Math.floor(state.day / 2);
+    if (currentPeriod < state.mine.kickedOutUntilPeriod) {
+      addLog('The mine feels hostile. Come back when it resets.', '#ff5555');
+      return;
+    }
+    state.mine.kickedOut = false;
+  }
+
   generateMineTiles();
   state.gameState = 'mine';
 
+  let enemyMoveTimer = 0;
+
   function drawMineInterior() {
-    clearScreen();
+    // Full-screen clear — nothing from overworld should show
+    for (let y = 0; y < DISPLAY_HEIGHT; y++)
+      for (let x = 0; x < DISPLAY_WIDTH; x++)
+        display.draw(x, y, ' ', BRIGHT_WHITE, BG);
+
     const W = 25, H = 15;
     const OX = Math.floor((DISPLAY_WIDTH - W) / 2);
-    const OY = Math.floor((WORLD_ROWS - H) / 2);
+    const OY = Math.floor((WORLD_ROWS - H) / 2) - 2;
     const tiles = state.mine.tiles;
     const hitsNeeded = [3, 2, 1][state.skills.pickaxeLevel] || 3;
 
@@ -8965,6 +9041,12 @@ function enterMine() {
         const t = tiles[x][y];
         let glyph = t.glyph, fg = t.fg;
 
+        // Water shimmer
+        if (t.glyph === '~') {
+          fg = (state.tick + x + y) % 20 < 10 ? '#1a4a6a' : '#2a5a7a';
+        }
+
+        // Lantern: ore glows through unbroken rocks
         if (state.skills.lantern && t.hp > 0 && t.ore && !t.collected) {
           const pulse = (state.tick + x * 3 + y * 7) % 40 < 8;
           if (pulse) {
@@ -8974,38 +9056,77 @@ function enterMine() {
           }
         }
 
+        // Revealed ore
         if (t.hp === 0 && t.ore && !t.collected) {
           if (t.ore === 'rm')           { glyph = '●'; fg = '#ff6600'; }
           else if (t.ore === 'crystal') { glyph = '◆'; fg = '#66ccff'; }
           else if (t.ore === 'stamp')   { glyph = '★'; fg = '#ffd633'; }
         }
 
-        if (t.hp > 0 && t.hp < hitsNeeded) {
-          if (t.hp === 2) { glyph = '▓'; fg = '#555555'; }
-          else if (t.hp === 1) { glyph = '░'; fg = '#666666'; }
+        // Rock damage
+        if (t.hp > 0) {
+          const maxHp = hitsNeeded;
+          if (t.hp < maxHp && t.hp >= maxHp * 0.66) { glyph = '▓'; fg = '#555555'; }
+          else if (t.hp < maxHp * 0.66 && t.hp > 0) { glyph = '░'; fg = '#666666'; }
         }
 
         display.draw(OX + x, OY + y, glyph, fg, BG);
       }
     }
 
+    // Enemy
+    if (state.mine.enemyX >= 0 && state.mine.enemyY >= 0) {
+      display.draw(OX + state.mine.enemyX, OY + state.mine.enemyY, 'X', '#ff3333', BG);
+    }
+
+    // Player
     display.draw(OX + state.mine.playerX, OY + state.mine.playerY, '@', state.player.color || BRIGHT_WHITE, BG);
 
+    // HUD
     const hudY = OY + H + 1;
     const pickName = ['Bare Hands', 'Pickaxe', 'Brand Name Pickaxe'][state.skills.pickaxeLevel] || 'Bare Hands';
-    const hudLine = `THE MINE   Tool: ${pickName}   Crystals: ${state.mine.crystals}/5   Mined: ${state.mine.totalMined}`;
-    for (let i = 0; i < DISPLAY_WIDTH; i++) display.draw(i, hudY, ' ', BRIGHT_WHITE, BG);
+    const hudLine = `THE MINE   Tool: ${pickName}   Crystals: ${state.mine.crystals}/5`;
     for (let i = 0; i < hudLine.length; i++) display.draw(2 + i, hudY, hudLine[i], '#aaaaaa', BG);
 
     const hintLine = 'arrows: move   space: mine/collect   esc: exit';
-    for (let i = 0; i < DISPLAY_WIDTH; i++) display.draw(i, hudY + 1, ' ', BRIGHT_WHITE, BG);
     for (let i = 0; i < hintLine.length; i++) display.draw(2 + i, hudY + 1, hintLine[i], '#555555', BG);
 
-    if (state.skills.lantern) {
+    if (state.mine.handsBloodied) {
+      const warnLine = 'Your hands are bleeding. You need a pickaxe.';
+      for (let i = 0; i < warnLine.length; i++) display.draw(2 + i, hudY + 2, warnLine[i], '#ff5555', BG);
+    } else if (state.skills.lantern) {
       const lanternHint = 'Lantern active — ore glows through rock.';
-      for (let i = 0; i < DISPLAY_WIDTH; i++) display.draw(i, hudY + 2, ' ', BRIGHT_WHITE, BG);
       for (let i = 0; i < lanternHint.length; i++) display.draw(2 + i, hudY + 2, lanternHint[i], '#555555', BG);
     }
+  }
+
+  function moveEnemy() {
+    const dirs = [[0,1],[0,-1],[1,0],[-1,0]];
+    const shuffled = dirs.sort(() => Math.random() - 0.5);
+    for (const [dx,dy] of shuffled) {
+      const nx = state.mine.enemyX + dx;
+      const ny = state.mine.enemyY + dy;
+      if (nx > 0 && nx < 24 && ny > 0 && ny < 14 && state.mine.tiles[nx][ny].walkable) {
+        state.mine.enemyX = nx;
+        state.mine.enemyY = ny;
+        break;
+      }
+    }
+  }
+
+  function checkEnemyCollision() {
+    if (state.mine.playerX === state.mine.enemyX && state.mine.playerY === state.mine.enemyY) {
+      state.mine.kickedOut = true;
+      state.mine.kickedOutUntilPeriod = Math.floor(state.day / 2) + 1;
+      mineRedrawFn = null;
+      window.removeEventListener('keydown', mineKeyHandler);
+      clearScreen(); drawWorld(); drawStatusBar(); renderLog();
+      display.draw(state.player.x, state.player.y, '@', state.player.color || BRIGHT_WHITE, BG);
+      state.gameState = 'playing';
+      addLog('Something attacked you in the dark! You flee the mine.', '#ff5555');
+      return true;
+    }
+    return false;
   }
 
   mineRedrawFn = drawMineInterior;
@@ -9042,6 +9163,9 @@ function enterMine() {
           state.gameState = 'playing';
           return;
         }
+        enemyMoveTimer++;
+        if (enemyMoveTimer % 2 === 0) moveEnemy();
+        if (checkEnemyCollision()) return;
       }
       drawMineInterior();
       return;
@@ -9051,39 +9175,53 @@ function enterMine() {
       e.preventDefault();
       const px = state.mine.playerX, py = state.mine.playerY;
       const here = tiles[px][py];
+
+      // Collect ore from current tile
       if (here.ore && here.hp === 0 && !here.collected) {
         here.collected = true;
         state.mine.totalMined++;
         if (here.ore === 'rm') {
-          if (state.storage.widgets !== undefined && state.stations.storage?.unlocked) {
+          if (state.stations.storage?.unlocked) {
             state.storage.rm = Math.min(state.storage.rm + 1, state.storage.rmCap);
             addLog('Mined raw material. Stored at the RM shed.', '#ff6600');
           } else {
             state.player.inventory.rm = Math.min(state.player.inventory.rm + 1, state.player.inventoryCaps.rm);
-            addLog('Mined raw material. Added to inventory.', '#ff6600');
+            addLog('Mined raw material.', '#ff6600');
           }
         } else if (here.ore === 'crystal') {
-          if (state.mine.crystals < 5) {
-            state.mine.crystals++;
-            addLog('Found a rare crystal!', '#66ccff');
-          } else {
-            addLog('Crystal pouch is full (5/5).', '#555555');
-          }
+          if (state.mine.crystals < 5) { state.mine.crystals++; addLog('Found a rare crystal!', '#66ccff'); }
+          else addLog('Crystal pouch is full (5/5).', '#555555');
         } else if (here.ore === 'stamp') {
           state.player.stamps += 3;
           addLog('Found a stamp nugget! +3 stamps.', '#ffd633');
         }
         here.glyph = '.'; here.fg = '#2a2a1a';
         playSound('bought');
-        drawMineInterior(); drawStatusBar();
+        drawMineInterior();
         return;
       }
 
+      // Mine the rock we're facing
       const tx = px + state.mine.playerDir.x;
       const ty = py + state.mine.playerDir.y;
       if (tx < 0 || tx >= W || ty < 0 || ty >= H) return;
       const target = tiles[tx][ty];
       if (target.hp <= 0) return;
+
+      // Bare hands limit
+      if (state.skills.pickaxeLevel === 0) {
+        if (state.mine.handsBloodied) {
+          addLog('Your hands are too damaged. You need a pickaxe.', '#ff5555');
+          drawMineInterior();
+          return;
+        }
+        state.mine.bareHandHits++;
+        if (state.mine.bareHandHits >= 5) {
+          state.mine.handsBloodied = true;
+          addLog("Your hands begin to bleed. You can't mine anymore.", '#ff5555');
+        }
+      }
+
       target.hp--;
       playSound('crafted');
       if (target.hp <= 0) {
@@ -9102,10 +9240,6 @@ function handleInteract() {
   const px = state.player.x, py = state.player.y;
   // Mine entrance check
   if (tileMap[px]?.[py]?.station === 'mine') {
-    if (!state.mine.discovered) {
-      state.mine.discovered = true;
-      addLog('You notice a dark opening between the rocks.', '#aaaaaa');
-    }
     enterMine();
     return;
   }
@@ -10983,6 +11117,7 @@ function devUnlockEverything() {
   state.mine.crystals = 3;
   state.skills.pickaxeLevel = 2;
   state.skills.lantern = true;
+  placeMineEntrance();
 
   addLog('DEV: Everything unlocked. Rocket at 4,990. Couriers set to market.', '#ff5555');
   addLog('Toggle couriers to rocket when ready for the finale.', '#ff5555');
@@ -11591,6 +11726,17 @@ setInterval(() => {
       }
       state.bank.casinoStartCredits = null;
     }
+    // Mine discovery — random event after Phase 2, guaranteed in Phase 3+
+    if (state.phase >= 2 && !state.mine.discovered) {
+      const chance = state.phase >= 3 ? 1.0 : 0.25;
+      if (Math.random() < chance) {
+        state.mine.discovered = true;
+        state.mine.discoveredDay = state.day;
+        placeMineEntrance();
+        renderDirty();
+        setTimeout(() => addLog('The ground has opened up in the south.', '#66ccff'), 1200);
+      }
+    }
   }
   const prevMarketOpen = state.marketOpen;
   state.marketOpen = state.dayTick < 180;
@@ -11881,7 +12027,7 @@ setInterval(() => {
   if (state.workers.apprentices.length > 0) tickApprentices();
   if (state.workers.couriers.length > 0)    tickCouriers();
   if (state.workers.apprentices.length > 0 || state.workers.couriers.length > 0) {
-    if (state.gameState !== 'cottage') { // don't draw workers over cottage interior
+    if (state.gameState !== 'cottage' && state.gameState !== 'mine') { // don't draw workers over interior views
       renderDirty();
       for (const w of state.workers.apprentices) display.draw(w.x, w.y, 'a', '#66ccff', BG);
       for (const c of state.workers.couriers)    display.draw(c.x, c.y, 'c', '#cc66cc', BG);
@@ -12178,7 +12324,7 @@ setInterval(() => {
 // ── Effects render loop — runs at ~60fps independent of game tick ─────────────
 ;(function effectsLoop(ts) {
   if (state.gameState === 'ending') { requestAnimationFrame(effectsLoop); return; }
-  if (state.gameState !== 'cottage') effectsManager.render(display);
+  if (state.gameState !== 'cottage' && state.gameState !== 'mine') effectsManager.render(display);
 
   // Scroll-in: advance pendingLine only when world is active (not paused, not look mode)
   const logActive = state.gameState === 'playing' || state.gameState === 'crafting' ||
