@@ -143,16 +143,29 @@ function fullRedraw() {
 document.addEventListener('fullscreenchange', () => {
   const isFS = !!document.fullscreenElement;
   if (state && state.settings && state.settings.fullscreen !== isFS) {
-    // User exited/entered fullscreen without going through our menu
-    state.settings.fullscreen = isFS;
-    localStorage.setItem('widgeter.settings.fullscreen', JSON.stringify(isFS));
-    recalculateDisplaySize(isFS ? window.screen.width : window.innerWidth, isFS ? window.screen.height : window.innerHeight);
-    // If Escape exited fullscreen and also triggered the pause menu, close it immediately
-    if (!isFS && state.gameState === 'paused' && pauseMenuCloseFn) pauseMenuCloseFn();
+    const onOverworld = state.gameState === 'playing' || state.gameState === 'title' || state.gameState === 'title_menu';
+    if (onOverworld) {
+      state.settings.fullscreen = isFS;
+      localStorage.setItem('widgeter.settings.fullscreen', JSON.stringify(isFS));
+      recalculateDisplaySize(isFS ? window.screen.width : window.innerWidth, isFS ? window.screen.height : window.innerHeight);
+    } else {
+      // Player was closing a menu with Escape — re-enter fullscreen silently
+      if (!isFS && state.settings.fullscreen) {
+        document.documentElement.requestFullscreen().catch(() => {});
+      }
+    }
     fullRedraw();
     if (pauseMenuRedrawFn) pauseMenuRedrawFn();
   }
 });
+
+// Prevent browser from exiting fullscreen when Escape closes a game menu
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && state?.gameState &&
+      state.gameState !== 'playing' && state.gameState !== 'title' && state.gameState !== 'title_menu') {
+    e.preventDefault();
+  }
+}, { capture: true });
 
 // Windowed mode: stay crisp when the browser window is resized
 window.addEventListener('resize', () => {
@@ -890,7 +903,7 @@ drawArt(0);
 drawPrompt(true);
 
 const CREDIT  = "Created by Adam A.";
-const VERSION = "alpha 1.06.02";
+const VERSION = "alpha 1.07.01";
 
 // ── Sound system ──────────────────────────────────────────────────────────────
 const SOUNDS = {};
@@ -2495,14 +2508,17 @@ window.addEventListener('keydown', (e) => {
           state.cottage.matLoggedThisVisit = true; addLog('Welcome home.', '#aa66ff'); renderLog();
         }
         drawCottageInterior();
-      } else if (d[1]===1 && state.cottage.playerY===9) {
+      } else if (d[1]===1 && state.cottage.playerY===9 && state.cottage.playerX===8) {
+        // Only exit through the door at x=8
         exitCottage();
       }
     } else if (e.key === ' ') {
       e.preventDefault();
       if (bookshelfOverlayActive) { bookshelfOverlayActive = false; drawCottageInterior(); return; }
       if (cottageLookActive) { cottageLookActive = false; drawCottageInterior(); return; }
-      if (!handleCottageInteract()) exitCottage();
+      // Space exits only from door tile at (8, 9)
+      if (state.cottage.playerX === 8 && state.cottage.playerY === 9) { exitCottage(); return; }
+      handleCottageInteract();
     }
     return;
   }
@@ -7841,6 +7857,7 @@ function renderLargeNumber(display, x, y, numberString, color, availableWidth) {
 // ── Launch Facility menu (§9) ─────────────────────────────────────────────────
 
 const CHANGELOG = [
+  { version: '1.07.01', summary: 'Bugfixes: escape/fullscreen, stamps, rain on menus, mine flicker, cottage exit.' },
   { version: '1.06.02', summary: 'Newspaper redesigned as full daily edition — market, weather, production, finance sections.' },
   { version: '1.06.01', summary: 'Weather system: clear, rain, fog, heat wave, storm. Affects demand, worker speed, crafting, mining.' },
   { version: '1.05.07', summary: 'RM storage used before buying. Storage RM shown in RM menu. Apprentices use storage first.' },
@@ -8479,6 +8496,10 @@ function drawCottageInterior() {
 
   // Furniture
   drawInteriorFurniture();
+
+  // Door tile at (8, 9) — visible exit glyph
+  if (!(state.cottage.playerX === 8 && state.cottage.playerY === 9))
+    display.draw(OX+8, OY+9, '▒', '#886633', BG);
 
   // Cat
   if (fur.cat) display.draw(OX+state.cottage.catX, OY+state.cottage.catY, 'ค', '#cc9933', BG);
@@ -11477,7 +11498,7 @@ function showPauseMenu() {
       ['Credits:', formatCredits(state.player.credits) + 'cr'],
       ['Phase:',   String(state.phase)],
       ['Rating:',  rTier],
-      ['Stamps:',  formatCredits(state.stamps || 0) + ' ∙'],
+      ['Stamps:',  String(state.player.stamps || 0) + ' ∙'],
     ];
     statsArr.forEach(([lbl, val], si) => {
       const dy = BOX_Y + PS + 12 + si;
@@ -12140,7 +12161,7 @@ setInterval(() => {
     }
 
   }
-  drawTimeIndicator();
+  if (state.gameState !== 'mine') drawTimeIndicator();
 
   // Stamp hint on first night — day 1 night phase only, once ever (§13)
   if (state.day === 1 && state.dayTick === state.player.stampHintTick && !state.player.stampHintFired) {
@@ -12149,7 +12170,7 @@ setInterval(() => {
     const hintEntry = { text: hintText, rich: true, colors: [COLOR_STAMPS, '#f0f0f0'] };
     state.logLines.push(hintEntry);
     if (state.logLines.length > 5) state.logLines.shift();
-    renderLog();
+    if (state.gameState !== 'mine') renderLog();
   }
 
   // Stamp event timer — only when actively playing (§13)
@@ -12589,7 +12610,7 @@ setInterval(() => {
   } else if (rainDrops.length > 0) {
     for (const d of rainDrops) markDirty(d.x, Math.floor(d.y));
     rainDrops = [];
-    renderDirty();
+    if (state.gameState === 'playing') renderDirty();
   }
 
   // Fog / storm visibility cone
