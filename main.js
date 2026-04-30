@@ -864,7 +864,7 @@ drawArt(0);
 drawPrompt(true);
 
 const CREDIT  = "Created by Adam A.";
-const VERSION = "alpha 1.05.01";
+const VERSION = "alpha 1.05.02";
 
 // ── Sound system ──────────────────────────────────────────────────────────────
 const SOUNDS = {};
@@ -979,6 +979,43 @@ function drawTimeIndicator() {
   for (let i = 0; i < text.length; i++) display.draw(TIMER_X + i, STATUS_ROW, text[i], fg, BG);
 }
 
+function drawPhaseGoal() {
+  if (state.gameState !== 'playing' && state.gameState !== 'crafting') return;
+  let goalText = '', goalFg = '#555555';
+
+  if (state.phase === 1) {
+    const remaining = 100 - state.lifetimeCreditsEarned;
+    if (remaining > 0) { goalText = `Phase 2 in ${Math.ceil(remaining)}cr`; goalFg = '#555555'; }
+  } else if (state.phase === 2) {
+    const remaining = 1000 - state.lifetimeCreditsEarned;
+    if (remaining > 0) { goalText = `Phase 3 in ${Math.ceil(remaining)}cr`; goalFg = '#555555'; }
+  } else if (state.phase === 3) {
+    const remaining = 2000 - state.lifetimeCreditsEarned;
+    if (remaining > 0 && !state.demandCrashOccurred) {
+      goalText = `Phase 4 in ${Math.ceil(remaining)}cr`;
+    } else if (!state.demandCrashOccurred) {
+      goalText = `Phase 4 in ${Math.ceil(remaining)}cr`;
+    }
+    goalFg = '#555555';
+  } else if (state.phase === 4) {
+    const remaining = 10000 - state.lifetimeCreditsEarned;
+    if (remaining > 0) { goalText = `Phase 5 in ${Math.ceil(remaining)}cr`; goalFg = '#555555'; }
+  } else if (state.phase === 5) {
+    const remaining = 5000 - state.rocketWidgets;
+    if (remaining > 0) { goalText = `Rocket: ${state.rocketWidgets}/${5000}`; goalFg = '#ff5555'; }
+    else { goalText = 'LAUNCH READY'; goalFg = '#ff5555'; }
+  }
+
+  if (!goalText) return;
+
+  const boxText = goalText;
+  const startX = DISPLAY_WIDTH - boxText.length - 3;
+  for (let i = startX - 1; i < DISPLAY_WIDTH; i++) display.draw(i, HINT_ROW, ' ', BRIGHT_WHITE, BG);
+  display.draw(startX, HINT_ROW, '[', '#333333', BG);
+  for (let i = 0; i < boxText.length; i++) display.draw(startX + 1 + i, HINT_ROW, boxText[i], goalFg, BG);
+  display.draw(startX + 1 + boxText.length, HINT_ROW, ']', '#333333', BG);
+}
+
 // worst-case: "Credits: 9999.0  Raw: 5  Widgets: 5/5  Price: 20cr" (50) + "[== market open 180s ==]" (24) = 74 chars ≤ 78
 function drawStatusBar() {
   drawRow(STATUS_ROW, '', BRIGHT_WHITE);
@@ -995,6 +1032,7 @@ function drawStatusBar() {
   sx = seg(sx, `Widgets: ${inv.widgets}/${cap.widgets}`, widgetFg) + 2;
        seg(sx, `Price: ${state.marketPrice}cr`, '#66cc66');
   drawTimeIndicator();
+  drawPhaseGoal();
 }
 
 // ── Tile map (§4.2) ───────────────────────────────────────────────────────────
@@ -1680,8 +1718,9 @@ function drawWorld() {
 
   // Command hint (§3.9)
   drawRow(HINT_ROW,
-    "[arrows: move]  [space: interact]  [i: inventory]  [o: look]  [p: ponder]",
+    "[arrows: move] [space: use] [i: inv] [o: look] [p: ponder]",
     COLOR_HINT_LINE);
+  drawPhaseGoal();
 }
 
 function startPhaseIn() {
@@ -7662,6 +7701,7 @@ function renderLargeNumber(display, x, y, numberString, color, availableWidth) {
 // ── Launch Facility menu (§9) ─────────────────────────────────────────────────
 
 const CHANGELOG = [
+  { version: '1.05.02', summary: 'Phase goal countdown tracker on hint row. Hint bar shortened.' },
   { version: '1.05.01', summary: 'The Mine — procedural cave dungeon with mining, 4 layouts, GS mining tab, inventory equip tab.' },
   { version: '1.04.02', summary: 'Rocket full message updated.' },
   { version: '1.04.01', summary: 'Major balance: rocket target reduced to 5,000. Bankruptcy stipend. Carry cost capped. Recycle widgets at RM shed. Phase 3 trigger raised.' },
