@@ -878,7 +878,7 @@ drawArt(0);
 drawPrompt(true);
 
 const CREDIT  = "Created by Adam A.";
-const VERSION = "alpha 1.05.06";
+const VERSION = "alpha 1.05.07";
 
 // ── Sound system ──────────────────────────────────────────────────────────────
 const SOUNDS = {};
@@ -2801,11 +2801,12 @@ function openRMShedMenu() {
   }
 
   function redraw() {
-    const rm      = state.player.inventory.rm;
-    const rmCap   = state.player.inventoryCaps.rm;
-    const rmSpace = rmCap - rm;
-    const maxBuy  = Math.min(rmSpace, Math.floor(state.player.credits / COST));
-    const canBuy1 = state.player.credits >= COST && rmSpace > 0;
+    const rm       = state.player.inventory.rm;
+    const rmCap    = state.player.inventoryCaps.rm;
+    const rmSpace  = rmCap - rm;
+    const storageRM = state.stations.storage?.unlocked ? state.storage.rm : 0;
+    const maxBuy   = Math.min(rmSpace, storageRM + Math.floor(state.player.credits / COST));
+    const canBuy1  = (state.player.credits >= COST || storageRM > 0) && rmSpace > 0;
 
     // Clear interior
     for (let r = 1; r < BOX_H - 1; r++)
@@ -2850,11 +2851,10 @@ function openRMShedMenu() {
     drp(BOX_Y + 11, `Cost per unit:  ${discStr}`, isBronzePlus ? '#cc7733' : '#f0f0f0');
     if (state.stations.storage?.unlocked) {
       const srm = state.storage.rm, scap = state.storage.rmCap;
-      const BAR_W = 8, filled = scap > 0 ? Math.min(Math.round(srm/scap*BAR_W), BAR_W) : 0;
-      let bar = '['; for (let i=0;i<BAR_W;i++) bar += i<filled?'█':' '; bar += ']';
-      drp(BOX_Y + 12, `Storage RM: ${bar} ${srm}/${scap}`, '#ff6600');
+      const usedFirst = srm > 0 ? ' — used first' : '';
+      drp(BOX_Y + 12, `Storage RM: ${srm}/${scap}${usedFirst}`, srm > 0 ? '#ff6600' : '#555555');
     } else {
-      drp(BOX_Y + 12, '', DC);
+      drp(BOX_Y + 12, 'No storage unlocked.', '#444444');
     }
 
     // Row 13: ─ action separator
@@ -2862,16 +2862,21 @@ function openRMShedMenu() {
       for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, '─', DC, BG); }
 
     // Action rows 14-19
-    const c1 = `-${formatCredits(discountedCost)}cr`;
-    const cm = maxBuy > 0 ? `-${formatCredits(maxBuy * discountedCost)}cr` : '';
+    const c1 = storageRM > 0 ? 'free (storage)' : `-${formatCredits(discountedCost)}cr`;
+    const fromStMax = Math.min(maxBuy, storageRM);
+    const fromCrMax = maxBuy - fromStMax;
+    const cm = maxBuy > 0 ? (fromCrMax > 0 ? `-${formatCredits(fromCrMax * discountedCost)}cr` : 'free') : '';
     const cardAvail = cardTier ? Math.max(0, state.bank.card.limit - state.bank.card.balance) : 0;
-    const canBuyCard = !!cardTier && cardAvail >= discountedCost && rmSpace > 0;
-    const canBulk50  = isGoldPlus && rmSpace >= 50 && (cardAvail >= Math.floor(50 * COST * 0.85) || state.player.credits >= Math.floor(50 * COST * 0.85));
-    arow(BOX_Y + 14, `1. Buy 1 RM`, c1, canBuy1 ? '#66cc66' : '#ff5555');
-    arow(BOX_Y + 15, `2. Buy max (${maxBuy})`, cm, canBuy1 && maxBuy > 0 ? '#66cc66' : '#ff5555');
-    arow(BOX_Y + 16, '3. Buy custom amount', '', canBuy1 ? '#66cc66' : '#ff5555');
+    const canBuyCard = (!!cardTier && cardAvail >= discountedCost && rmSpace > 0) || (storageRM > 0 && rmSpace > 0);
+    const fromSt50 = Math.min(50, storageRM);
+    const bulkCostDisplay = (50 - fromSt50) * Math.floor(COST * 0.85);
+    const canBulk50  = isGoldPlus && rmSpace >= 50 && (fromSt50 === 50 || cardAvail >= bulkCostDisplay || state.player.credits >= bulkCostDisplay);
+    const c5hint = storageRM > 0 ? 'free (storage)' : (cardTier && cardAvail >= discountedCost ? `-${discountedCost}cr (card)` : '');
+    arow(BOX_Y + 14, `1. Get 1 RM`, c1, canBuy1 ? '#66cc66' : '#ff5555');
+    arow(BOX_Y + 15, `2. Get max (${maxBuy})`, cm, canBuy1 && maxBuy > 0 ? '#66cc66' : '#ff5555');
+    arow(BOX_Y + 16, '3. Custom amount', '', canBuy1 ? '#66cc66' : '#ff5555');
     arow(BOX_Y + 17, '4. Cancel', '', '#555555');
-    arow(BOX_Y + 18, `5. Buy 1 RM on card`, canBuyCard ? `-${discountedCost}cr (card)` : '', canBuyCard ? getCardTierColor(cardTier) : '#444444');
+    arow(BOX_Y + 18, `5. Get 1 RM`, c5hint, canBuyCard ? getCardTierColor(cardTier) : '#444444');
     arow(BOX_Y + 19, `6. Bulk buy 50 RM (-15%)`, isGoldPlus ? `-${Math.floor(50*COST*0.85)}cr` : '[Gold+ only]', canBulk50 ? CARD_TIERS.gold.color : '#444444');
     const canRecycle = state.stations.storage?.unlocked && state.storage.widgets >= 10 && rmSpace > 0;
     const recycleColor = canRecycle ? '#66cc66' : '#444444';
@@ -2883,9 +2888,10 @@ function openRMShedMenu() {
 
     // Row 22: status
     let statusText, statusFg;
-    if (rmSpace <= 0)                { statusText = 'Inventory full.'; statusFg = '#ff5555'; }
-    else if (state.player.credits < COST && !canBuyCard) { statusText = 'Insufficient credits.'; statusFg = '#ff5555'; }
-    else                             { statusText = 'Press a key to purchase.'; statusFg = '#555555'; }
+    if (rmSpace <= 0)                              { statusText = 'Inventory full.'; statusFg = '#ff5555'; }
+    else if (!canBuy1)                             { statusText = 'Insufficient credits.'; statusFg = '#ff5555'; }
+    else if (storageRM > 0)                        { statusText = `${storageRM} RM in storage — used first.`; statusFg = '#ff6600'; }
+    else                                           { statusText = 'Press a key to purchase.'; statusFg = '#555555'; }
     { const ay = BOX_Y + 22; border(ay);
       const centered = menuPad(statusText.length < IW ? ' '.repeat(Math.floor((IW-statusText.length)/2)) + statusText : statusText, IW);
       for (let i = 0; i < IW; i++) display.draw(BOX_X + 1 + i, ay, centered[i] || ' ', statusFg, BG); }
@@ -2914,33 +2920,64 @@ function openRMShedMenu() {
     const maxBuy  = Math.min(rmSpace, Math.floor(state.player.credits / COST));
     const canBuy1 = state.player.credits >= COST && rmSpace > 0;
 
-    const isBronzePlus2 = cardTierAtLeast('bronze');
-    const isGoldPlus2   = cardTierAtLeast('gold');
-    const effectiveCost = isBronzePlus2 ? Math.max(1, Math.floor(COST * 0.95)) : COST;
-    const maxBuy2 = Math.min(rmSpace, Math.floor(state.player.credits / effectiveCost));
+    const isBronzePlus2  = cardTierAtLeast('bronze');
+    const isGoldPlus2    = cardTierAtLeast('gold');
+    const effectiveCost  = isBronzePlus2 ? Math.max(1, Math.floor(COST * 0.95)) : COST;
+    const storageRM2     = state.stations.storage?.unlocked ? state.storage.rm : 0;
+    const maxGet2        = Math.min(rmSpace, storageRM2 + Math.floor(state.player.credits / effectiveCost));
+    const canGet1        = (state.player.credits >= effectiveCost || storageRM2 > 0) && rmSpace > 0;
 
-    if (e.key === '1' && canBuy1) {
-      state.player.credits -= effectiveCost; state.player.inventory.rm++;
-      if (isBronzePlus2 && effectiveCost < COST) addLog(`> Card discount applied: -${COST - effectiveCost}cr.`, '#cc7733');
-      addLog('You buy 1 raw material.', '#ff9933'); playSound('bought'); drawStatusBar();
-      { const rmD = STATION_DEFS.find(s => s.label === 'RM'); if (rmD) effectsManager.coinDrain(state.player.x, state.player.y, rmD.x+1, rmD.y+2, effectiveCost); }
+    if (e.key === '1' && canGet1) {
+      if (storageRM2 > 0) {
+        state.storage.rm--;
+        state.player.inventory.rm++;
+        addLog('Took 1 RM from storage.', '#ff6600');
+      } else {
+        state.player.credits -= effectiveCost;
+        state.player.inventory.rm++;
+        if (isBronzePlus2 && effectiveCost < COST) addLog(`> Card discount applied: -${COST - effectiveCost}cr.`, '#cc7733');
+        addLog('You buy 1 raw material.', '#ff9933');
+        { const rmD = STATION_DEFS.find(s => s.label === 'RM'); if (rmD) effectsManager.coinDrain(state.player.x, state.player.y, rmD.x+1, rmD.y+2, effectiveCost); }
+      }
+      playSound('bought'); drawStatusBar(); redraw();
       return;
     }
-    if (e.key === '2' && maxBuy2 > 0 && canBuy1) {
-      state.player.credits -= maxBuy2 * effectiveCost; state.player.inventory.rm += maxBuy2;
-      addLog(`You buy ${maxBuy2} raw material${maxBuy2 !== 1 ? 's' : ''}.`, '#ff9933'); playSound('bought'); drawStatusBar();
+    if (e.key === '2' && maxGet2 > 0 && canGet1) {
+      const fromSt = Math.min(maxGet2, storageRM2);
+      const fromCr = maxGet2 - fromSt;
+      state.storage.rm -= fromSt;
+      state.player.credits -= fromCr * effectiveCost;
+      state.player.inventory.rm += maxGet2;
+      if (fromSt > 0) addLog(`Took ${fromSt} RM from storage.`, '#ff6600');
+      if (fromCr > 0) addLog(`Bought ${fromCr} RM for ${formatCredits(fromCr * effectiveCost)}cr.`, '#ff9933');
+      playSound('bought'); drawStatusBar(); redraw();
       return;
     }
-    if (e.key === '3' && canBuy1) {
+    if (e.key === '3' && canGet1) {
       window.removeEventListener('keydown', rmKeyHandler);
-      showNumericPrompt(`Buy RM (max ${maxBuy2})`, maxBuy2,
-        (n) => { state.player.credits -= n * effectiveCost; state.player.inventory.rm += n;
-                 addLog(`You buy ${n} raw material${n !== 1 ? 's' : ''}.`, '#ff9933'); playSound('bought'); drawStatusBar();
-                 openRMShedMenu(); },
+      showNumericPrompt(`Get RM (max ${maxGet2})`, maxGet2,
+        (n) => {
+          const fromSt3 = Math.min(n, storageRM2);
+          const fromCr3 = n - fromSt3;
+          state.storage.rm -= fromSt3;
+          state.player.credits -= fromCr3 * effectiveCost;
+          state.player.inventory.rm += n;
+          if (fromSt3 > 0) addLog(`Took ${fromSt3} RM from storage.`, '#ff6600');
+          if (fromCr3 > 0) addLog(`Bought ${fromCr3} RM for ${formatCredits(fromCr3 * effectiveCost)}cr.`, '#ff9933');
+          playSound('bought'); drawStatusBar();
+          openRMShedMenu();
+        },
         () => openRMShedMenu()
       );
     }
     if (e.key === '5') {
+      if (storageRM2 > 0 && rmSpace > 0) {
+        state.storage.rm--;
+        state.player.inventory.rm++;
+        addLog('Took 1 RM from storage.', '#ff6600');
+        playSound('bought'); drawStatusBar(); redraw();
+        return;
+      }
       const card = state.bank.card;
       if (!card?.tier) return;
       const avail = Math.max(0, card.limit - card.balance);
@@ -2952,19 +2989,26 @@ function openRMShedMenu() {
       redraw();
     }
     if (e.key === '6' && isGoldPlus2) {
-      const bulkCost = Math.floor(50 * COST * 0.85);
       if (rmSpace < 50) { addLog('Not enough inventory space for 50 RM.', '#ff5555'); return; }
-      if (state.player.credits >= bulkCost) {
-        state.player.credits -= bulkCost; state.player.inventory.rm += 50;
-        addLog(`Bulk purchase: 50 RM for ${bulkCost}cr (-15%).`, CARD_TIERS.gold.color);
+      const fromSt6     = Math.min(50, storageRM2);
+      const fromBuy6    = 50 - fromSt6;
+      const bulkCost6   = fromBuy6 * Math.floor(COST * 0.85);
+      if (fromSt6 === 50 || state.player.credits >= bulkCost6) {
+        state.storage.rm -= fromSt6;
+        state.player.credits -= bulkCost6;
+        state.player.inventory.rm += 50;
+        if (fromSt6 > 0) addLog(`Took ${fromSt6} RM from storage.`, '#ff6600');
+        if (fromBuy6 > 0) addLog(`Bulk purchase: ${fromBuy6} RM for ${bulkCost6}cr (-15%).`, CARD_TIERS.gold.color);
         playSound('bought');
       } else {
         const card3 = state.bank.card;
         const avail3 = Math.max(0, card3.limit - card3.balance);
-        if (avail3 >= bulkCost) {
-          card3.balance = Math.round((card3.balance + bulkCost) * 10) / 10;
+        if (avail3 >= bulkCost6) {
+          state.storage.rm -= fromSt6;
+          card3.balance = Math.round((card3.balance + bulkCost6) * 10) / 10;
           state.player.inventory.rm += 50;
-          addLog(`Bulk purchase: 50 RM for ${bulkCost}cr on card (-15%).`, CARD_TIERS.gold.color);
+          if (fromSt6 > 0) addLog(`Took ${fromSt6} RM from storage.`, '#ff6600');
+          if (fromBuy6 > 0) addLog(`Bulk purchase: ${fromBuy6} RM for ${bulkCost6}cr on card (-15%).`, CARD_TIERS.gold.color);
           playSound('bought');
         } else { addLog('Insufficient credits or card limit for bulk purchase.', '#ff5555'); return; }
       }
@@ -7769,6 +7813,7 @@ function renderLargeNumber(display, x, y, numberString, color, availableWidth) {
 // ── Launch Facility menu (§9) ─────────────────────────────────────────────────
 
 const CHANGELOG = [
+  { version: '1.05.07', summary: 'RM storage used before buying. Storage RM shown in RM menu. Apprentices use storage first.' },
   { version: '1.05.06', summary: 'The Mine — enemy, bare hands limit, water shimmer, full-screen clear, station entrance, random discovery.' },
   { version: '1.05.05', summary: 'Phase tracker: green text, white flash on progress, bordered box on log area.' },
   { version: '1.05.03', summary: 'Phase tracker: brighter, all caps, green flash on progress.' },
@@ -10525,11 +10570,18 @@ function tickApprentices() {
           Math.abs(w.x - rmDoor.x) <= 1 && Math.abs(w.y - rmDoor.y) <= 1) {
         const space = carryMax - w.carryRM;
         let bought = 0;
+        // Take from storage first (free), then buy remainder
+        while (bought < space && state.storage.rm > 0) {
+          state.storage.rm--;
+          w.carryRM++;
+          bought++;
+        }
+        const boughtFree = bought;
         while (bought < space && state.player.credits >= 3) {
           state.player.credits -= 3;
           w.carryRM++;
           bought++;
-          if (bought === 1) { const rmD = STATION_DEFS.find(s => s.label === 'RM'); if (rmD) effectsManager.coinDrain(w.x, w.y, rmD.x + 1, rmD.y + 2, 3); }
+          if (bought === boughtFree + 1) { const rmD = STATION_DEFS.find(s => s.label === 'RM'); if (rmD) effectsManager.coinDrain(w.x, w.y, rmD.x + 1, rmD.y + 2, 3); }
         }
         if (bought > 0) drawStatusBar();
         w.target = { ...wbDoor };
