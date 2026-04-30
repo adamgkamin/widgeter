@@ -334,6 +334,11 @@ const state = {
     enemyX: -1,
     enemyY: -1,
   },
+  weather: {
+    current:        'clear',
+    forecast:       'clear',
+    actualTomorrow: 'clear',
+  },
   fishing: {
     totalCatches:  0,
     catchesToday:  0,
@@ -410,6 +415,7 @@ function saveGame() {
     garden:               state.garden,
     bookshelfLog:         state.bookshelfLog,
     mine:                 state.mine,
+    weather:              state.weather,
     stamps:               state.player.stamps,
     stampWalkCounter:     state.player.stampWalkCounter,
     stampLookTiles:       Array.from(state.player.stampLookTiles),
@@ -678,6 +684,12 @@ function loadGame() {
     // Mine skills
     state.skills.pickaxeLevel = state.skills.pickaxeLevel ?? 0;
     state.skills.lantern      = state.skills.lantern      ?? false;
+    // Weather
+    { const _w = state.weather = data.weather ?? {};
+      _w.current        = _w.current        ?? 'clear';
+      _w.forecast       = _w.forecast       ?? 'clear';
+      _w.actualTomorrow = _w.actualTomorrow ?? 'clear';
+    }
   } catch (_) {
     // corrupt save — start fresh
   }
@@ -878,7 +890,7 @@ drawArt(0);
 drawPrompt(true);
 
 const CREDIT  = "Created by Adam A.";
-const VERSION = "alpha 1.05.07";
+const VERSION = "alpha 1.06.01";
 
 // ── Sound system ──────────────────────────────────────────────────────────────
 const SOUNDS = {};
@@ -1077,6 +1089,11 @@ function drawStatusBar() {
        seg(sx, `Price: ${state.marketPrice}cr`, '#66cc66');
   drawTimeIndicator();
   drawPhaseGoal();
+  if (state.phase >= 2) {
+    const WEATHER_ICONS = { clear: ['☀', '#ffd633'], rain: ['☂', '#4a8aaa'], fog: ['▓', '#666666'], heatwave: ['♨', '#ff6633'], storm: ['⚡', '#ffaa00'] };
+    const [icon, color] = WEATHER_ICONS[state.weather.current] || ['☀', '#ffd633'];
+    display.draw(DISPLAY_WIDTH - 2, STATUS_ROW, icon, color, BG);
+  }
 }
 
 // ── Tile map (§4.2) ───────────────────────────────────────────────────────────
@@ -2098,6 +2115,7 @@ function resetState() {
   state.stats = { rmLastTen: [], widgetsLastTen: [], creditsLastTen: [], widgetsMadeToday: 0, revenueToday: 0, costsToday: 0 };
   state.skills = { apprenticeCount: 0, courierCount: 0, workerCarryLevel: 0, workerSpeedLevel: 0, courierCarryLevel: 0, courierSpeedLevel: 0, storageExp1: 0, storageExp2: 0, reducedCarry: 0, discountDump: 0, demandHistory: 0, forecast: 0, futures: 0, optionsBuy: 0, optionsWrite: 0, volatilitySurface: 0, plantStory: 0, smearCampaign: 0, pickaxeLevel: 0, lantern: false, endurance: { pips: 0 }, aquatics: { purchased: false }, interfacing: { pips: 0 } };
   state.mine = { discovered: false, discoveredDay: -1, tiles: [], lastGenDay: -1, playerX: 12, playerY: 13, playerDir: { x: 0, y: -1 }, totalMined: 0, crystals: 0, bareHandHits: 0, handsBloodied: false, kickedOut: false, kickedOutUntilPeriod: -1, enemyX: -1, enemyY: -1 };
+  state.weather = { current: 'clear', forecast: 'clear', actualTomorrow: 'clear' };
   state.craftingTimeRemote = 10;
   state.stats.pondStepsWalked = 0;
   state.fishing = { totalCatches: 0, catchesToday: 0, dailyLimit: 5, currentPhase: 'menu', fishTimer: 0, biteTimer: 0, fishX: 0, animTick: 0 };
@@ -2648,9 +2666,15 @@ window.addEventListener('keydown', (e) => {
   if (!d) return;
   e.preventDefault();
   playSound('click');
+  const newLX = Math.max(0, Math.min(DISPLAY_WIDTH - 1, lookX + d[0]));
+  const newLY = Math.max(0, Math.min(WORLD_ROWS - 1,    lookY + d[1]));
+  if (state.weather.current === 'fog' || state.weather.current === 'storm') {
+    const dist = Math.sqrt((newLX - state.player.x) ** 2 + (newLY - state.player.y) ** 2);
+    if (dist > 5) return;
+  }
   restoreLookTile();
-  lookX = Math.max(0, Math.min(DISPLAY_WIDTH - 1, lookX + d[0]));
-  lookY = Math.max(0, Math.min(WORLD_ROWS - 1,    lookY + d[1]));
+  lookX = newLX;
+  lookY = newLY;
   trackLookStamp(lookX, lookY);
   drawLookCursor(true);
   renderLookDescription();
@@ -3050,7 +3074,8 @@ function startCrafting(n, ticks = CRAFT_TICKS, remote = false) {
   craftQueue       = n - 1;
   craftProgress    = 0;
   craftTotal       = n;
-  activeCraftTicks = ticks;
+  const weatherCraftPenalty = state.weather.current === 'heatwave' ? 1 : 0;
+  activeCraftTicks = ticks + weatherCraftPenalty;
   craftingRemote   = remote;
   state.gameState  = 'crafting';
   drawStatusBar();
@@ -3444,6 +3469,9 @@ function demandLabel(D) {
 function calculateDailyDemand() {
   const raw      = 50 + 30 * Math.sin(state.day / 7 * 2 * Math.PI) + gaussianNoise(0, 10);
   state.demand      = Math.max(5, Math.round(raw));
+  if (state.weather.current === 'rain')     state.demand = Math.max(5, Math.round(state.demand * 0.90));
+  if (state.weather.current === 'storm')    state.demand = Math.max(5, Math.round(state.demand * 0.80));
+  if (state.weather.current === 'heatwave') state.demand = Math.round(state.demand * 1.20);
   state.marketPrice = Math.round(8 * Math.pow(state.demand / 50, 0.5) * 10) / 10;
   if (state.demand < 20 && !state.demandCrashOccurred) logHistory('The market collapsed.');
   if (state.demand < 20) state.demandCrashOccurred = true;
@@ -7813,6 +7841,7 @@ function renderLargeNumber(display, x, y, numberString, color, availableWidth) {
 // ── Launch Facility menu (§9) ─────────────────────────────────────────────────
 
 const CHANGELOG = [
+  { version: '1.06.01', summary: 'Weather system: clear, rain, fog, heat wave, storm. Affects demand, worker speed, crafting, mining.' },
   { version: '1.05.07', summary: 'RM storage used before buying. Storage RM shown in RM menu. Apprentices use storage first.' },
   { version: '1.05.06', summary: 'The Mine — enemy, bare hands limit, water shimmer, full-screen clear, station entrance, random discovery.' },
   { version: '1.05.05', summary: 'Phase tracker: green text, white flash on progress, bordered box on log area.' },
@@ -8931,6 +8960,7 @@ function openFishingMenu() {
 // ── Mine (§Mine) ─────────────────────────────────────────────────────────────
 
 let mineRedrawFn = null;
+let rainDrops    = [];
 
 function generateMineTiles() {
   const period = Math.floor(state.day / 2);
@@ -9226,12 +9256,15 @@ function enterMine() {
         here.collected = true;
         state.mine.totalMined++;
         if (here.ore === 'rm') {
+          const stormBonus = state.weather.current === 'storm' ? 2 : 1;
           if (state.stations.storage?.unlocked) {
-            state.storage.rm = Math.min(state.storage.rm + 1, state.storage.rmCap);
-            addLog('Mined raw material. Stored at the RM shed.', '#ff6600');
+            state.storage.rm = Math.min(state.storage.rm + stormBonus, state.storage.rmCap);
+            if (stormBonus > 1) addLog('Storm-loosened rock! Double RM.', '#ffaa00');
+            else addLog('Mined raw material. Stored at the RM shed.', '#ff6600');
           } else {
-            state.player.inventory.rm = Math.min(state.player.inventory.rm + 1, state.player.inventoryCaps.rm);
-            addLog('Mined raw material.', '#ff6600');
+            state.player.inventory.rm = Math.min(state.player.inventory.rm + stormBonus, state.player.inventoryCaps.rm);
+            if (stormBonus > 1) addLog('Storm-loosened rock! Double RM.', '#ffaa00');
+            else addLog('Mined raw material.', '#ff6600');
           }
         } else if (here.ore === 'crystal') {
           if (state.mine.crystals < 5) { state.mine.crystals++; addLog('Found a rare crystal!', '#66ccff'); }
@@ -10538,7 +10571,8 @@ function tickApprentices() {
   const rmDoor = { x: rmDef.x + 1, y: rmDef.y + 2 };  // (10, 4)
   const wbDoor = { x: wbDef.x + 1, y: wbDef.y + 2 };  // (35, 10)
   const _silverPlus = cardTierAtLeast('silver');
-  const speed    = Math.max(1, Math.round(WORKER_SPEEDS[state.skills.workerSpeedLevel || 0] * (_silverPlus ? 1.10 : 1.0)));
+  const weatherSpeedMult = state.weather.current === 'storm' ? 0.7 : state.weather.current === 'rain' ? 0.8 : 1.0;
+  const speed    = Math.max(1, Math.round(WORKER_SPEEDS[state.skills.workerSpeedLevel || 0] * (_silverPlus ? 1.10 : 1.0) * weatherSpeedMult));
   const carryMax = WORKER_CARRY_CAPS[state.skills.workerCarryLevel || 0];
 
   for (const w of state.workers.apprentices) {
@@ -10638,7 +10672,8 @@ function tickCouriers() {
   const stDoor = { x: stDef.x + 1, y: stDef.y + 2 };
   const mtDoor = { x: mtDef.x + 1, y: mtDef.y + 2 };
   const lfDoor = lfDef ? { x: lfDef.x + 1, y: lfDef.y + 2 } : null;
-  const speed    = Math.max(1, Math.round(COURIER_SPEEDS[state.skills.courierSpeedLevel || 0]));
+  const weatherCourierMult = state.weather.current === 'storm' ? 0.85 : state.weather.current === 'fog' ? 0.9 : 1.0;
+  const speed    = Math.max(1, Math.round(COURIER_SPEEDS[state.skills.courierSpeedLevel || 0] * weatherCourierMult));
   const carryMax = COURIER_CARRY_CAPS[state.skills.courierCarryLevel || 0];
   const PRICE    = state.marketPrice;
   const toRocket = state.courierDestination === 'rocket' && state.stations.launch_facility?.unlocked && lfDoor;
@@ -11170,6 +11205,7 @@ function devUnlockEverything() {
   state.skills.pickaxeLevel = 2;
   state.skills.lantern = true;
   placeMineEntrance();
+  state.weather = { current: 'clear', forecast: 'rain', actualTomorrow: 'storm' };
 
   addLog('DEV: Everything unlocked. Rocket at 4,990. Couriers set to market.', '#ff5555');
   addLog('Toggle couriers to rocket when ready for the finale.', '#ff5555');
@@ -11795,6 +11831,29 @@ setInterval(() => {
   if (state.marketOpen !== prevMarketOpen) startDayNightFlash(state.marketOpen ? 'open' : 'close');
   if (state.dayTick === 0 && !state.bellFiredToday) {
     state.bellFiredToday = true;
+    // Weather system — Phase 2+ only
+    if (state.phase >= 2) {
+      state.weather.current = state.weather.actualTomorrow;
+      const roll = Math.random() * 100;
+      if (roll < 40)      state.weather.actualTomorrow = 'clear';
+      else if (roll < 65) state.weather.actualTomorrow = 'rain';
+      else if (roll < 80) state.weather.actualTomorrow = 'fog';
+      else if (roll < 90) state.weather.actualTomorrow = 'heatwave';
+      else                state.weather.actualTomorrow = 'storm';
+      state.weather.forecast = Math.random() < 0.75
+        ? state.weather.actualTomorrow
+        : ['clear','rain','fog','heatwave','storm'][Math.floor(Math.random()*5)];
+      const WEATHER_MSGS = {
+        clear:    ['Clear skies. A good day for business.', '#ffd633'],
+        rain:     ['Rain falls on the paths. Workers slow down.', '#4a8aaa'],
+        fog:      ['A thick fog rolls in. Visibility is low.', '#666666'],
+        heatwave: ['The heat is oppressive. Demand is up.', '#ff6633'],
+        storm:    ['Thunder shakes the ground. Double ore in the mine.', '#ffaa00'],
+      };
+      const wm = WEATHER_MSGS[state.weather.current];
+      if (wm) addLog(wm[0], wm[1]);
+      drawStatusBar();
+    }
     addLog('The morning bell has rung.', BRIGHT_CYAN);
     generateBuyOffers();
     if (state.phase >= 3) {
@@ -12442,6 +12501,69 @@ setInterval(() => {
 
   // LF chyron live scroll (calls drawChyron closure inside openLFMenu)
   if (state.gameState === 'lf_menu' && lfChyronFn) lfChyronFn();
+
+  // ── Weather visual effects ────────────────────────────────────────────────────
+
+  // Rain / storm particles
+  if ((state.weather.current === 'rain' || state.weather.current === 'storm') && state.phase >= 2 && state.gameState === 'playing') {
+    const maxDrops = state.weather.current === 'storm' ? 25 : 15;
+    if (rainDrops.length < maxDrops && Math.random() < 0.3) {
+      rainDrops.push({ x: 1 + Math.floor(Math.random() * (DISPLAY_WIDTH - 2)), y: 1, speed: 1 + Math.random() });
+    }
+    for (let i = rainDrops.length - 1; i >= 0; i--) {
+      const d = rainDrops[i];
+      markDirty(d.x, Math.floor(d.y));
+      d.y += d.speed;
+      const dy = Math.floor(d.y);
+      if (dy >= WORLD_ROWS - 1) { rainDrops.splice(i, 1); renderDirty(); continue; }
+      if (tileMap[d.x] && tileMap[d.x][dy] && tileMap[d.x][dy].walkable) {
+        display.draw(d.x, dy, '|', '#2a5a7a', BG);
+      }
+    }
+  } else if (rainDrops.length > 0) {
+    for (const d of rainDrops) markDirty(d.x, Math.floor(d.y));
+    rainDrops = [];
+    renderDirty();
+  }
+
+  // Fog / storm visibility cone
+  if ((state.weather.current === 'fog' || state.weather.current === 'storm') && state.phase >= 2 && state.gameState === 'playing') {
+    const px = state.player.x, py = state.player.y;
+    for (let y = 1; y < WORLD_ROWS - 1; y++) {
+      for (let x = 1; x < DISPLAY_WIDTH - 1; x++) {
+        const dist = Math.sqrt((x - px) * (x - px) + (y - py) * (y - py));
+        if (dist > 10) display.draw(x, y, '·', '#111111', BG);
+        else if (dist > 7) display.draw(x, y, '·', '#222222', BG);
+      }
+    }
+    display.draw(px, py, '@', state.player.color || BRIGHT_WHITE, BG);
+    for (const w of state.workers.apprentices) {
+      const wd = Math.sqrt((w.x - px) * (w.x - px) + (w.y - py) * (w.y - py));
+      if (wd <= 7) display.draw(w.x, w.y, 'a', '#66ccff', BG);
+    }
+    for (const c of state.workers.couriers) {
+      const cd = Math.sqrt((c.x - px) * (c.x - px) + (c.y - py) * (c.y - py));
+      if (cd <= 7) display.draw(c.x, c.y, 'c', '#cc66cc', BG);
+    }
+  }
+
+  // Storm lightning flash
+  if (state.weather.current === 'storm' && state.gameState === 'playing') {
+    if (Math.random() < 0.005) {
+      const lx = 2 + Math.floor(Math.random() * (DISPLAY_WIDTH - 4));
+      for (let y = 1; y < WORLD_ROWS - 1; y++) display.draw(lx, y, '│', '#ffffff', BG);
+    }
+  }
+
+  // Heat wave shimmer
+  if (state.weather.current === 'heatwave' && state.gameState === 'playing' && Math.random() < 0.05) {
+    const sx = 53 + Math.floor(Math.random() * 25);
+    const sy = 24 + Math.floor(Math.random() * 18);
+    if (sx < DISPLAY_WIDTH - 1 && sy < WORLD_ROWS - 1 && tileMap[sx]?.[sy]?.walkable) {
+      display.draw(sx, sy, '~', '#ff4400', BG);
+      setTimeout(() => { markDirty(sx, sy); renderDirty(); }, 200);
+    }
+  }
 
   requestAnimationFrame(effectsLoop);
 })(0);
