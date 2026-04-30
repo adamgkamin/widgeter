@@ -228,6 +228,7 @@ const state = {
   rocketFull:          false,
   courierDestination:  'market',  // 'market' | 'rocket'
   rocketAnimFrame:     0,
+  loadingPort:         { unlocked: false, widgets: 0, capacity: 100 },
   cottage: {
     owned:    false,
     mapX:     40,
@@ -423,6 +424,7 @@ function saveGame() {
     rocketWidgets:        state.rocketWidgets,
     rocketFull:           state.rocketFull,
     courierDestination:   state.courierDestination,
+    loadingPort:          state.loadingPort,
     skills:               state.skills,
     craftingTimeRemote:   state.craftingTimeRemote,
     cottage:              state.cottage,
@@ -567,6 +569,8 @@ function loadGame() {
     state.rocketWidgets        = data.rocketWidgets       ?? 0;
     state.rocketFull           = data.rocketFull          ?? false;
     state.courierDestination   = data.courierDestination  ?? 'market';
+    state.loadingPort          = data.loadingPort ?? { unlocked: false, widgets: 0, capacity: 100 };
+    state.loadingPort.capacity = state.loadingPort.capacity ?? 100;
     state.stats.rmLastTen      = state.stats.rmLastTen      ?? [];
     state.stats.widgetsLastTen = state.stats.widgetsLastTen ?? [];
     state.stats.creditsLastTen = state.stats.creditsLastTen ?? [];
@@ -908,7 +912,7 @@ drawArt(0);
 drawPrompt(true);
 
 const CREDIT  = "Created by Adam A.";
-const VERSION = "alpha 1.07.05";
+const VERSION = "alpha 1.07.06";
 
 // ── Sound system ──────────────────────────────────────────────────────────────
 const SOUNDS = {};
@@ -1645,6 +1649,8 @@ function buildTileMap() {
 
   // Casino (§4.2) — always stamp; locked state shows ?? in dim grey
   stampCasino(!state.stations.casino.unlocked);
+  // Loading Port — only stamp when unlocked
+  stampLoadingPort();
 
   // Rock proximity tile descriptions (override descriptions.json entries)
   if (tileMap[4]?.[12])  tileMap[4][12].description  = 'Something glints between the trees. You catch it for a moment, then it\'s gone. It comes back.';
@@ -2080,6 +2086,7 @@ function resetState() {
   state.rocketFull         = false;
   state.courierDestination = 'market';
   state.rocketAnimFrame    = 0;
+  state.loadingPort        = { unlocked: false, widgets: 0, capacity: 100 };
   state.officeUnlocked     = false;
   state.officeTab          = 'workers';
   state.storage = { widgets: 0, rm: 0, widgetCap: 50, rmCap: 50 };
@@ -3421,6 +3428,29 @@ function colorInStation(label, wc, lc, dc) {
   for (const c of state.workers.couriers)    display.draw(c.x, c.y, 'c', '#cc66cc', BG);
 }
 
+// Stamp the Loading Port footprint next to the Market. Called from buildTileMap when unlocked.
+function stampLoadingPort() {
+  if (!state.loadingPort?.unlocked) return;
+  const mtDef = STATION_DEFS.find(s => s.label === 'MT');
+  if (!mtDef) return;
+  const x = mtDef.x + 4, y = mtDef.y + 1;
+  const wc = '#558855', lc = '#88cc88', dc = '#336633';
+  const mk = (g, fg, walk, desc) => ({ glyph: g, fg, bg: BG, walkable: walk, description: desc });
+  const desc = 'The Loading Port. Couriers deposit widgets here; they auto-sell at market open.';
+  tileMap[x  ][y  ] = mk('╔', wc, false, desc);
+  tileMap[x+1][y  ] = mk('═', wc, false, desc);
+  tileMap[x+2][y  ] = mk('═', wc, false, desc);
+  tileMap[x+3][y  ] = mk('╗', wc, false, desc);
+  tileMap[x  ][y+1] = mk('║', wc, false, desc);
+  tileMap[x+1][y+1] = mk('L', lc, false, desc);
+  tileMap[x+2][y+1] = mk('P', lc, false, desc);
+  tileMap[x+3][y+1] = mk('║', wc, false, desc);
+  tileMap[x  ][y+2] = mk('╚', wc, false, desc);
+  tileMap[x+1][y+2] = mk('-', dc, true,  'Loading Port entrance. Couriers deliver here.');
+  tileMap[x+2][y+2] = mk('═', wc, false, desc);
+  tileMap[x+3][y+2] = mk('╝', wc, false, desc);
+}
+
 // Stamp or re-stamp the Casino footprint. Called from buildTileMap and on unlock/visibility trigger.
 function stampCasino(locked) {
   const cs = state.stations.casino;
@@ -3876,6 +3906,9 @@ function openMarketMenu(initialTab = 'sell') {
       if (mtMenuBlinkOn) drp(artBase + 2, state.marketOpen ? 'OPEN' : 'CLOSED', state.marketOpen ? '#66cc66' : '#ff5555');
       drp(artBase + 3, 'Widgets in hand:', '#555555');
       renderLargeNumber(display, RPX, artBase + 4, String(widgets), '#f0f0f0', IPW);
+      drp(artBase + 8, state.loadingPort?.unlocked
+        ? `LP: ${state.loadingPort.widgets}/${state.loadingPort.capacity} wgt  (auto-sells dawn)`
+        : '', state.loadingPort?.unlocked ? '#88cc88' : BRIGHT_WHITE);
       drp(artBase + 9, `Price today:  ${formatCredits(price)}g`, TC);
 
       const sep1 = artBase + 10;
@@ -3954,6 +3987,23 @@ function openMarketMenu(initialTab = 'sell') {
       }
       mtUpgradeRow(3, 'reducedCarry', 'u');
       mtUpgradeRow(4, 'discountDump', 'v');
+      // Loading Port upgrades
+      { const lp = state.loadingPort;
+        const lpOwned = lp?.unlocked;
+        const expOwned = lp?.capacity >= 200;
+        function mtLPRow(row, label, key, owned, cost, req) {
+          const ay = statusRow + row; border(ay);
+          const nFg = owned ? '#888888' : (req ? '#333333' : '#aaaaaa');
+          const cFg = owned ? '#66cc66' : (req ? '#333333' : (state.player.gold >= cost ? '#66cc66' : '#ff5555'));
+          const stat = owned ? '✓' : (req ? '[need LP first]' : `${cost}g`);
+          const lbl = `[${key}] ${label}`;
+          const gap = Math.max(1, IW - lbl.length - stat.length - 1);
+          const rp = menuPad(lbl + ' '.repeat(gap) + stat, IW);
+          for (let i = 0; i < IW; i++) display.draw(BOX_X+1+i, ay, rp[i]||' ', i < lbl.length ? nFg : cFg, BG);
+        }
+        mtLPRow(5, 'Loading Port',       'w', lpOwned,  500, false);
+        mtLPRow(6, 'Expand Port (x2)',   'x', expOwned, 800, !lpOwned);
+      }
 
     } else {
       // ── BUY tab ───────────────────────────────────────────────────────────────
@@ -4129,6 +4179,22 @@ function openMarketMenu(initialTab = 'sell') {
       if (state.player.gold < node.cost) { addLog(`Need ${node.cost}g.`, '#ff5555'); return; }
       state.player.gold -= node.cost; state.skills.discountDump = 1;
       addLog('Market Discount Dump purchased.', TC); playSound('bought'); drawStatusBar(); redraw(); return;
+    }
+    if (e.key === 'w') {
+      if (state.loadingPort?.unlocked) { addLog('Loading Port already unlocked.', '#555555'); return; }
+      if (state.player.gold < 500) { addLog('Need 500g for Loading Port.', '#ff5555'); return; }
+      state.player.gold -= 500; state.loadingPort.unlocked = true;
+      stampLoadingPort();
+      addLog('Loading Port unlocked. Couriers now deposit here; auto-sells at dawn.', '#88cc88');
+      playSound('bought'); drawStatusBar(); redraw(); return;
+    }
+    if (e.key === 'x') {
+      if (!state.loadingPort?.unlocked) { addLog('Unlock Loading Port first.', '#555555'); return; }
+      if ((state.loadingPort?.capacity || 100) >= 200) { addLog('Loading Port already at max capacity.', '#555555'); return; }
+      if (state.player.gold < 800) { addLog('Need 800g to expand Loading Port.', '#ff5555'); return; }
+      state.player.gold -= 800; state.loadingPort.capacity = 200;
+      addLog('Loading Port expanded to 200 widget capacity.', '#88cc88');
+      playSound('bought'); drawStatusBar(); redraw(); return;
     }
 
     if (marketTab === 'sell') {
@@ -7948,6 +8014,7 @@ function renderLargeNumber(display, x, y, numberString, color, availableWidth) {
 // ── Launch Facility menu (§9) ─────────────────────────────────────────────────
 
 const CHANGELOG = [
+  { version: '1.07.06', summary: 'Loading Port at market — courier delivery, auto-sell at dawn, capacity upgrade.' },
   { version: '1.07.05', summary: 'Upgrades moved to home station menus. Office UPGRADES tab replaced with INFO stats.' },
   { version: '1.07.04', summary: 'Demand crash removed from phase trigger. Cheaper manipulations/aquatics. Courier wages. More outfits.' },
   { version: '1.07.03', summary: 'Credits renamed to gold. Clearer stamp text. Credit score explained. Office key legend.' },
@@ -11000,6 +11067,7 @@ function tickCouriers() {
   const stDoor = { x: stDef.x + 1, y: stDef.y + 2 };
   const mtDoor = { x: mtDef.x + 1, y: mtDef.y + 2 };
   const lfDoor = lfDef ? { x: lfDef.x + 1, y: lfDef.y + 2 } : null;
+  const lpDoor = state.loadingPort?.unlocked ? { x: mtDef.x + 5, y: mtDef.y + 3 } : null;
   const weatherCourierMult = state.weather.current === 'storm' ? 0.85 : state.weather.current === 'fog' ? 0.9 : 1.0;
   const speed    = Math.max(1, Math.round(COURIER_SPEEDS[state.skills.courierSpeedLevel || 0] * weatherCourierMult));
   const carryMax = COURIER_CARRY_CAPS[state.skills.courierCarryLevel || 0];
@@ -11022,6 +11090,9 @@ function tickCouriers() {
   function isHeadingToLF(c) {
     return lfDoor && c.target.x === lfDoor.x && c.target.y === lfDoor.y;
   }
+  function isHeadingToLP(c) {
+    return lpDoor && c.target.x === lpDoor.x && c.target.y === lpDoor.y;
+  }
 
   for (const c of state.workers.couriers) {
     markDirty(c.x, c.y);
@@ -11040,16 +11111,27 @@ function tickCouriers() {
         const take = Math.min(state.storage.widgets, carryMax);
         state.storage.widgets -= take;
         c.carryWidgets = take;
-        c.target = toRocket ? { ...lfDoor } : { ...mtDoor };
+        c.target = toRocket ? { ...lfDoor } : (lpDoor ? { ...lpDoor } : { ...mtDoor });
         c.courierState = 'delivering';
       }
     }
 
     if (c.courierState === 'delivering') {
-      const destDoor = isHeadingToLF(c) ? lfDoor : mtDoor;
+      const destDoor = isHeadingToLF(c) ? lfDoor : (isHeadingToLP(c) ? lpDoor : mtDoor);
       if (!near(c, destDoor)) moveToward(c, destDoor);
       if (near(c, destDoor)) {
-        if (isHeadingToLF(c)) {
+        if (isHeadingToLP(c)) {
+          // Deliver to Loading Port
+          const lp = state.loadingPort;
+          const space = lp.capacity - lp.widgets;
+          const toLoad = Math.min(c.carryWidgets, space);
+          if (toLoad > 0) {
+            lp.widgets += toLoad;
+            c.carryWidgets -= toLoad;
+          }
+          c.target = { ...stDoor };
+          c.courierState = 'returning';
+        } else if (isHeadingToLF(c)) {
           // Deliver to Launch Facility
           if (c.carryWidgets > 0 && state.rocketWidgets < 5000) {
             const toLoad = Math.min(c.carryWidgets, 5000 - state.rocketWidgets);
@@ -12170,6 +12252,20 @@ setInterval(() => {
   }
   if (state.dayTick === 0 && !state.bellFiredToday) {
     state.bellFiredToday = true;
+    // Loading Port auto-sell at market open
+    if (state.loadingPort?.unlocked && state.loadingPort.widgets > 0 && state.marketOpen) {
+      const toSell = Math.min(state.loadingPort.widgets, state.phase >= 3 ? Math.max(0, state.demand - state.widgetsSoldToday) : state.loadingPort.widgets);
+      if (toSell > 0) {
+        const revenue = Math.round(toSell * state.marketPrice * 10) / 10;
+        state.player.gold = Math.round((state.player.gold + revenue) * 10) / 10;
+        state.lifetimeGoldEarned = Math.round((state.lifetimeGoldEarned + revenue) * 10) / 10;
+        state.stats.revenueToday = Math.round((state.stats.revenueToday + revenue) * 10) / 10;
+        state.loadingPort.widgets -= toSell;
+        if (state.phase >= 3) state.widgetsSoldToday += toSell;
+        addLog(`Loading port auto-sold ${toSell} widget${toSell !== 1 ? 's' : ''} for ${revenue}g.`, '#88cc88');
+        drawStatusBar();
+      }
+    }
     // Weather system — Phase 2+ only
     if (state.phase >= 2) {
       state.weather.current = state.weather.actualTomorrow;
