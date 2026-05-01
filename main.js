@@ -120,6 +120,8 @@ function fullRedraw() {
     clearScreen(); drawTitleBorder(); drawArt(); drawPrompt(true); drawTitleBottomText();
   } else if (gs === 'cottage') {
     clearScreen(); drawCottageInterior(); drawStatusBar(); renderLog();
+  } else if (gs === 'catacombs') {
+    drawCatacombs();
   } else if (gs !== 'transitioning' && gs !== 'intro') {
     drawWorld(); drawStatusBar(); renderLog();
     // Redraw any open menu
@@ -207,6 +209,7 @@ const state = {
     stampEventTimer:   Math.floor(Math.random() * 21) + 40,
     stampHintFired:    false,
     stampHintTick:     180 + Math.floor(Math.random() * 59),
+    arrows:            0,
   },
   day: 1,
   tick: 0,
@@ -346,6 +349,9 @@ const state = {
     endurance:    { pips: 0 },
     aquatics:     { purchased: false },
     interfacing:  { pips: 0 },
+    swordLevel:   0,
+    armorLevel:   0,
+    bowOwned:     false,
   },
   craftingTimeRemote: 10,
   lakeEasterEgg: { discovered: false },
@@ -381,6 +387,13 @@ const state = {
     biteTimer:     0,
     fishX:         0,
     animTick:      0,
+  },
+  catacombs: {
+    unlocked: false, completedTonight: false,
+    playerX: 0, playerY: 0, hp: 10, maxHp: 10,
+    tiles: [], enemies: [], chestOpened: false,
+    goldCollected: 0, swordCooldown: 0, bowCooldown: 0,
+    engagedEnemy: null, dungeonName: '',
   },
 };
 
@@ -468,6 +481,12 @@ function saveGame() {
     fishingDailyLimit:     state.fishing.dailyLimit,
     lakeEasterEggDiscovered: state.lakeEasterEgg.discovered,
     shinyRocks: state.shinyRocks,
+    catacombs: {
+      unlocked: state.catacombs.unlocked,
+      completedTonight: state.catacombs.completedTonight,
+      goldCollected: state.catacombs.goldCollected,
+    },
+    playerArrows: state.player.arrows,
   };
   localStorage.setItem(SAVE_KEY, JSON.stringify(data));
 }
@@ -748,6 +767,23 @@ function loadGame() {
     // Mine skills
     state.skills.pickaxeLevel = state.skills.pickaxeLevel ?? 0;
     state.skills.lantern      = state.skills.lantern      ?? false;
+    // Combat skills (Catacombs)
+    state.skills.swordLevel   = state.skills.swordLevel   ?? 0;
+    state.skills.armorLevel   = state.skills.armorLevel   ?? 0;
+    state.skills.bowOwned     = state.skills.bowOwned     ?? false;
+    state.player.arrows       = data.playerArrows         ?? 0;
+    // Catacombs
+    { const _cat = state.catacombs = data.catacombs ?? {};
+      _cat.unlocked         = _cat.unlocked         ?? false;
+      _cat.completedTonight = _cat.completedTonight ?? false;
+      _cat.goldCollected    = _cat.goldCollected     ?? 0;
+      _cat.playerX = 0; _cat.playerY = 0;
+      _cat.hp = 10; _cat.maxHp = 10;
+      _cat.tiles = []; _cat.enemies = [];
+      _cat.chestOpened = false;
+      _cat.swordCooldown = 0; _cat.bowCooldown = 0;
+      _cat.engagedEnemy = null; _cat.dungeonName = '';
+    }
     // Weather
     { const _w = state.weather = data.weather ?? {};
       _w.current        = _w.current        ?? 'clear';
@@ -954,7 +990,7 @@ drawArt(0);
 drawPrompt(true);
 
 const CREDIT  = "Created by Adam A.";
-const VERSION = "alpha 1.07.13";
+const VERSION = "alpha 1.07.14";
 
 // ── Sound system ──────────────────────────────────────────────────────────────
 const SOUNDS = {};
@@ -1026,6 +1062,7 @@ function wrapLog(text, color) {
 }
 
 function renderLog() {
+  if (state.gameState === 'catacombs') return; // catacombs manages its own display
   for (let i = 0; i < 5; i++) {
     const row = LOG_START_ROW + i;
     // During crafting, the tick loop draws directly to LOG_END_ROW — skip that slot
@@ -1138,6 +1175,7 @@ function drawPhaseGoal() {
 
 // worst-case: "Credits: 9999.0  Raw: 5  Widgets: 5/5  Price: 20cr" (50) + "[== market open 180s ==]" (24) = 74 chars ≤ 78
 function drawStatusBar() {
+  if (state.gameState === 'catacombs') { drawCatacombs(); return; }
   drawRow(STATUS_ROW, '', BRIGHT_WHITE);
   const inv = state.player.inventory;
   const cap = state.player.inventoryCaps;
@@ -1720,6 +1758,8 @@ function buildTileMap() {
 
   // Mine entrance — stamp when discovered (§Mine)
   if (state.mine.discovered) placeMineEntrance();
+  // Catacombs entrance — Phase 4+
+  if (state.phase >= 4) placeCatacombsEntrance();
 }
 
 function placeMineEntrance() {
@@ -1743,6 +1783,24 @@ function placeMineEntrance() {
   for (let dx = 0; dx < 4; dx++)
     for (let dy = 0; dy < 3; dy++)
       markDirty(mx + dx, my + dy);
+}
+
+function placeCatacombsEntrance() {
+  const mk = (g, fg, w) => ({ glyph: g, fg, bg: BG, walkable: w });
+  const cx = DISPLAY_WIDTH - 2, cy = 19;
+  const wc = '#554477', lc = '#aa77cc', dc = '#332255';
+  tileMap[cx-1][cy  ] = mk('╔', wc, false);
+  tileMap[cx  ][cy  ] = mk('╗', wc, false);
+  tileMap[cx-1][cy+1] = mk('C', lc, false);
+  tileMap[cx  ][cy+1] = mk('T', lc, false);
+  const door = mk('≡', dc, true);
+  door.station = 'catacombs';
+  door.description = 'The Catacombs entrance. Something sleeps below.';
+  tileMap[cx-1][cy+2] = door;
+  tileMap[cx  ][cy+2] = mk('╝', wc, false);
+  for (let dx = -1; dx <= 0; dx++)
+    for (let dy = 0; dy < 3; dy++)
+      markDirty(cx + dx, cy + dy);
 }
 
 // Inject cottage tiles into the live tileMap and mark them dirty.
@@ -2205,7 +2263,9 @@ function resetState() {
     state.settings = { fullscreen: savedFS ? JSON.parse(savedFS) : false, currentFontSize: state.settings?.currentFontSize ?? 16 }; }
   state.workers = { apprentices: [], couriers: [] };
   state.stats = { rmLastTen: [], widgetsLastTen: [], creditsLastTen: [], widgetsMadeToday: 0, revenueToday: 0, costsToday: 0 };
-  state.skills = { apprenticeCount: 0, courierCount: 0, workerCarryLevel: 0, workerSpeedLevel: 0, courierCarryLevel: 0, courierSpeedLevel: 0, storageExp1: 0, storageExp2: 0, reducedCarry: 0, discountDump: 0, demandHistory: 0, forecast: 0, futures: 0, optionsBuy: 0, optionsWrite: 0, volatilitySurface: 0, plantStory: 0, smearCampaign: 0, pickaxeLevel: 0, lantern: false, endurance: { pips: 0 }, aquatics: { purchased: false }, interfacing: { pips: 0 } };
+  state.skills = { apprenticeCount: 0, courierCount: 0, workerCarryLevel: 0, workerSpeedLevel: 0, courierCarryLevel: 0, courierSpeedLevel: 0, storageExp1: 0, storageExp2: 0, reducedCarry: 0, discountDump: 0, demandHistory: 0, forecast: 0, futures: 0, optionsBuy: 0, optionsWrite: 0, volatilitySurface: 0, plantStory: 0, smearCampaign: 0, pickaxeLevel: 0, lantern: false, endurance: { pips: 0 }, aquatics: { purchased: false }, interfacing: { pips: 0 }, swordLevel: 0, armorLevel: 0, bowOwned: false };
+  state.catacombs = { unlocked: false, completedTonight: false, playerX: 0, playerY: 0, hp: 10, maxHp: 10, tiles: [], enemies: [], chestOpened: false, goldCollected: 0, swordCooldown: 0, bowCooldown: 0, engagedEnemy: null, dungeonName: '' };
+  state.player.arrows = 0;
   state.mine = { discovered: false, discoveredDay: -1, tiles: [], lastGenDay: -1, playerX: 12, playerY: 13, playerDir: { x: 0, y: -1 }, totalMined: 0, crystals: 0, bareHandHits: 0, handsBloodied: false, kickedOut: false, kickedOutUntilPeriod: -1, enemyX: -1, enemyY: -1 };
   state.weather = { current: 'clear', forecast: 'clear', actualTomorrow: 'clear' };
   state.craftingTimeRemote = 10;
@@ -3468,7 +3528,9 @@ function applyPhaseUnlocks(phase) {
     }
   }
   if (phase >= 4) {
-    // Phase 4: terminal already unlocked; futures/options unlocked via skill purchases
+    // Phase 4: terminal already unlocked; catacombs entrance placed
+    state.catacombs.unlocked = true;
+    placeCatacombsEntrance();
   }
   if (phase >= 5) {
     if (!state.stations.launch_facility.unlocked) {
@@ -5475,14 +5537,19 @@ function openGeneralStoreMenu() {
       if(state.cottage.owned) drp(BOX_Y+12,'Cottage: OWNED','#66cc66');
       else drp(BOX_Y+12,'Need a cottage first.','#555555');
     } else if(gsTab==='tools'){
-      drp(BOX_Y+6,'TOOLS',TC); drp(BOX_Y+7,'Equipment for the underground.','#555555');
+      drp(BOX_Y+6,'TOOLS',TC); drp(BOX_Y+7,'Mining & combat equipment.','#555555');
       drp(BOX_Y+9,`a. Pickaxe           ${state.skills.pickaxeLevel>=1?'✓ owned':'15 stamps'}`,(state.skills.pickaxeLevel>=1)?'#66cc66':'#aaaaaa');
       drp(BOX_Y+10,`b. Brand Name Pickaxe ${state.skills.pickaxeLevel>=2?'✓ owned':'40 stamps'}`,(state.skills.pickaxeLevel>=2)?'#66cc66':'#aaaaaa');
       drp(BOX_Y+11,`c. Lantern           ${state.skills.lantern?'✓ owned':'20 stamps'}`,(state.skills.lantern)?'#66cc66':'#aaaaaa');
-      drp(BOX_Y+12,'─'.repeat(IPW),DC);
-      drp(BOX_Y+13,`Sell crystal: 25g each`,'#555555');
-      drp(BOX_Y+14,`d. Sell 1 crystal${state.mine.crystals>0?'  +25g':'  [none]'}`,state.mine.crystals>0?'#66cc66':'#444444');
-      drp(BOX_Y+15,`Crystals: ${state.mine.crystals}/5`,'#66ccff');
+      drp(BOX_Y+12,`d. Sell 1 crystal${state.mine.crystals>0?'  +25g':'  [none]'}`,state.mine.crystals>0?'#66cc66':'#444444');
+      drp(BOX_Y+13,'─'.repeat(IPW),DC);
+      drp(BOX_Y+14,'COMBAT (Catacombs)','#aa77cc');
+      drp(BOX_Y+15,`e. Iron Sword        ${state.skills.swordLevel>=1?'✓ owned':'60g'}`,(state.skills.swordLevel>=1)?'#66cc66':'#aaaaaa');
+      drp(BOX_Y+16,`f. Steel Sword       ${state.skills.swordLevel>=2?'✓ owned':'150g'}`,(state.skills.swordLevel>=2)?'#66cc66':'#aaaaaa');
+      drp(BOX_Y+17,`g. Leather Armor     ${state.skills.armorLevel>=1?'✓ owned':'45g'}`,(state.skills.armorLevel>=1)?'#66cc66':'#aaaaaa');
+      drp(BOX_Y+18,`h. Chain Armor       ${state.skills.armorLevel>=2?'✓ owned':'200g'}`,(state.skills.armorLevel>=2)?'#66cc66':'#aaaaaa');
+      drp(BOX_Y+19,`i. Bow               ${state.skills.bowOwned?'✓ owned':'75g'}`,(state.skills.bowOwned)?'#66cc66':'#aaaaaa');
+      drp(BOX_Y+20,`j. Arrows (10-pack)  6g  [have: ${state.player.arrows||0}]`,'#aaaaaa');
     } else {
       // recipes tab
       const hasCottage = state.cottage.owned;
@@ -5561,7 +5628,7 @@ function openGeneralStoreMenu() {
     { const ay=BOX_Y+30; border(ay); for(let i=0;i<IW;i++) display.draw(BOX_X+1+i,ay,'═',DC,BG); }
     // Row 31: footer
     { const ay=BOX_Y+31; border(ay);
-      const txt=gsTab==='clothing'?'a–m: buy/equip  ←→: switch tab  ESC: exit':gsTab==='home_goods'?'a–l: buy/visit  ←→: switch tab  ESC: exit':gsTab==='garden'?'a–l: plant  ←→: switch tab  ESC: exit':gsTab==='tools'?'a–d: buy/sell  ←→: switch tab  ESC: exit':'a–h: buy recipe (50 stamps)  ←: prev  ESC: exit';
+      const txt=gsTab==='clothing'?'a–m: buy/equip  ←→: switch tab  ESC: exit':gsTab==='home_goods'?'a–l: buy/visit  ←→: switch tab  ESC: exit':gsTab==='garden'?'a–l: plant  ←→: switch tab  ESC: exit':gsTab==='tools'?'a–d: mine  e–j: combat  ←→: tab  ESC: exit':'a–h: buy recipe (50 stamps)  ←: prev  ESC: exit';
       const pad=' '.repeat(Math.max(0,Math.floor((IW-txt.length)/2)));
       const padded=menuPad(pad+txt,IW);
       for(let i=0;i<IW;i++) display.draw(BOX_X+1+i,ay,padded[i]||' ','#555555',BG); }
@@ -5633,6 +5700,54 @@ function openGeneralStoreMenu() {
         state.player.gold = Math.round((state.player.gold + 25) * 10) / 10;
         state.lifetimeGoldEarned = Math.round((state.lifetimeGoldEarned + 25) * 10) / 10;
         addLog('Sold 1 crystal for 25g.', '#66ccff'); playSound('sold'); drawStatusBar(); redraw();
+        return;
+      }
+      // Combat equipment (e–j)
+      if (e.key === 'e') {
+        if (state.skills.swordLevel >= 1) { addLog('You already own a sword.', '#555555'); return; }
+        if (!payForItem(60, false)) { addLog('Need 60g for an Iron Sword.', '#ff5555'); return; }
+        state.skills.swordLevel = 1;
+        addLog('Iron Sword purchased. Now you can enter the Catacombs.', '#aa77cc'); playSound('bought'); drawStatusBar(); redraw();
+        return;
+      }
+      if (e.key === 'f') {
+        if (state.skills.swordLevel < 1) { addLog('You need an Iron Sword first.', '#555555'); return; }
+        if (state.skills.swordLevel >= 2) { addLog('You already own a Steel Sword.', '#555555'); return; }
+        if (!payForItem(150, false)) { addLog('Need 150g for a Steel Sword.', '#ff5555'); return; }
+        state.skills.swordLevel = 2;
+        addLog('Steel Sword! +2 attack. The blade is cold to the touch.', '#aa77cc'); playSound('bought'); drawStatusBar(); redraw();
+        return;
+      }
+      if (e.key === 'g') {
+        if (state.skills.armorLevel >= 1) { addLog('You already own leather armor.', '#555555'); return; }
+        if (!payForItem(45, false)) { addLog('Need 45g for Leather Armor.', '#ff5555'); return; }
+        state.skills.armorLevel = 1;
+        state.catacombs.maxHp = 15;
+        addLog('Leather Armor purchased. Max HP +5.', '#aa77cc'); playSound('bought'); drawStatusBar(); redraw();
+        return;
+      }
+      if (e.key === 'h') {
+        if (state.skills.armorLevel < 1) { addLog('You need Leather Armor first.', '#555555'); return; }
+        if (state.skills.armorLevel >= 2) { addLog('You already own chain armor.', '#555555'); return; }
+        if (!payForItem(200, false)) { addLog('Need 200g for Chain Armor.', '#ff5555'); return; }
+        state.skills.armorLevel = 2;
+        state.catacombs.maxHp = 20;
+        addLog('Chain Armor! Max HP +10. Heavy, but reassuring.', '#aa77cc'); playSound('bought'); drawStatusBar(); redraw();
+        return;
+      }
+      if (e.key === 'i') {
+        if (state.skills.bowOwned) { addLog('You already own a bow.', '#555555'); return; }
+        if (!payForItem(75, false)) { addLog('Need 75g for a Bow.', '#ff5555'); return; }
+        state.skills.bowOwned = true;
+        addLog('Bow purchased. Buy arrows to use it in combat.', '#aa77cc'); playSound('bought'); drawStatusBar(); redraw();
+        return;
+      }
+      if (e.key === 'j') {
+        if ((state.player.arrows || 0) >= 10) { addLog('You already have 10 arrows (max).', '#555555'); return; }
+        if (!state.skills.bowOwned) { addLog('Buy a bow first.', '#555555'); return; }
+        if (!payForItem(6, false)) { addLog('Need 6g for 10 arrows.', '#ff5555'); return; }
+        state.player.arrows = Math.min(10, (state.player.arrows || 0) + 10);
+        addLog(`Bought arrows. You have ${state.player.arrows} arrows.`, '#aa77cc'); playSound('bought'); drawStatusBar(); redraw();
         return;
       }
       return;
@@ -7651,6 +7766,7 @@ function renderLargeNumber(display, x, y, numberString, color, availableWidth) {
 // ── Launch Facility menu (§9) ─────────────────────────────────────────────────
 
 const CHANGELOG = [
+  { version: '1.07.14', summary: 'The Catacombs — night combat dungeon, sword/bow, 5 goblins + dragon boss, treasure. Dev menu updated with all unlocks.' },
   { version: '1.07.13', summary: 'Hammer animation driven at 60fps — all 10 frames now visible.' },
   { version: '1.07.12', summary: 'Credit score rework, bankruptcy game over, stamp overhaul, kitchen/veggie/credit/fog bug fixes.' },
   { version: '1.07.11', summary: 'Recipe tab (8 recipes, 50 stamps each). Mining tab renamed to Tools. Kitchen stove highlighted. Inventory cells color-coded.' },
@@ -9131,6 +9247,299 @@ function generateMineTiles() {
   if (state.mine.totalMined > 0) addLog('The mine has shifted. New deposits available.', '#aaaaaa');
 }
 
+// ── Catacombs dungeon system (§Catacombs) ─────────────────────────────────────
+
+const CAT_W = 40, CAT_H = 22;
+const DUNGEON_NAMES = [
+  'The Vault of Echoes', 'The Hollow Below', 'Greyspine Depths',
+  'The Sunken Gallery', 'Murkmoor Descent', 'The Ashen Warren',
+  'Coldvein Passage', 'The Blind Corridor',
+];
+
+function generateCatacombsTiles() {
+  const tiles = [];
+  for (let x = 0; x < CAT_W; x++) { tiles[x] = []; for (let y = 0; y < CAT_H; y++) tiles[x][y] = { type: 'wall' }; }
+
+  function carve(x, y, w, h) {
+    for (let dx = 0; dx < w; dx++) for (let dy = 0; dy < h; dy++) {
+      const tx = x + dx, ty = y + dy;
+      if (tx > 0 && tx < CAT_W - 1 && ty > 0 && ty < CAT_H - 1) tiles[tx][ty] = { type: 'floor' };
+    }
+  }
+
+  // Four rooms
+  const rooms = [
+    { x: 1,  y: 1,  w: 10, h: 6  },
+    { x: 14, y: 1,  w: 10, h: 6  },
+    { x: 1,  y: 10, w: 12, h: 8  },
+    { x: 25, y: 8,  w: 13, h: 12 },
+  ];
+  for (const r of rooms) carve(r.x, r.y, r.w, r.h);
+  // Corridors
+  carve(11, 3, 3, 2);   // room0 → room1
+  carve(6,  7, 2, 3);   // room0 → room2
+  carve(13, 12, 12, 2); // room2 → room3
+  carve(24, 3, 2, 5);   // room1 → room3 corridor top
+  // Water pools in room3
+  for (let wx = 27; wx <= 29; wx++) for (let wy = 10; wy <= 11; wy++) tiles[wx][wy] = { type: 'water' };
+  // Chest in room3 far corner
+  tiles[36][9] = { type: 'chest' };
+  // Start in room0
+  const startX = 3, startY = 3;
+  // Enemies: 5 goblins spread across rooms + 1 dragon boss in room3
+  const enemies = [
+    { id: 0, type: 'goblin', x: 5,  y: 2,  hp: 4, maxHp: 4, name: 'Goblin',       color: '#88aa44' },
+    { id: 1, type: 'goblin', x: 17, y: 4,  hp: 4, maxHp: 4, name: 'Goblin Scout', color: '#88aa44' },
+    { id: 2, type: 'goblin', x: 4,  y: 14, hp: 4, maxHp: 4, name: 'Goblin',       color: '#88aa44' },
+    { id: 3, type: 'goblin', x: 10, y: 15, hp: 4, maxHp: 4, name: 'Cave Goblin',  color: '#aacc44' },
+    { id: 4, type: 'goblin', x: 22, y: 12, hp: 4, maxHp: 4, name: 'Goblin',       color: '#88aa44' },
+    { id: 5, type: 'dragon', x: 33, y: 16, hp: 20, maxHp: 20, name: 'THE DRAGON', color: '#ff4422' },
+  ];
+  return { tiles, enemies, startX, startY };
+}
+
+let catacombsKeyHandler = null;
+
+function drawCatacombs() {
+  if (state.gameState !== 'catacombs') return;
+  const cat = state.catacombs;
+  const TILE_COLORS = { wall: '#333333', floor: '#666655', water: '#2244aa', chest: '#ffd633' };
+  const TILE_GLYPHS = { wall: '#', floor: '.', water: '~', chest: '▣' };
+  // Camera: keep player centered
+  const vpW = DISPLAY_WIDTH, vpH = WORLD_ROWS;
+  const offX = Math.max(0, Math.min(cat.playerX - Math.floor(vpW / 2), CAT_W - vpW));
+  const offY = Math.max(0, Math.min(cat.playerY - Math.floor(vpH / 2), CAT_H - vpH));
+
+  for (let sy = 0; sy < vpH; sy++) {
+    for (let sx = 0; sx < vpW; sx++) {
+      const tx = sx + offX, ty = sy + offY;
+      if (tx < 0 || tx >= CAT_W || ty < 0 || ty >= CAT_H) { display.draw(sx, sy, ' ', '#000000', '#000000'); continue; }
+      const tile = cat.tiles[tx]?.[ty];
+      if (!tile) { display.draw(sx, sy, ' ', '#000000', '#000000'); continue; }
+      const g = TILE_GLYPHS[tile.type] || '#';
+      const fc = TILE_COLORS[tile.type] || '#333333';
+      display.draw(sx, sy, g, fc, '#111111');
+    }
+  }
+  // Enemies
+  for (const en of cat.enemies) {
+    const sx = en.x - offX, sy = en.y - offY;
+    if (sx >= 0 && sx < vpW && sy >= 0 && sy < vpH) {
+      const g = en.type === 'dragon' ? 'D' : 'g';
+      display.draw(sx, sy, g, en.color, '#111111');
+    }
+  }
+  // Player
+  const px = cat.playerX - offX, py = cat.playerY - offY;
+  display.draw(px, py, '@', state.player.color || '#f0f0f0', '#111111');
+  // Status bar
+  const armorStr = ['none','leather','chain'][state.skills.armorLevel || 0];
+  const swordStr = ['none','iron','steel'][state.skills.swordLevel || 0];
+  const hpBar = `HP:${cat.hp}/${cat.maxHp} ♥  ${swordStr} sword  ${armorStr} armor  arrows:${state.player.arrows||0}`;
+  drawRow(STATUS_ROW, hpBar.padEnd(DISPLAY_WIDTH), '#aa77cc');
+  // Log row
+  const logTxt = `${cat.dungeonName}  |  arrows:${state.player.arrows||0}  gold here:${cat.goldCollected}g  |  SPACE+↕←→:sword  B+↕←→:bow  ESC:flee`;
+  drawRow(HINT_ROW, logTxt.substring(0, DISPLAY_WIDTH), '#555555');
+}
+
+function enterCatacombs() {
+  const cat = state.catacombs;
+  const gen = generateCatacombsTiles();
+  cat.tiles = gen.tiles;
+  cat.enemies = gen.enemies;
+  cat.playerX = gen.startX;
+  cat.playerY = gen.startY;
+  const armorHp = [10, 15, 20][state.skills.armorLevel || 0];
+  cat.hp = armorHp; cat.maxHp = armorHp;
+  cat.chestOpened = false; cat.goldCollected = 0;
+  cat.swordCooldown = 0; cat.bowCooldown = 0; cat.engagedEnemy = null;
+  cat.dungeonName = DUNGEON_NAMES[Math.floor(Math.random() * DUNGEON_NAMES.length)];
+
+  state.gameState = 'catacombs';
+  clearScreen();
+
+  // Dramatic name reveal
+  const nameLines = [
+    '',
+    '  You descend into the dark.',
+    '',
+    `  ${cat.dungeonName}`,
+    '',
+    '  Press any key...',
+  ];
+  for (let i = 0; i < nameLines.length; i++) {
+    const line = nameLines[i];
+    for (let x = 0; x < DISPLAY_WIDTH; x++) {
+      display.draw(x, 10 + i, x < line.length ? line[x] : ' ', '#aa77cc', '#111111');
+    }
+  }
+  // Draw full screen dark background
+  for (let y = 0; y < STATUS_ROW; y++)
+    for (let x = 0; x < DISPLAY_WIDTH; x++)
+      if (y < 10 || y > 15) display.draw(x, y, ' ', '#000000', '#111111');
+
+  function startHandler(e) {
+    e.preventDefault();
+    window.removeEventListener('keydown', startHandler, { capture: true });
+    drawCatacombs();
+    window.addEventListener('keydown', catacombsKeyHandler, { capture: true });
+  }
+  window.addEventListener('keydown', startHandler, { capture: true, once: true });
+}
+
+function catacombsMove(dx, dy) {
+  const cat = state.catacombs;
+  const nx = cat.playerX + dx, ny = cat.playerY + dy;
+  if (nx < 0 || nx >= CAT_W || ny < 0 || ny >= CAT_H) return;
+  const tile = cat.tiles[nx]?.[ny];
+  if (!tile || tile.type === 'wall' || tile.type === 'water') return;
+  // Check enemy collision
+  const bump = cat.enemies.find(e => e.x === nx && e.y === ny);
+  if (bump) return; // blocked by enemy, use sword/bow
+  cat.playerX = nx; cat.playerY = ny;
+  // Chest
+  if (tile.type === 'chest' && !cat.chestOpened) {
+    cat.chestOpened = true;
+    cat.tiles[nx][ny] = { type: 'floor' };
+    const gold = 30 + Math.floor(Math.random() * 40);
+    state.player.gold = Math.round((state.player.gold + gold) * 10) / 10;
+    state.lifetimeGoldEarned = Math.round((state.lifetimeGoldEarned + gold) * 10) / 10;
+    cat.goldCollected += gold;
+    addLog(`You open the chest! Found ${gold}g.`, '#ffd633');
+  }
+  // Enemy AI: move toward player if within 8 tiles
+  catacombsEnemyMove();
+  drawCatacombs();
+}
+
+function catacombsSwordAttack(dx, dy) {
+  const cat = state.catacombs;
+  if (cat.swordCooldown > 0) { addLog('Sword not ready.', '#ff5555'); return; }
+  const tx = cat.playerX + dx, ty = cat.playerY + dy;
+  const enemy = cat.enemies.find(e => e.x === tx && e.y === ty);
+  if (!enemy) return;
+  const dmg = state.skills.swordLevel >= 2 ? 3 : 2;
+  enemy.hp -= dmg;
+  cat.swordCooldown = 2;
+  addLog(`You hit ${enemy.name} for ${dmg} damage. (${enemy.hp}/${enemy.maxHp} HP)`, '#ffaa33');
+  if (enemy.hp <= 0) {
+    const gold = enemy.type === 'dragon' ? 100 : 8 + Math.floor(Math.random() * 7);
+    cat.enemies = cat.enemies.filter(e => e.id !== enemy.id);
+    state.player.gold = Math.round((state.player.gold + gold) * 10) / 10;
+    state.lifetimeGoldEarned = Math.round((state.lifetimeGoldEarned + gold) * 10) / 10;
+    cat.goldCollected += gold;
+    addLog(`${enemy.name} defeated! +${gold}g.`, '#66cc66');
+    if (enemy.type === 'dragon' && cat.enemies.length === 0) {
+      addLog('All enemies defeated! Find the exit (ESC).', '#ffd633');
+    }
+  }
+  catacombsEnemyMove();
+  drawCatacombs();
+}
+
+function catacombsBowAttack(dx, dy) {
+  const cat = state.catacombs;
+  if (!state.skills.bowOwned) { addLog('You have no bow.', '#555555'); return; }
+  if ((state.player.arrows || 0) < 1) { addLog('No arrows!', '#ff5555'); return; }
+  if (cat.bowCooldown > 0) { addLog('Bow not ready.', '#ff5555'); return; }
+  // Find first enemy in that direction up to 5 tiles
+  let hit = null;
+  for (let i = 1; i <= 5; i++) {
+    const tx = cat.playerX + dx * i, ty = cat.playerY + dy * i;
+    if (tx < 0 || tx >= CAT_W || ty < 0 || ty >= CAT_H) break;
+    const tile = cat.tiles[tx]?.[ty];
+    if (tile && tile.type === 'wall') break;
+    hit = cat.enemies.find(e => e.x === tx && e.y === ty);
+    if (hit) break;
+  }
+  state.player.arrows--;
+  cat.bowCooldown = 1;
+  if (!hit) { addLog('Arrow flies wide.', '#aaaaaa'); drawCatacombs(); return; }
+  hit.hp -= 2;
+  addLog(`Arrow hits ${hit.name} for 2 damage. (${hit.hp}/${hit.maxHp} HP)`, '#ffaa33');
+  if (hit.hp <= 0) {
+    const gold = hit.type === 'dragon' ? 100 : 8 + Math.floor(Math.random() * 7);
+    cat.enemies = cat.enemies.filter(e => e.id !== hit.id);
+    state.player.gold = Math.round((state.player.gold + gold) * 10) / 10;
+    state.lifetimeGoldEarned = Math.round((state.lifetimeGoldEarned + gold) * 10) / 10;
+    cat.goldCollected += gold;
+    addLog(`${hit.name} defeated! +${gold}g.`, '#66cc66');
+  }
+  catacombsEnemyMove();
+  drawCatacombs();
+}
+
+function catacombsEnemyMove() {
+  const cat = state.catacombs;
+  if (cat.swordCooldown > 0) cat.swordCooldown--;
+  if (cat.bowCooldown > 0) cat.bowCooldown--;
+  for (const en of cat.enemies) {
+    const dist = Math.abs(en.x - cat.playerX) + Math.abs(en.y - cat.playerY);
+    if (dist > 8) continue;
+    // Simple step toward player
+    const dx = Math.sign(cat.playerX - en.x), dy = Math.sign(cat.playerY - en.y);
+    let moved = false;
+    for (const [mx, my] of [[dx, 0], [0, dy], [dx, dy]]) {
+      const nx = en.x + mx, ny = en.y + my;
+      if (nx < 0 || nx >= CAT_W || ny < 0 || ny >= CAT_H) continue;
+      const t = cat.tiles[nx]?.[ny];
+      if (!t || t.type === 'wall' || t.type === 'water') continue;
+      if (cat.enemies.some(e => e !== en && e.x === nx && e.y === ny)) continue;
+      if (nx === cat.playerX && ny === cat.playerY) {
+        // Enemy attacks player
+        const dmg = en.type === 'dragon' ? 4 : 1;
+        cat.hp -= dmg;
+        addLog(`${en.name} attacks you for ${dmg} damage! HP: ${cat.hp}/${cat.maxHp}`, '#ff5555');
+        if (cat.hp <= 0) { exitCatacombs(true); return; }
+        moved = true; break;
+      }
+      en.x = nx; en.y = ny; moved = true; break;
+    }
+  }
+}
+
+const _catHeld = new Set();
+window.addEventListener('keyup', e => { _catHeld.delete(e.key); });
+
+catacombsKeyHandler = function(e) {
+  if (state.gameState !== 'catacombs') return;
+  if (e.key === 'Escape') { e.preventDefault(); exitCatacombs(false); return; }
+  // Track held keys for combo detection
+  _catHeld.add(e.key);
+  // Directional input
+  let dx = 0, dy = 0;
+  if (e.key === 'ArrowUp')    { dy = -1; e.preventDefault(); }
+  else if (e.key === 'ArrowDown')  { dy = 1;  e.preventDefault(); }
+  else if (e.key === 'ArrowLeft')  { dx = -1; e.preventDefault(); }
+  else if (e.key === 'ArrowRight') { dx = 1;  e.preventDefault(); }
+  else { return; } // non-arrow: just track in heldKeys
+  if (dx === 0 && dy === 0) return;
+  // Space + arrow = sword attack
+  if (_catHeld.has(' ')) { e.preventDefault(); catacombsSwordAttack(dx, dy); return; }
+  // b + arrow = bow attack
+  if (_catHeld.has('b') || _catHeld.has('B')) { e.preventDefault(); catacombsBowAttack(dx, dy); return; }
+  // Plain movement
+  catacombsMove(dx, dy);
+};
+
+function exitCatacombs(died) {
+  if (catacombsKeyHandler) window.removeEventListener('keydown', catacombsKeyHandler, { capture: true });
+  state.catacombs.completedTonight = true;
+  state.gameState = 'playing';
+  if (died) {
+    addLog('You blacked out in the Catacombs and woke up outside. Lost no gold.', '#ff5555');
+    state.catacombs.hp = state.catacombs.maxHp;
+  } else {
+    const total = state.catacombs.goldCollected;
+    if (total > 0) addLog(`You escape the Catacombs with ${total}g earned.`, '#aa77cc');
+    else addLog('You retreat from the Catacombs.', '#aa77cc');
+  }
+  clearScreen();
+  drawWorld();
+  drawStatusBar();
+  renderLog();
+}
+
 function enterMine() {
   if (state.mine.kickedOut) {
     const currentPeriod = Math.floor(state.day / 2);
@@ -9376,6 +9785,14 @@ function handleInteract() {
   // Mine entrance check
   if (tileMap[px]?.[py]?.station === 'mine') {
     enterMine();
+    return;
+  }
+  // Catacombs entrance check
+  if (tileMap[px]?.[py]?.station === 'catacombs') {
+    if (state.skills.swordLevel < 1) { addLog('You need a sword to enter the Catacombs.', '#aa77cc'); return; }
+    if (state.marketOpen) { addLog('The Catacombs are only accessible at night.', '#aa77cc'); return; }
+    if (state.catacombs.completedTonight) { addLog('You have already braved the Catacombs tonight.', '#aa77cc'); return; }
+    enterCatacombs();
     return;
   }
   // Shiny rock collection — Space on exact tile (first priority, always wins)
@@ -11554,7 +11971,15 @@ function devUnlockEverything() {
   placeMineEntrance();
   state.weather = { current: 'clear', forecast: 'rain', actualTomorrow: 'storm' };
 
-  addLog('DEV: Everything unlocked. Rocket at 4,990. Couriers set to market.', '#ff5555');
+  // Catacombs and combat gear
+  state.catacombs.unlocked = true;
+  state.skills.swordLevel = 2;
+  state.skills.armorLevel = 2;
+  state.skills.bowOwned = true;
+  state.player.arrows = 10;
+  state.catacombs.maxHp = 20;
+
+  addLog('DEV: Everything unlocked. Rocket at 4,990. Catacombs unlocked.', '#ff5555');
   addLog('Toggle couriers to rocket when ready for the finale.', '#ff5555');
 }
 
@@ -12114,7 +12539,7 @@ setInterval(() => {
   }
 
   if (state.gameState === 'gameover' || state.gameState === 'ending') return;
-  if (state.gameState !== 'playing' && state.gameState !== 'crafting' && state.gameState !== 'dashboard' && state.gameState !== 'inventory' && state.gameState !== 'lf_menu' && state.gameState !== 'rm_menu' && state.gameState !== 'wb_menu' && state.gameState !== 'mt_menu' && state.gameState !== 'dv_menu' && state.gameState !== 'cottage' && state.gameState !== 'fishing' && state.gameState !== 'casino' && state.gameState !== 'mine') return;
+  if (state.gameState !== 'playing' && state.gameState !== 'crafting' && state.gameState !== 'dashboard' && state.gameState !== 'inventory' && state.gameState !== 'lf_menu' && state.gameState !== 'rm_menu' && state.gameState !== 'wb_menu' && state.gameState !== 'mt_menu' && state.gameState !== 'dv_menu' && state.gameState !== 'cottage' && state.gameState !== 'fishing' && state.gameState !== 'casino' && state.gameState !== 'mine' && state.gameState !== 'catacombs') return;
 
   // Stats: snapshot before tick for delta computation
   const _sCr = state.player.gold;
@@ -12207,6 +12632,8 @@ setInterval(() => {
   }
   if (state.dayTick === 0 && !state.bellFiredToday) {
     state.bellFiredToday = true;
+    // Catacombs reset for new day
+    if (state.catacombs) state.catacombs.completedTonight = false;
     // Garden regrowth
     if (state.gardenRegrow) {
       for (const [key, regrowDay] of Object.entries(state.gardenRegrow)) {
@@ -12483,7 +12910,7 @@ setInterval(() => {
     }
 
   }
-  if (state.gameState !== 'mine') drawTimeIndicator();
+  if (state.gameState !== 'mine' && state.gameState !== 'catacombs') drawTimeIndicator();
 
   // Stamp hint on first night — day 1 night phase only, once ever (§13)
   if (state.day === 1 && state.dayTick === state.player.stampHintTick && !state.player.stampHintFired) {
@@ -12492,7 +12919,7 @@ setInterval(() => {
     const hintEntry = { text: hintText, rich: true, colors: [COLOR_STAMPS, '#f0f0f0'] };
     state.logLines.push(hintEntry);
     if (state.logLines.length > 5) state.logLines.shift();
-    if (state.gameState !== 'mine') renderLog();
+    if (state.gameState !== 'mine' && state.gameState !== 'catacombs') renderLog();
   }
 
   // (Per-tick stamp event removed — stamps awarded daily at dawn)
