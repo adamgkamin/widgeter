@@ -1020,7 +1020,7 @@ drawArt(0);
 drawPrompt(true);
 
 const CREDIT  = "Created by Adam A.";
-const VERSION = "alpha 1.07.27";
+const VERSION = "alpha 1.07.28";
 
 // ── Sound system ──────────────────────────────────────────────────────────────
 const SOUNDS = {};
@@ -8245,6 +8245,7 @@ function openKeyReference() {
 // ── Launch Facility menu (§9) ─────────────────────────────────────────────────
 
 const CHANGELOG = [
+  { version: '1.07.28', summary: 'Catacombs: full-screen map (78x41), Dark Souls names, dragon 10HP, timestamp cooldowns, enemy bump message, log visible.' },
   { version: '1.07.27', summary: 'Fixed extra pip: pipStart was off by 1 (hardcoded 15 vs actual namePad.length).' },
   { version: '1.07.26', summary: 'Fixed extra pip on every skill. All skills use crystals (5 each), not gold.' },
   { version: '1.07.25', summary: 'Combat modes: Space/B enters mode, direction fires. Credit toggle on C. Market courier port/market toggle (space/z).' },
@@ -9904,52 +9905,72 @@ function generateMineTiles() {
 
 // ── Catacombs dungeon system (§Catacombs) ─────────────────────────────────────
 
-const CAT_W = 40, CAT_H = 22;
-const DUNGEON_NAMES = [
-  'The Vault of Echoes', 'The Hollow Below', 'Greyspine Depths',
-  'The Sunken Gallery', 'Murkmoor Descent', 'The Ashen Warren',
-  'Coldvein Passage', 'The Blind Corridor',
-];
+const CAT_W = 78, CAT_H = 41;
+const DUNGEON_ADJ  = ['LEAKY','FIERY','SUNKEN','FROZEN','CURSED','ROTTING',
+                       'FLOODED','ASHEN','SHATTERED','BLEEDING'];
+const DUNGEON_NOUN = ['HELLSCAPE','GROTTO','LABYRINTH','CATACOMB','DEPTHS',
+                       'PASSAGE','HOLLOW','DUNGEON','UNDERCROFT','ABYSS'];
 
 function generateCatacombsTiles() {
   const tiles = [];
-  for (let x = 0; x < CAT_W; x++) { tiles[x] = []; for (let y = 0; y < CAT_H; y++) tiles[x][y] = { type: 'wall' }; }
+  for (let x = 0; x < CAT_W; x++) {
+    tiles[x] = [];
+    for (let y = 0; y < CAT_H; y++) tiles[x][y] = { type: 'wall' };
+  }
 
   function carve(x, y, w, h) {
     for (let dx = 0; dx < w; dx++) for (let dy = 0; dy < h; dy++) {
-      const tx = x + dx, ty = y + dy;
-      if (tx > 0 && tx < CAT_W - 1 && ty > 0 && ty < CAT_H - 1) tiles[tx][ty] = { type: 'floor' };
+      const tx = x+dx, ty = y+dy;
+      if (tx > 0 && tx < CAT_W-1 && ty > 0 && ty < CAT_H-1)
+        tiles[tx][ty] = { type: 'floor' };
     }
   }
 
-  // Four rooms
-  const rooms = [
-    { x: 1,  y: 1,  w: 10, h: 6  },
-    { x: 14, y: 1,  w: 10, h: 6  },
-    { x: 1,  y: 10, w: 12, h: 8  },
-    { x: 25, y: 8,  w: 13, h: 12 },
-  ];
-  for (const r of rooms) carve(r.x, r.y, r.w, r.h);
-  // Corridors
-  carve(11, 3, 3, 2);   // room0 → room1
-  carve(6,  7, 2, 3);   // room0 → room2
-  carve(13, 12, 12, 2); // room2 → room3
-  carve(24, 3, 2, 5);   // room1 → room3 corridor top
-  // Water pools in room3
-  for (let wx = 27; wx <= 29; wx++) for (let wy = 10; wy <= 11; wy++) tiles[wx][wy] = { type: 'water' };
-  // Chest in room3 far corner
-  tiles[36][9] = { type: 'chest' };
-  // Start in room0
-  const startX = 3, startY = 3;
-  // Enemies: 5 goblins spread across rooms + 1 dragon boss in room3
+  // Room 0 — entry room (top-left), player starts here
+  carve(1, 1, 12, 8);
+  // Room 1 — top-right
+  carve(20, 1, 22, 8);
+  // Room 2 — mid-left
+  carve(1, 14, 14, 10);
+  // Room 3 — center
+  carve(20, 12, 20, 10);
+  // Room 4 — mid-right
+  carve(50, 10, 14, 12);
+  // Room 5 — bottom spanning
+  carve(8, 26, 62, 12);
+
+  // Corridors connecting rooms
+  carve(13, 3, 7, 3);   // room0 → room1 (horizontal top)
+  carve(8,  9, 3, 5);   // room0 → room2 (vertical)
+  carve(15, 16, 5, 3);  // room2 → room3 (horizontal)
+  carve(40, 14, 10, 3); // room3 → room4 (horizontal)
+  carve(55, 22, 3, 4);  // room4 → room5 (vertical)
+  carve(22, 9, 3, 3);   // room1 → room3 (vertical)
+  carve(25, 28, 3, 5);  // room2-area → room5
+  carve(8,  24, 3, 2);  // room2 bottom → room5
+
+  // Water pool in room5 near boss
+  for (let wx = 52; wx <= 56; wx++)
+    for (let wy = 30; wy <= 32; wy++)
+      if (tiles[wx][wy].type === 'floor') tiles[wx][wy] = { type: 'water' };
+
+  // Chest — deep in room5, past the dragon
+  if (tiles[68][35].type === 'floor') tiles[68][35] = { type: 'chest' };
+  else tiles[60][34] = { type: 'chest' };
+
+  // Start position — room0 center
+  const startX = 5, startY = 4;
+
+  // Enemies
   const enemies = [
-    { id: 0, type: 'goblin', x: 5,  y: 2,  hp: 4, maxHp: 4, name: 'Goblin',       color: '#88aa44' },
-    { id: 1, type: 'goblin', x: 17, y: 4,  hp: 4, maxHp: 4, name: 'Goblin Scout', color: '#88aa44' },
-    { id: 2, type: 'goblin', x: 4,  y: 14, hp: 4, maxHp: 4, name: 'Goblin',       color: '#88aa44' },
-    { id: 3, type: 'goblin', x: 10, y: 15, hp: 4, maxHp: 4, name: 'Cave Goblin',  color: '#aacc44' },
-    { id: 4, type: 'goblin', x: 22, y: 12, hp: 4, maxHp: 4, name: 'Goblin',       color: '#88aa44' },
-    { id: 5, type: 'dragon', x: 33, y: 16, hp: 20, maxHp: 20, name: 'THE DRAGON', color: '#ff4422' },
+    { id: 0, type: 'goblin', x: 8,  y: 3,  hp: 4, maxHp: 4,   name: 'Goblin',       color: '#88aa44' },
+    { id: 1, type: 'goblin', x: 30, y: 4,  hp: 4, maxHp: 4,   name: 'Goblin Scout', color: '#88aa44' },
+    { id: 2, type: 'goblin', x: 6,  y: 18, hp: 4, maxHp: 4,   name: 'Goblin',       color: '#88aa44' },
+    { id: 3, type: 'goblin', x: 28, y: 17, hp: 4, maxHp: 4,   name: 'Cave Goblin',  color: '#aacc44' },
+    { id: 4, type: 'goblin', x: 58, y: 14, hp: 4, maxHp: 4,   name: 'Goblin Guard', color: '#88aa44' },
+    { id: 5, type: 'dragon', x: 55, y: 33, hp: 10, maxHp: 10, name: 'THE DRAGON',   color: '#ff4422' },
   ];
+
   return { tiles, enemies, startX, startY };
 }
 
@@ -9962,13 +9983,17 @@ function drawCatacombs() {
   const TILE_GLYPHS = { wall: '#', floor: '.', water: '~', chest: '▣' };
   // Camera: keep player centered
   const vpW = DISPLAY_WIDTH, vpH = WORLD_ROWS;
-  const offX = Math.max(0, Math.min(cat.playerX - Math.floor(vpW / 2), CAT_W - vpW));
-  const offY = Math.max(0, Math.min(cat.playerY - Math.floor(vpH / 2), CAT_H - vpH));
+  const offX = Math.max(0, Math.min(cat.playerX - Math.floor(vpW/2), Math.max(0, CAT_W - vpW)));
+  const offY = Math.max(0, Math.min(cat.playerY - Math.floor(vpH/2), Math.max(0, CAT_H - vpH)));
 
   for (let sy = 0; sy < vpH; sy++) {
     for (let sx = 0; sx < vpW; sx++) {
       const tx = sx + offX, ty = sy + offY;
-      if (tx < 0 || tx >= CAT_W || ty < 0 || ty >= CAT_H) { display.draw(sx, sy, ' ', '#000000', '#000000'); continue; }
+      if (tx < 0 || tx >= CAT_W || ty < 0 || ty >= CAT_H) {
+        const stoneChar = ((sx + sy) % 3 === 0) ? '·' : ' ';
+        display.draw(sx, sy, stoneChar, '#1a1a1a', '#111111');
+        continue;
+      }
       const tile = cat.tiles[tx]?.[ty];
       if (!tile) { display.draw(sx, sy, ' ', '#000000', '#000000'); continue; }
       const g = TILE_GLYPHS[tile.type] || '#';
@@ -9987,6 +10012,15 @@ function drawCatacombs() {
   // Player
   const px = cat.playerX - offX, py = cat.playerY - offY;
   display.draw(px, py, '@', state.player.color || '#f0f0f0', '#111111');
+  // Recent log lines drawn at bottom of viewport
+  const logY = WORLD_ROWS - 2;
+  const recentLogs = (state.logLines || []).slice(-2);
+  for (let i = 0; i < recentLogs.length; i++) {
+    const entry = recentLogs[i];
+    const text = (entry.text || '').slice(0, DISPLAY_WIDTH - 2);
+    for (let j = 0; j < DISPLAY_WIDTH; j++) display.draw(j, logY + i, ' ', '#000000', '#111111');
+    for (let j = 0; j < text.length; j++) display.draw(1 + j, logY + i, text[j], entry.color || '#aaaaaa', '#111111');
+  }
   // Status bar
   const armorStr = ['none','leather','chain'][state.skills.armorLevel || 0];
   const swordStr = ['none','iron','steel'][state.skills.swordLevel || 0];
@@ -10014,7 +10048,9 @@ function enterCatacombs() {
   cat.hp = armorHp; cat.maxHp = armorHp;
   cat.chestOpened = false; cat.goldCollected = 0;
   cat.swordCooldown = 0; cat.bowCooldown = 0; cat.engagedEnemy = null;
-  cat.dungeonName = DUNGEON_NAMES[Math.floor(Math.random() * DUNGEON_NAMES.length)];
+  cat.dungeonName = DUNGEON_ADJ[Math.floor(Math.random()*DUNGEON_ADJ.length)]
+                  + ' '
+                  + DUNGEON_NOUN[Math.floor(Math.random()*DUNGEON_NOUN.length)];
 
   state.gameState = 'catacombs';
   clearScreen();
@@ -10056,7 +10092,11 @@ function catacombsMove(dx, dy) {
   if (!tile || tile.type === 'wall' || tile.type === 'water') return;
   // Check enemy collision
   const bump = cat.enemies.find(e => e.x === nx && e.y === ny);
-  if (bump) return; // blocked by enemy, use sword/bow
+  if (bump) {
+    addLog(`${bump.name} blocks your path. Enter sword mode (Space) to attack.`, '#ff9933');
+    drawCatacombs();
+    return;
+  }
   cat.playerX = nx; cat.playerY = ny;
   // Chest
   if (tile.type === 'chest' && !cat.chestOpened) {
@@ -10075,13 +10115,13 @@ function catacombsMove(dx, dy) {
 
 function catacombsSwordAttack(dx, dy) {
   const cat = state.catacombs;
-  if (cat.swordCooldown > 0) { addLog('Sword not ready.', '#ff5555'); return; }
+  if (Date.now() < cat.swordCooldown) { addLog('Sword not ready.', '#ff5555'); return; }
   const tx = cat.playerX + dx, ty = cat.playerY + dy;
   const enemy = cat.enemies.find(e => e.x === tx && e.y === ty);
   if (!enemy) return;
   const dmg = state.skills.swordLevel >= 2 ? 3 : 2;
   enemy.hp -= dmg;
-  cat.swordCooldown = 2;
+  cat.swordCooldown = Date.now() + 1000;
   addLog(`You hit ${enemy.name} for ${dmg} damage. (${enemy.hp}/${enemy.maxHp} HP)`, '#ffaa33');
   if (enemy.hp <= 0) {
     const gold = enemy.type === 'dragon' ? 100 : 8 + Math.floor(Math.random() * 7);
@@ -10102,7 +10142,7 @@ function catacombsBowAttack(dx, dy) {
   const cat = state.catacombs;
   if (!state.skills.bowOwned) { addLog('You have no bow.', '#555555'); return; }
   if ((state.player.arrows || 0) < 1) { addLog('No arrows!', '#ff5555'); return; }
-  if (cat.bowCooldown > 0) { addLog('Bow not ready.', '#ff5555'); return; }
+  if (Date.now() < cat.bowCooldown) { addLog('Bow not ready.', '#ff5555'); return; }
   // Find first enemy in that direction up to 5 tiles
   let hit = null;
   for (let i = 1; i <= 5; i++) {
@@ -10114,7 +10154,7 @@ function catacombsBowAttack(dx, dy) {
     if (hit) break;
   }
   state.player.arrows--;
-  cat.bowCooldown = 1;
+  cat.bowCooldown = Date.now() + 1000;
   if (!hit) { addLog('Arrow flies wide.', '#aaaaaa'); drawCatacombs(); return; }
   hit.hp -= 2;
   addLog(`Arrow hits ${hit.name} for 2 damage. (${hit.hp}/${hit.maxHp} HP)`, '#ffaa33');
@@ -10132,8 +10172,6 @@ function catacombsBowAttack(dx, dy) {
 
 function catacombsEnemyMove() {
   const cat = state.catacombs;
-  if (cat.swordCooldown > 0) cat.swordCooldown--;
-  if (cat.bowCooldown > 0) cat.bowCooldown--;
   for (const en of cat.enemies) {
     const dist = Math.abs(en.x - cat.playerX) + Math.abs(en.y - cat.playerY);
     if (dist > 8) continue;
@@ -12839,6 +12877,7 @@ function devUnlockEverything() {
 
   // Catacombs and combat gear
   state.catacombs.unlocked = true;
+  state.catacombs.completedTonight = false;
   state.skills.swordLevel = 2;
   state.skills.armorLevel = 2;
   state.skills.bowOwned = true;
