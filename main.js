@@ -167,14 +167,16 @@ document.addEventListener('keydown', (e) => {
       state.gameState !== 'playing' && state.gameState !== 'title' && state.gameState !== 'title_menu') {
     e.preventDefault();
   }
-  // Shift key toggles credit card payment mode
-  if (e.key === 'Shift' && state?.bank?.card?.tier && state.gameState === 'playing') {
+  // C key toggles credit card payment mode (only on overworld/menus, not title/catacombs/look)
+  if ((e.key === 'c' || e.key === 'C') && state?.bank?.card?.tier &&
+      ['playing','menu','crafting','inventory','rm_menu','wb_menu','mt_menu','dv_menu'].includes(state.gameState)) {
     state.creditMode = !state.creditMode;
     addLog(state.creditMode ? 'Paying on CREDIT CARD.' : 'Paying with GOLD.', state.creditMode ? '#66ccff' : '#ffd633');
     drawStatusBar();
     if (officeMenuRedrawFn) officeMenuRedrawFn();
     if (gsMenuRedrawFn)     gsMenuRedrawFn();
     if (rmMenuRedrawFn)     rmMenuRedrawFn();
+    return;
   }
 }, { capture: true });
 
@@ -349,10 +351,14 @@ const state = {
     endurance:    { pips: 0 },
     aquatics:     { purchased: false },
     interfacing:  { pips: 0 },
+    coordination: { pips: 0 },
+    rhetoric:     { pips: 0 },
+    shivers:      { purchased: false },
     swordLevel:   0,
     armorLevel:   0,
     bowOwned:     false,
   },
+  shiversCompanion: { befriended: false, location: 'mine' },
   craftingTimeRemote: 10,
   lakeEasterEgg: { discovered: false },
   mine: {
@@ -487,6 +493,7 @@ function saveGame() {
       goldCollected: state.catacombs.goldCollected,
     },
     playerArrows: state.player.arrows,
+    shiversCompanion: state.shiversCompanion,
   };
   localStorage.setItem(SAVE_KEY, JSON.stringify(data));
 }
@@ -658,10 +665,16 @@ function loadGame() {
         endurance:   s.endurance   ?? { pips: 0 },
         aquatics:    s.aquatics    ?? { purchased: false },
         interfacing: s.interfacing ?? { pips: 0 },
+        coordination: s.coordination ?? { pips: 0 },
+        rhetoric:     s.rhetoric     ?? { pips: 0 },
+        shivers:      s.shivers      ?? { purchased: false },
       };
       state.skills.endurance.pips        = state.skills.endurance.pips        ?? 0;
       state.skills.aquatics.purchased    = state.skills.aquatics.purchased    ?? false;
       state.skills.interfacing.pips      = state.skills.interfacing.pips      ?? 0;
+      state.skills.coordination.pips     = state.skills.coordination.pips     ?? 0;
+      state.skills.rhetoric.pips         = state.skills.rhetoric.pips         ?? 0;
+      state.skills.shivers.purchased     = state.skills.shivers.purchased     ?? false;
     }
     state.craftingTimeRemote = data.craftingTimeRemote ?? 10;
     state.stats.pondStepsWalked = state.stats.pondStepsWalked ?? 0;
@@ -764,6 +777,10 @@ function loadGame() {
       _m.enemyX                = _m.enemyX                ?? -1;
       _m.enemyY                = _m.enemyY                ?? -1;
     }
+    // shiversCompanion
+    state.shiversCompanion = data.shiversCompanion ?? { befriended: false, location: 'mine' };
+    state.shiversCompanion.befriended = state.shiversCompanion.befriended ?? false;
+    state.shiversCompanion.location   = state.shiversCompanion.location   ?? 'mine';
     // Mine skills
     state.skills.pickaxeLevel = state.skills.pickaxeLevel ?? 0;
     state.skills.lantern      = state.skills.lantern      ?? false;
@@ -990,7 +1007,7 @@ drawArt(0);
 drawPrompt(true);
 
 const CREDIT  = "Created by Adam A.";
-const VERSION = "alpha 1.07.14";
+const VERSION = "alpha 1.07.15";
 
 // ── Sound system ──────────────────────────────────────────────────────────────
 const SOUNDS = {};
@@ -1942,7 +1959,7 @@ function drawWorld() {
 
   // Command hint (§3.9)
   drawRow(HINT_ROW,
-    "arrows:move  space:use  i:inv  o:look  p:ponder",
+    "[arrows:move] [space:use] [i:inv] [o:look] [p:ponder]",
     COLOR_HINT_LINE);
   drawPhaseGoal();
 }
@@ -2263,7 +2280,8 @@ function resetState() {
     state.settings = { fullscreen: savedFS ? JSON.parse(savedFS) : false, currentFontSize: state.settings?.currentFontSize ?? 16 }; }
   state.workers = { apprentices: [], couriers: [] };
   state.stats = { rmLastTen: [], widgetsLastTen: [], creditsLastTen: [], widgetsMadeToday: 0, revenueToday: 0, costsToday: 0 };
-  state.skills = { apprenticeCount: 0, courierCount: 0, workerCarryLevel: 0, workerSpeedLevel: 0, courierCarryLevel: 0, courierSpeedLevel: 0, storageExp1: 0, storageExp2: 0, reducedCarry: 0, discountDump: 0, demandHistory: 0, forecast: 0, futures: 0, optionsBuy: 0, optionsWrite: 0, volatilitySurface: 0, plantStory: 0, smearCampaign: 0, pickaxeLevel: 0, lantern: false, endurance: { pips: 0 }, aquatics: { purchased: false }, interfacing: { pips: 0 }, swordLevel: 0, armorLevel: 0, bowOwned: false };
+  state.skills = { apprenticeCount: 0, courierCount: 0, workerCarryLevel: 0, workerSpeedLevel: 0, courierCarryLevel: 0, courierSpeedLevel: 0, storageExp1: 0, storageExp2: 0, reducedCarry: 0, discountDump: 0, demandHistory: 0, forecast: 0, futures: 0, optionsBuy: 0, optionsWrite: 0, volatilitySurface: 0, plantStory: 0, smearCampaign: 0, pickaxeLevel: 0, lantern: false, endurance: { pips: 0 }, aquatics: { purchased: false }, interfacing: { pips: 0 }, coordination: { pips: 0 }, rhetoric: { pips: 0 }, shivers: { purchased: false }, swordLevel: 0, armorLevel: 0, bowOwned: false };
+  state.shiversCompanion = { befriended: false, location: 'mine' };
   state.catacombs = { unlocked: false, completedTonight: false, playerX: 0, playerY: 0, hp: 10, maxHp: 10, tiles: [], enemies: [], chestOpened: false, goldCollected: 0, swordCooldown: 0, bowCooldown: 0, engagedEnemy: null, dungeonName: '' };
   state.player.arrows = 0;
   state.mine = { discovered: false, discoveredDay: -1, tiles: [], lastGenDay: -1, playerX: 12, playerY: 13, playerDir: { x: 0, y: -1 }, totalMined: 0, crystals: 0, bareHandHits: 0, handsBloodied: false, kickedOut: false, kickedOutUntilPeriod: -1, enemyX: -1, enemyY: -1 };
@@ -3067,7 +3085,7 @@ function openRMShedMenu() {
     if (rmSpace <= 0)                              { statusText = 'Inventory full.'; statusFg = '#ff5555'; }
     else if (!canBuy1)                             { statusText = 'Insufficient gold.'; statusFg = '#ff5555'; }
     else if (storageRM > 0)                        { statusText = `${storageRM} RM in storage — used first.`; statusFg = '#ff6600'; }
-    else if (state.bank?.card?.tier)               { statusText = 'Hold SHIFT to pay on credit card.'; statusFg = '#555555'; }
+    else if (state.bank?.card?.tier)               { statusText = 'Press C to pay on credit.'; statusFg = '#555555'; }
     else                                           { statusText = 'Press a key to purchase.'; statusFg = '#555555'; }
     { const ay = BOX_Y + 22; border(ay);
       const centered = menuPad(statusText.length < IW ? ' '.repeat(Math.floor((IW-statusText.length)/2)) + statusText : statusText, IW);
@@ -3571,22 +3589,11 @@ function stampLoadingPort() {
   if (!state.loadingPort?.unlocked) return;
   const mtDef = STATION_DEFS.find(s => s.label === 'MT');
   if (!mtDef) return;
-  const x = mtDef.x + 4, y = mtDef.y + 1;
-  const wc = '#558855', lc = '#88cc88', dc = '#336633';
-  const mk = (g, fg, walk, desc) => ({ glyph: g, fg, bg: BG, walkable: walk, description: desc });
-  const desc = 'The Loading Port. Couriers deposit widgets here; they auto-sell at market open.';
-  tileMap[x  ][y  ] = mk('╔', wc, false, desc);
-  tileMap[x+1][y  ] = mk('═', wc, false, desc);
-  tileMap[x+2][y  ] = mk('═', wc, false, desc);
-  tileMap[x+3][y  ] = mk('╗', wc, false, desc);
-  tileMap[x  ][y+1] = mk('║', wc, false, desc);
-  tileMap[x+1][y+1] = mk('L', lc, false, desc);
-  tileMap[x+2][y+1] = mk('P', lc, false, desc);
-  tileMap[x+3][y+1] = mk('║', wc, false, desc);
-  tileMap[x  ][y+2] = mk('╚', wc, false, desc);
-  tileMap[x+1][y+2] = mk('-', dc, true,  'Loading Port entrance. Couriers deliver here.');
-  tileMap[x+2][y+2] = mk('═', wc, false, desc);
-  tileMap[x+3][y+2] = mk('╝', wc, false, desc);
+  const lpX = mtDef.x - 1;
+  const lpY = mtDef.y + 1;
+  const mk = (g, fg, w, desc) => ({ glyph: g, fg, bg: BG, walkable: w, description: desc });
+  tileMap[lpX][lpY] = mk('▪', '#886633', true, 'Loading dock. Couriers deliver widgets here.');
+  markDirty(lpX, lpY);
 }
 
 // Stamp or re-stamp the Casino footprint. Called from buildTileMap and on unlock/visibility trigger.
@@ -4136,7 +4143,7 @@ function openMarketMenu(initialTab = 'sell') {
       mtUpgradeRow(4, 'discountDump', 'v');
       if (state.bank?.card?.tier) {
         const ay = statusRow + 7; border(ay);
-        const ht = menuPad('Hold SHIFT to pay upgrades on credit card.', IW);
+        const ht = menuPad('Press C to pay upgrades on credit.', IW);
         for (let i = 0; i < IW; i++) display.draw(BOX_X+1+i, ay, ht[i]||' ', '#555555', BG);
       }
       // Loading Port upgrades
@@ -4460,8 +4467,8 @@ const OFFICE_NODES = [
   // Marketing
   { key: 'demandHistory', name: 'Demand History',   cost:   50, max: 1, minPhase: 3 },
   { key: 'forecast',      name: '7-Day Forecast',   cost: 1500, max: 1, minPhase: 3 },
-  { key: 'plantStory',    name: 'Plant a Story',    cost:  750, max: 1, minPhase: 3 },
-  { key: 'smearCampaign', name: 'Run a Smear',      cost: 2000, max: 1, minPhase: 3, requires: 'plantStory', requiresLabel: 'Plant a Story first' },
+  { key: 'plantStory',    name: 'Plant a Story',    cost:  100, max: 1, minPhase: 3 },
+  { key: 'smearCampaign', name: 'Run a Smear',      cost:  500, max: 1, minPhase: 3, requires: 'plantStory', requiresLabel: 'Plant a Story first' },
   // Trading
   { key: 'futures',           name: 'Futures Trading',      cost: 1000, max: 1, minPhase: 4 },
   { key: 'optionsBuy',        name: 'Options — Buy Side',   cost: 2500, max: 1, minPhase: 4 },
@@ -5543,13 +5550,13 @@ function openGeneralStoreMenu() {
       drp(BOX_Y+11,`c. Lantern           ${state.skills.lantern?'✓ owned':'20 stamps'}`,(state.skills.lantern)?'#66cc66':'#aaaaaa');
       drp(BOX_Y+12,`d. Sell 1 crystal${state.mine.crystals>0?'  +25g':'  [none]'}`,state.mine.crystals>0?'#66cc66':'#444444');
       drp(BOX_Y+13,'─'.repeat(IPW),DC);
-      drp(BOX_Y+14,'COMBAT (Catacombs)','#aa77cc');
-      drp(BOX_Y+15,`e. Iron Sword        ${state.skills.swordLevel>=1?'✓ owned':'60g'}`,(state.skills.swordLevel>=1)?'#66cc66':'#aaaaaa');
-      drp(BOX_Y+16,`f. Steel Sword       ${state.skills.swordLevel>=2?'✓ owned':'150g'}`,(state.skills.swordLevel>=2)?'#66cc66':'#aaaaaa');
-      drp(BOX_Y+17,`g. Leather Armor     ${state.skills.armorLevel>=1?'✓ owned':'45g'}`,(state.skills.armorLevel>=1)?'#66cc66':'#aaaaaa');
-      drp(BOX_Y+18,`h. Chain Armor       ${state.skills.armorLevel>=2?'✓ owned':'200g'}`,(state.skills.armorLevel>=2)?'#66cc66':'#aaaaaa');
-      drp(BOX_Y+19,`i. Bow               ${state.skills.bowOwned?'✓ owned':'75g'}`,(state.skills.bowOwned)?'#66cc66':'#aaaaaa');
-      drp(BOX_Y+20,`j. Arrows (10-pack)  6g  [have: ${state.player.arrows||0}]`,'#aaaaaa');
+      drp(BOX_Y+14,'ARMAMENT','#aa77cc');
+      drp(BOX_Y+15,`e. Iron Sword        ${state.skills.swordLevel>=1?'✓ owned':'60 stamps'}`,(state.skills.swordLevel>=1)?'#66cc66':'#aaaaaa');
+      drp(BOX_Y+16,`f. Steel Sword       ${state.skills.swordLevel>=2?'✓ owned':'150 stamps'}`,(state.skills.swordLevel>=2)?'#66cc66':'#aaaaaa');
+      drp(BOX_Y+17,`g. Leather Armor     ${state.skills.armorLevel>=1?'✓ owned':'45 stamps'}`,(state.skills.armorLevel>=1)?'#66cc66':'#aaaaaa');
+      drp(BOX_Y+18,`h. Chain Armor       ${state.skills.armorLevel>=2?'✓ owned':'200 stamps'}`,(state.skills.armorLevel>=2)?'#66cc66':'#aaaaaa');
+      drp(BOX_Y+19,`i. Bow               ${state.skills.bowOwned?'✓ owned':'75 stamps'}`,(state.skills.bowOwned)?'#66cc66':'#aaaaaa');
+      drp(BOX_Y+20,`j. Arrows (10-pack)  6 stamps  [have: ${state.player.arrows||0}]`,'#aaaaaa');
     } else {
       // recipes tab
       const hasCottage = state.cottage.owned;
@@ -5705,7 +5712,8 @@ function openGeneralStoreMenu() {
       // Combat equipment (e–j)
       if (e.key === 'e') {
         if (state.skills.swordLevel >= 1) { addLog('You already own a sword.', '#555555'); return; }
-        if (!payForItem(60, false)) { addLog('Need 60g for an Iron Sword.', '#ff5555'); return; }
+        if (state.player.stamps < 60) { addLog('Need 60 stamps for an Iron Sword.', '#ff5555'); return; }
+        state.player.stamps -= 60;
         state.skills.swordLevel = 1;
         addLog('Iron Sword purchased. Now you can enter the Catacombs.', '#aa77cc'); playSound('bought'); drawStatusBar(); redraw();
         return;
@@ -5713,14 +5721,16 @@ function openGeneralStoreMenu() {
       if (e.key === 'f') {
         if (state.skills.swordLevel < 1) { addLog('You need an Iron Sword first.', '#555555'); return; }
         if (state.skills.swordLevel >= 2) { addLog('You already own a Steel Sword.', '#555555'); return; }
-        if (!payForItem(150, false)) { addLog('Need 150g for a Steel Sword.', '#ff5555'); return; }
+        if (state.player.stamps < 150) { addLog('Need 150 stamps for a Steel Sword.', '#ff5555'); return; }
+        state.player.stamps -= 150;
         state.skills.swordLevel = 2;
         addLog('Steel Sword! +2 attack. The blade is cold to the touch.', '#aa77cc'); playSound('bought'); drawStatusBar(); redraw();
         return;
       }
       if (e.key === 'g') {
         if (state.skills.armorLevel >= 1) { addLog('You already own leather armor.', '#555555'); return; }
-        if (!payForItem(45, false)) { addLog('Need 45g for Leather Armor.', '#ff5555'); return; }
+        if (state.player.stamps < 45) { addLog('Need 45 stamps for Leather Armor.', '#ff5555'); return; }
+        state.player.stamps -= 45;
         state.skills.armorLevel = 1;
         state.catacombs.maxHp = 15;
         addLog('Leather Armor purchased. Max HP +5.', '#aa77cc'); playSound('bought'); drawStatusBar(); redraw();
@@ -5729,7 +5739,8 @@ function openGeneralStoreMenu() {
       if (e.key === 'h') {
         if (state.skills.armorLevel < 1) { addLog('You need Leather Armor first.', '#555555'); return; }
         if (state.skills.armorLevel >= 2) { addLog('You already own chain armor.', '#555555'); return; }
-        if (!payForItem(200, false)) { addLog('Need 200g for Chain Armor.', '#ff5555'); return; }
+        if (state.player.stamps < 200) { addLog('Need 200 stamps for Chain Armor.', '#ff5555'); return; }
+        state.player.stamps -= 200;
         state.skills.armorLevel = 2;
         state.catacombs.maxHp = 20;
         addLog('Chain Armor! Max HP +10. Heavy, but reassuring.', '#aa77cc'); playSound('bought'); drawStatusBar(); redraw();
@@ -5737,7 +5748,8 @@ function openGeneralStoreMenu() {
       }
       if (e.key === 'i') {
         if (state.skills.bowOwned) { addLog('You already own a bow.', '#555555'); return; }
-        if (!payForItem(75, false)) { addLog('Need 75g for a Bow.', '#ff5555'); return; }
+        if (state.player.stamps < 75) { addLog('Need 75 stamps for a Bow.', '#ff5555'); return; }
+        state.player.stamps -= 75;
         state.skills.bowOwned = true;
         addLog('Bow purchased. Buy arrows to use it in combat.', '#aa77cc'); playSound('bought'); drawStatusBar(); redraw();
         return;
@@ -5745,7 +5757,8 @@ function openGeneralStoreMenu() {
       if (e.key === 'j') {
         if ((state.player.arrows || 0) >= 10) { addLog('You already have 10 arrows (max).', '#555555'); return; }
         if (!state.skills.bowOwned) { addLog('Buy a bow first.', '#555555'); return; }
-        if (!payForItem(6, false)) { addLog('Need 6g for 10 arrows.', '#ff5555'); return; }
+        if (state.player.stamps < 6) { addLog('Need 6 stamps for 10 arrows.', '#ff5555'); return; }
+        state.player.stamps -= 6;
         state.player.arrows = Math.min(10, (state.player.arrows || 0) + 10);
         addLog(`Bought arrows. You have ${state.player.arrows} arrows.`, '#aa77cc'); playSound('bought'); drawStatusBar(); redraw();
         return;
@@ -5807,6 +5820,10 @@ function openGeneralStoreMenu() {
         placeGardenTiles();
         renderDirty();
         logHistory('Bought a cottage.');
+        if (state.shiversCompanion?.befriended && state.shiversCompanion.location === 'mine') {
+          state.shiversCompanion.location = 'cottage';
+          addLog('Your companion has found their way to your cottage.', '#ff88ff');
+        }
         playSound('bought');
         addLog('You purchase the cottage. The deed changes hands.', '#ddcc99');
       } else {
@@ -7766,6 +7783,7 @@ function renderLargeNumber(display, x, y, numberString, color, availableWidth) {
 // ── Launch Facility menu (§9) ─────────────────────────────────────────────────
 
 const CHANGELOG = [
+  { version: '1.07.15', summary: 'Skills cost crystals (5/pip), 6 skills including Coordination/Rhetoric/Shivers. Crystal cap 25. Armament tab uses stamps. C key for credit.' },
   { version: '1.07.14', summary: 'The Catacombs — night combat dungeon, sword/bow, 5 goblins + dragon boss, treasure. Dev menu updated with all unlocks.' },
   { version: '1.07.13', summary: 'Hammer animation driven at 60fps — all 10 frames now visible.' },
   { version: '1.07.12', summary: 'Credit score rework, bankruptcy game over, stamp overhaul, kitchen/veggie/credit/fog bug fixes.' },
@@ -8575,6 +8593,11 @@ function drawCottageInterior() {
 
   // Cat
   if (fur.cat) display.draw(OX+state.cottage.catX, OY+state.cottage.catY, 'ค', '#cc9933', BG);
+
+  // Shivers companion
+  if (state.shiversCompanion?.befriended && state.shiversCompanion.location === 'cottage') {
+    display.draw(OX+4, OY+6, '@', '#ffffff', BG);
+  }
 
   // Player
   display.draw(OX+state.cottage.playerX, OY+state.cottage.playerY, '@', state.player.color||BRIGHT_WHITE, BG);
@@ -9610,13 +9633,18 @@ function enterMine() {
       display.draw(OX + state.mine.enemyX, OY + state.mine.enemyY, 'X', '#ff3333', BG);
     }
 
+    // Shivers companion in mine
+    if (state.shiversCompanion?.befriended && state.shiversCompanion.location === 'mine') {
+      display.draw(OX + 8, OY + 8, '@', '#ffffff', BG);
+    }
+
     // Player
     display.draw(OX + state.mine.playerX, OY + state.mine.playerY, '@', state.player.color || BRIGHT_WHITE, BG);
 
     // HUD
     const hudY = OY + H + 1;
     const pickName = ['Bare Hands', 'Pickaxe', 'Brand Name Pickaxe'][state.skills.pickaxeLevel] || 'Bare Hands';
-    const hudLine = `THE MINE   Tool: ${pickName}   Crystals: ${state.mine.crystals}/5`;
+    const hudLine = `THE MINE   Tool: ${pickName}   Crystals: ${state.mine.crystals}/25`;
     for (let i = 0; i < hudLine.length; i++) display.draw(2 + i, hudY, hudLine[i], '#aaaaaa', BG);
 
     const hintLine = 'arrows: move   space: mine/collect   esc: exit';
@@ -9656,15 +9684,28 @@ function enterMine() {
 
   function checkEnemyCollision() {
     if (state.mine.playerX === state.mine.enemyX && state.mine.playerY === state.mine.enemyY) {
-      state.mine.kickedOut = true;
-      state.mine.kickedOutUntilPeriod = Math.floor(state.day / 2) + 1;
-      mineRedrawFn = null;
-      window.removeEventListener('keydown', mineKeyHandler);
-      clearScreen(); drawWorld(); drawStatusBar(); renderLog();
-      display.draw(state.player.x, state.player.y, '@', state.player.color || BRIGHT_WHITE, BG);
-      state.gameState = 'playing';
-      addLog('Something attacked you in the dark! You flee the mine.', '#ff5555');
-      return true;
+      if (state.skills.shivers?.purchased && !state.shiversCompanion?.befriended) {
+        state.shiversCompanion = state.shiversCompanion ?? { befriended: false, location: 'mine' };
+        state.shiversCompanion.befriended = true;
+        state.shiversCompanion.location = state.cottage.owned ? 'cottage' : 'mine';
+        state.mine.enemyX = -1;
+        state.mine.enemyY = -1;
+        addLog('The creature has taken a liking to you.', '#ff88ff');
+        setTimeout(() => addLog('They now live with you.', '#ff88ff'), 800);
+        return false;
+      }
+      if (!state.skills.shivers?.purchased) {
+        state.mine.kickedOut = true;
+        state.mine.kickedOutUntilPeriod = Math.floor(state.day / 2) + 1;
+        mineRedrawFn = null;
+        window.removeEventListener('keydown', mineKeyHandler);
+        clearScreen(); drawWorld(); drawStatusBar(); renderLog();
+        display.draw(state.player.x, state.player.y, '@', state.player.color || BRIGHT_WHITE, BG);
+        state.gameState = 'playing';
+        addLog('Something attacked you in the dark! You flee the mine.', '#ff5555');
+        return true;
+      }
+      return false;
     }
     return false;
   }
@@ -9732,8 +9773,8 @@ function enterMine() {
             else addLog('Mined raw material.', '#ff6600');
           }
         } else if (here.ore === 'crystal') {
-          if (state.mine.crystals < 5) { state.mine.crystals++; addLog('Found a rare crystal!', '#66ccff'); }
-          else addLog('Crystal pouch is full (5/5).', '#555555');
+          if (state.mine.crystals < 25) { state.mine.crystals++; addLog('Found a rare crystal!', '#66ccff'); }
+          else addLog('Crystal pouch is full (25/25).', '#555555');
         } else if (here.ore === 'stamp') {
           state.player.stamps += 3;
           addLog('Found a stamp nugget! +3 stamps.', '#ffd633');
@@ -10286,10 +10327,11 @@ function showInventory() {
   state.gameState = 'inventory';
   let detailCell = null; // null = grid view; 0-7 = detail view index
   let selectedSkill = null;
+  let skillViewPip  = null;
   let skillErrMsg   = null;
   let skillErrTimer = null;
 
-  const BOX_W  = 70, BOX_H = 38;
+  const BOX_W  = 70, BOX_H = 28;
   const BOX_X  = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
   const BOX_Y  = Math.max(1, Math.floor((WORLD_ROWS - BOX_H) / 2));
   const IW     = 68;
@@ -10316,16 +10358,23 @@ function showInventory() {
   };
 
   const SKILL_DEFS = [
-    { key: 'endurance',   name: 'ENDURANCE',   maxPips: 3, costs: [500, 5000, 50000],
-      descs: ['You can carry more than before.', 'Your carrying capacity has grown significantly.', 'You can carry a remarkable amount.'] },
-    { key: 'aquatics',    name: 'AQUATICS',    maxPips: 1, costs: [3000],
-      descs: ['The water no longer stops you.'] },
-    { key: 'interfacing', name: 'INTERFACING', maxPips: 3, costs: [500, 5000, 50000],
-      descs: ['You no longer need the bench to work.', 'Your technique is improving.', "You've refined this to near-instinct."] },
+    { key: 'endurance',    name: 'ENDURANCE',    maxPips: 3, costs: [5, 5, 5],
+      descs: ['You feel a bit sturdier.', 'Your limits have expanded.', 'You can carry a remarkable amount.'] },
+    { key: 'aquatics',     name: 'AQUATICS',     maxPips: 1, costs: [5],
+      descs: ['The water parts for you now.'] },
+    { key: 'interfacing',  name: 'INTERFACING',  maxPips: 3, costs: [5, 5, 5],
+      descs: ['Your hands remember the motions.', 'The craft comes easier now.', 'You barely need to think anymore.'] },
+    { key: 'coordination', name: 'COORDINATION', maxPips: 2, costs: [5, 5],
+      descs: ['The earth gives up its secrets more freely.', "Rare things surface where they didn't before."] },
+    { key: 'rhetoric',     name: 'RHETORIC',     maxPips: 3, costs: [5, 5, 5],
+      descs: ['You find the right words more often.', 'Materials seem to cost less somehow.', 'Everyone gives you a better deal.'] },
+    { key: 'shivers',      name: 'SHIVERS',      maxPips: 1, costs: [5],
+      descs: ['You understand the creature now.'] },
   ];
 
   function getSkillPips(def) {
     if (def.key === 'aquatics') return state.skills.aquatics?.purchased ? 1 : 0;
+    if (def.key === 'shivers') return state.skills.shivers?.purchased ? 1 : 0;
     return state.skills[def.key]?.pips || 0;
   }
 
@@ -10426,7 +10475,7 @@ function showInventory() {
       case 'carrying': return [
         `RM:    ${inv.rm} / ${cap.rm}`,
         `Widg:  ${inv.widgets} / ${cap.widgets}`,
-        `Cryst: ${state.mine.crystals || 0} / 5`,
+        `Cryst: ${state.mine.crystals || 0} / 25`,
         '',
       ];
       case 'storage': {
@@ -10493,13 +10542,71 @@ function showInventory() {
   function drawGrid() {
     drawOuterFrame('INVENTORY', '#66ccff');
     for (let i = 0; i < INV_CELLS.length; i++) drawCell(INV_CELLS[i], i);
-    // Footer row
-    const footerRow = BOX_Y + 3 + 2 * CELL_H;
-    for (let r = footerRow; r < BOX_Y + BOX_H - 2; r++) {
+
+    // Clear area below cells
+    const skillsRow = BOX_Y + 3 + 2 * CELL_H; // row 17 relative to box
+    for (let r = skillsRow; r < BOX_Y + BOX_H - 2; r++) {
       outerBorder(r, '#66ccff');
-      for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X+x, r, ' ', PC, BG);
+      for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, r, ' ', PC, BG);
     }
-    irow(BOX_Y+BOX_H-2, '1-8: open detail   ESC: close', WC);
+
+    // Skills header
+    irow(skillsRow, `─── SKILLS (5 crystals/pip)  crystals: ${state.mine.crystals||0}/25 ───────────────────`, '#555555');
+
+    // Skill pips row — horizontal
+    const skillsDataRow = skillsRow + 1;
+    outerBorder(skillsDataRow, '#66ccff');
+    for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, skillsDataRow, ' ', PC, BG);
+    let sc = CONT_X + 1;
+    for (let si = 0; si < SKILL_DEFS.length; si++) {
+      const def = SKILL_DEFS[si];
+      const pips = getSkillPips(def);
+      const isSelected = selectedSkill === def.key;
+      const labelFg = isSelected ? '#ffd633' : (pips > 0 ? '#66cc66' : '#aaaaaa');
+      const label = `${si+1}:${def.name}`;
+      for (const ch of label) { if (sc < CONT_X + IW - 2) display.draw(sc++, skillsDataRow, ch, labelFg, BG); }
+      if (sc < CONT_X + IW - 2) display.draw(sc++, skillsDataRow, ' ', PC, BG);
+      for (let pi = 0; pi < def.maxPips; pi++) {
+        const bought = pi < pips;
+        if (sc < CONT_X + IW - 2) display.draw(sc++, skillsDataRow, bought ? '●' : '○', bought ? '#66cc66' : '#555555', BG);
+      }
+      if (sc < CONT_X + IW - 2) display.draw(sc++, skillsDataRow, ' ', PC, BG);
+      if (sc < CONT_X + IW - 2) display.draw(sc++, skillsDataRow, ' ', PC, BG);
+    }
+
+    // Skill info box
+    const infoRow = skillsRow + 2;
+    outerBorder(infoRow, '#66ccff');
+    for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, infoRow, ' ', PC, BG);
+    if (selectedSkill) {
+      const def = SKILL_DEFS.find(d => d.key === selectedSkill);
+      if (def) {
+        const pips = getSkillPips(def);
+        const showPip = skillViewPip !== null ? skillViewPip : Math.min(pips, def.maxPips - 1);
+        const desc = def.descs[showPip] || '';
+        const owned = showPip < pips;
+        const cost = (!owned && def.costs[showPip]) ? `  [${def.costs[showPip]} crystals]` : (owned ? '  [owned]' : '');
+        const txt = `${def.name} pip ${showPip+1}/${def.maxPips}: ${desc}${cost}`;
+        const padded = menuPad(txt, IW - 2);
+        for (let i = 0; i < IW - 2; i++) display.draw(CONT_X + 1 + i, infoRow, padded[i] || ' ', owned ? PC : '#aaaaaa', BG);
+      }
+      if (skillErrMsg) {
+        const padded = menuPad(skillErrMsg, IW - 2);
+        for (let i = 0; i < IW - 2; i++) display.draw(CONT_X + 1 + i, infoRow, padded[i] || ' ', '#ff5555', BG);
+      }
+    } else {
+      const hint = 'Press 1-6 to inspect a skill  Enter: buy  ←→: browse pips  1-8: open cell detail';
+      const padded = menuPad(hint, IW - 2);
+      for (let i = 0; i < IW - 2; i++) display.draw(CONT_X + 1 + i, infoRow, padded[i] || ' ', '#555555', BG);
+    }
+
+    // Clear remaining rows between info and footer
+    for (let r = infoRow + 1; r < BOX_Y + BOX_H - 2; r++) {
+      outerBorder(r, '#66ccff');
+      for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, r, ' ', PC, BG);
+    }
+
+    irow(BOX_Y+BOX_H-2, '1-8: cell detail  1-6: skill  Enter: buy  ←→: pips  ESC: close', WC);
   }
 
   // ── Detail views ─────────────────────────────────────────────────────────
@@ -10532,7 +10639,7 @@ function showInventory() {
     } else {
       irow(cy+2, `Raw Materials: ${inv.rm} / ${cap.rm}`, PC, cc);
       irow(cy+3, `Widgets:       ${inv.widgets} / ${cap.widgets}`, PC, cc);
-      irow(cy+4, `Crystals:      ${state.mine.crystals||0} / 5`, '#66ccff', cc);
+      irow(cy+4, `Crystals:      ${state.mine.crystals||0} / 25`, '#66ccff', cc);
     }
     sep(cy+5, cc);
     irow(cy+6, 'CARRYING CAPACITY', cc);
@@ -10640,7 +10747,7 @@ function showInventory() {
     irow(cy+2, `Pickaxe: ${pickNames[state.skills.pickaxeLevel||0]}`, PC, cc);
     irow(cy+3, `Hits to break rock: ${hitsPerRock[state.skills.pickaxeLevel||0]}`, SC, cc);
     irow(cy+4, `Lantern: ${state.skills.lantern ? 'Yes — ore shows through walls' : 'No'}`, state.skills.lantern ? '#66cc66' : WC, cc);
-    irow(cy+5, `Crystals: ${state.mine.crystals||0} / 5`, '#66ccff', cc);
+    irow(cy+5, `Crystals: ${state.mine.crystals||0} / 25`, '#66ccff', cc);
     const daysToReset = 2 - (state.day % 2);
     irow(cy+6, `Mine resets: ${daysToReset}d   Total mined: ${state.mine.totalMined||0}`, WC, cc);
     sep(cy+7, cc);
@@ -10665,7 +10772,7 @@ function showInventory() {
       display.draw(c++, baseR+1, ' ', PC, BG);
       const nextCost = pips < def.maxPips ? def.costs[pips] : null;
       if (nextCost !== null) {
-        const costStr = nextCost.toLocaleString('en-US') + 'g';
+        const costStr = nextCost.toLocaleString('en-US') + ' crystals';
         for (const ch of costStr) display.draw(c++, baseR+1, ch, WC, BG);
         if (isActive) {
           const hint = '  ← press again to buy';
@@ -10676,8 +10783,8 @@ function showInventory() {
       }
       while (c < CONT_X+IW) display.draw(c++, baseR+1, ' ', PC, BG);
     });
-    if (skillErrMsg) irow(cy+18, skillErrMsg, '#ff5555', cc);
-    irow(BOX_Y+BOX_H-2, '1/2/3: select skill   press twice to buy   ESC: back', WC, cc);
+    if (skillErrMsg) irow(cy+27, skillErrMsg, '#ff5555', cc);
+    irow(BOX_Y+BOX_H-2, '1-6: select skill   press twice to buy   ESC: back', WC, cc);
   }
 
   function drawDetailWardrobe(cy, cc) {
@@ -10804,16 +10911,17 @@ function showInventory() {
   function attemptSkillPurchase() {
     if (!selectedSkill) return;
     const def  = SKILL_DEFS.find(d => d.key === selectedSkill);
+    if (!def) return;
     const pips = getSkillPips(def);
     if (pips >= def.maxPips) return;
     const cost = def.costs[pips];
-    if (state.player.gold < cost) {
-      skillErrMsg = 'Insufficient gold.';
+    if ((state.mine.crystals || 0) < cost) {
+      skillErrMsg = `Need ${cost} crystals.`;
       if (skillErrTimer) clearTimeout(skillErrTimer);
       skillErrTimer = setTimeout(() => { skillErrMsg = null; redraw(); }, 2000);
       redraw(); return;
     }
-    state.player.gold -= cost;
+    state.mine.crystals -= cost;
     if (selectedSkill === 'endurance') {
       const np = (state.skills.endurance.pips || 0) + 1;
       state.skills.endurance.pips = np;
@@ -10829,6 +10937,14 @@ function showInventory() {
       if (np === 1) state.craftingTimeRemote = 10;
       else if (np === 2) state.craftingTimeRemote = 7;
       else if (np === 3) state.craftingTimeRemote = 5;
+    } else if (selectedSkill === 'coordination') {
+      state.skills.coordination = state.skills.coordination ?? { pips: 0 };
+      state.skills.coordination.pips = (state.skills.coordination.pips || 0) + 1;
+    } else if (selectedSkill === 'rhetoric') {
+      state.skills.rhetoric = state.skills.rhetoric ?? { pips: 0 };
+      state.skills.rhetoric.pips = (state.skills.rhetoric.pips || 0) + 1;
+    } else if (selectedSkill === 'shivers') {
+      state.skills.shivers = { purchased: true };
     }
     addLog(`${def.name} upgraded.`, '#66ccff');
     drawStatusBar();
@@ -10855,13 +10971,40 @@ function showInventory() {
     }
     if (detailCell === null) {
       const n = parseInt(e.key);
-      if (n >= 1 && n <= 8) { detailCell = n - 1; selectedSkill = null; redraw(); return; }
+      if (n >= 1 && n <= 8) {
+        // Numbers 1-6 also select the corresponding skill for the info box
+        if (n >= 1 && n <= 6) {
+          selectedSkill = SKILL_DEFS[n - 1].key;
+          skillViewPip = null;
+          skillErrMsg = null;
+        }
+        detailCell = n - 1; redraw(); return;
+      }
+      if (e.key === 'Enter' && selectedSkill) { attemptSkillPurchase(); return; }
+      if (e.key === 'ArrowLeft' && selectedSkill) {
+        const def = SKILL_DEFS.find(d => d.key === selectedSkill);
+        if (def) {
+          const cur = skillViewPip !== null ? skillViewPip : Math.min(getSkillPips(def), def.maxPips - 1);
+          skillViewPip = Math.max(0, cur - 1);
+          redraw();
+        }
+        return;
+      }
+      if (e.key === 'ArrowRight' && selectedSkill) {
+        const def = SKILL_DEFS.find(d => d.key === selectedSkill);
+        if (def) {
+          const cur = skillViewPip !== null ? skillViewPip : Math.min(getSkillPips(def), def.maxPips - 1);
+          skillViewPip = Math.min(def.maxPips - 1, cur + 1);
+          redraw();
+        }
+        return;
+      }
       return;
     }
     // In detail view
     const cell = INV_CELLS[detailCell];
     if (cell.key === 'equipment') {
-      const keyToSkill = { '1': 'endurance', '2': 'aquatics', '3': 'interfacing' };
+      const keyToSkill = { '1': 'endurance', '2': 'aquatics', '3': 'interfacing', '4': 'coordination', '5': 'rhetoric', '6': 'shivers' };
       const sk = keyToSkill[e.key];
       if (sk) {
         if (selectedSkill === sk) { attemptSkillPurchase(); }
@@ -10944,11 +11087,11 @@ function openNewspaperMenu() {
 
   function allStories() {
     const list = [];
-    BULLISH_STORIES.forEach((s, i) => list.push({ ...s, tier: 'plant',  cost: 500,  letter: String.fromCharCode(97+i) }));
-    BEARISH_STORIES.forEach((s, i) => list.push({ ...s, tier: 'plant',  cost: 500,  letter: String.fromCharCode(102+i) }));
+    BULLISH_STORIES.forEach((s, i) => list.push({ ...s, tier: 'plant',  cost: 100,  letter: String.fromCharCode(97+i) }));
+    BEARISH_STORIES.forEach((s, i) => list.push({ ...s, tier: 'plant',  cost: 100,  letter: String.fromCharCode(102+i) }));
     if (hasSmear) {
-      BULLISH_STORIES.forEach((s, i) => list.push({ ...s, nudge: +30, tier: 'smear', cost: 2000, letter: String(i+1) }));
-      BEARISH_STORIES.forEach((s, i) => list.push({ ...s, nudge: -30, tier: 'smear', cost: 2000, letter: String(i+6) }));
+      BULLISH_STORIES.forEach((s, i) => list.push({ ...s, nudge: +30, tier: 'smear', cost: 500, letter: String(i+1) }));
+      BEARISH_STORIES.forEach((s, i) => list.push({ ...s, nudge: -30, tier: 'smear', cost: 500, letter: String(i+6) }));
     }
     return list;
   }
