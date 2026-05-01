@@ -932,7 +932,7 @@ drawArt(0);
 drawPrompt(true);
 
 const CREDIT  = "Created by Adam A.";
-const VERSION = "alpha 1.07.09";
+const VERSION = "alpha 1.07.10";
 
 // ── Sound system ──────────────────────────────────────────────────────────────
 const SOUNDS = {};
@@ -7489,6 +7489,7 @@ function renderLargeNumber(display, x, y, numberString, color, availableWidth) {
 // ── Launch Facility menu (§9) ─────────────────────────────────────────────────
 
 const CHANGELOG = [
+  { version: '1.07.10', summary: 'Inventory revamp: 4x2 grid — carrying, storage, wallet, card, equipment, wardrobe, cooking, stats.' },
   { version: '1.07.09', summary: 'Terminal revamp: 4x2 grid, forwards at Phase 3, futures/options at Phase 4, profit scenarios, positions tab.' },
   { version: '1.07.08', summary: 'Garden is veggies-only. Kitchen cooking with 4 recipes for daily buffs. Veggies regrow.' },
   { version: '1.07.07', summary: 'Shift to pay on credit card anywhere. Pre-pay at bank. Apprentice credit toggle.' },
@@ -9674,29 +9675,36 @@ function openCasinoMenu() {
 
 function showInventory() {
   state.gameState = 'inventory';
-  let tab           = 'stocks'; // 'stocks' | 'ops' | 'skills' | 'card'
-  let workerScroll  = 0;
-  let selectedSkill = null; // null | 'endurance' | 'aquatics' | 'interfacing'
+  let detailCell = null; // null = grid view; 0-7 = detail view index
+  let selectedSkill = null;
   let skillErrMsg   = null;
   let skillErrTimer = null;
 
-  const TABS    = ['stocks', 'ops', 'skills', 'card', 'equip'];
-  const BOX_W   = 54;
-  const BOX_H   = 25; // rows 0–24
-  const BOX_X   = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
-  const BOX_Y   = Math.max(2, Math.floor((WORLD_ROWS - BOX_H) / 2));
-  const IW      = 52; // inner width
-  const BC      = '#66ccff'; // border color
-  const DC      = '#333333';
-  const WC      = '#555555';
-  const LP_W    = 24; // left pane (skills/ops)
-  const RP_W    = 27; // right pane (skills/ops)
-  const CONT_X  = BOX_X + 1; // left edge of inner content
+  const BOX_W  = 70, BOX_H = 38;
+  const BOX_X  = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
+  const BOX_Y  = Math.max(1, Math.floor((WORLD_ROWS - BOX_H) / 2));
+  const IW     = 68;
+  const CONT_X = BOX_X + 1;
+  const CELL_W = 17, CELL_H = 7;
 
-  // Tab bar string exactly 52 chars
-  const TAB_BAR = '[STOCKS]│[OPS]│[SKILLS]│[CARD]│[EQUIP]              ';
-  const TAB_RANGES = { stocks: [0,7], ops: [9,13], skills: [15,22], card: [24,29], equip: [31,37] };
-  const TAB_NAMES  = { stocks: 'STOCKS', ops: 'OPERATIONS', skills: 'SKILLS', card: 'CARD', equip: 'EQUIP' };
+  const DC = '#333333', WC = '#555555', PC = '#f0f0f0', SC = '#aaaaaa';
+
+  const INV_CELLS = [
+    { key: 'carrying',  name: 'CARRYING',    row: 0, col: 0 },
+    { key: 'storage',   name: 'STORAGE',     row: 0, col: 1 },
+    { key: 'wallet',    name: 'WALLET',      row: 0, col: 2 },
+    { key: 'card',      name: 'CREDIT CARD', row: 0, col: 3 },
+    { key: 'equipment', name: 'EQUIPMENT',   row: 1, col: 0 },
+    { key: 'wardrobe',  name: 'WARDROBE',    row: 1, col: 1 },
+    { key: 'cooking',   name: 'COOKING',     row: 1, col: 2 },
+    { key: 'stats',     name: 'STATS',       row: 1, col: 3 },
+  ];
+
+  const CELL_COLORS = {
+    carrying:  '#f0f0f0', storage:  '#ff6600', wallet:  '#ffd633',
+    card:      '#66ccff', equipment:'#aa6633', wardrobe:'#aa66ff',
+    cooking:   '#ff8800', stats:    '#66cc66',
+  };
 
   const SKILL_DEFS = [
     { key: 'endurance',   name: 'ENDURANCE',   maxPips: 3, costs: [500, 5000, 50000],
@@ -9707,244 +9715,336 @@ function showInventory() {
       descs: ['You no longer need the bench to work.', 'Your technique is improving.', "You've refined this to near-instinct."] },
   ];
 
-  // ── Drawing helpers ───────────────────────────────────────────────────────
-  function border(ay) {
-    display.draw(BOX_X, ay, '║', BC, BG);
-    display.draw(BOX_X + BOX_W - 1, ay, '║', BC, BG);
-  }
-  function irow(ay, text, fg) {
-    border(ay);
-    const p = menuPad(text, IW);
-    for (let i = 0; i < IW; i++) display.draw(CONT_X + i, ay, p[i] || ' ', fg, BG);
-  }
-  function lrow(ay, text, fg) { // left pane (LP_W chars)
-    const p = menuPad(text, LP_W);
-    for (let i = 0; i < LP_W; i++) display.draw(CONT_X + i, ay, p[i] || ' ', fg, BG);
-  }
-  function rrow(ay, text, fg) { // right pane (RP_W chars)
-    const p = menuPad(text, RP_W);
-    for (let i = 0; i < RP_W; i++) display.draw(CONT_X + LP_W + 1 + i, ay, p[i] || ' ', fg, BG);
-  }
-  function divider(ay) { display.draw(CONT_X + LP_W, ay, '│', DC, BG); }
-  function splitRow(ay, ltxt, rtxt, lfg, rfg) { border(ay); lrow(ay,ltxt,lfg); divider(ay); rrow(ay,rtxt,rfg); }
-
-  function drawBar(ay, label, current, max, barFg, labelFg) {
-    border(ay);
-    const BAR_W = 12;
-    const filled = max > 0 ? Math.min(Math.round(current/max*BAR_W), BAR_W) : 0;
-    let c = CONT_X;
-    const lbl = menuPad(label, 18);
-    for (let i = 0; i < 18; i++) display.draw(c++, ay, lbl[i], labelFg, BG);
-    display.draw(c++, ay, '[', WC, BG);
-    for (let i = 0; i < BAR_W; i++) display.draw(c++, ay, i<filled?'=':' ', i<filled?barFg:WC, BG);
-    display.draw(c++, ay, ']', WC, BG);
-    const val = menuPad(`${current}/${max}`, IW - 18 - 1 - BAR_W - 1);
-    for (let i = 0; i < val.length; i++) display.draw(c++, ay, val[i]||' ', labelFg, BG);
-  }
-
-  function drawFrame() {
-    for (let r = 1; r < BOX_H - 1; r++)
-      for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, BOX_Y + r, ' ', BRIGHT_WHITE, BG);
-    // Row 0: ╔═52═╗
-    display.draw(BOX_X, BOX_Y, '╔', BC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y, '╗', BC, BG);
-    for (let i = 1; i < BOX_W-1; i++) display.draw(BOX_X+i, BOX_Y, '═', BC, BG);
-    // Row 1: header
-    { const ay = BOX_Y+1; border(ay);
-      const title = `INVENTORY [${TAB_NAMES[tab]}]`, hint = 'press esc to exit';
-      for (let i = 0; i < IW; i++) {
-        const ch = i < title.length ? title[i] : (i >= IW-hint.length ? hint[i-(IW-hint.length)] : ' ');
-        const fg = i < title.length ? BRIGHT_WHITE : (i >= IW-hint.length ? DC : BRIGHT_WHITE);
-        display.draw(CONT_X+i, ay, ch, fg, BG);
-      }
-    }
-    // Row 2: ═
-    { const ay = BOX_Y+2; border(ay);
-      for (let i = 0; i < IW; i++) display.draw(CONT_X+i, ay, '═', DC, BG); }
-    // Row 3: tab bar
-    { const ay = BOX_Y+3; border(ay);
-      const [s,e] = TAB_RANGES[tab];
-      for (let i = 0; i < IW; i++) {
-        const ch = TAB_BAR[i] || ' ';
-        display.draw(CONT_X+i, ay, ch, (i>=s && i<=e) ? BC : DC, BG);
-      }
-    }
-    // Row 22: ═
-    { const ay = BOX_Y+22; border(ay);
-      for (let i = 0; i < IW; i++) display.draw(CONT_X+i, ay, '═', DC, BG); }
-    // Row 24: ╚═52═╝
-    display.draw(BOX_X, BOX_Y+24, '╚', BC, BG); display.draw(BOX_X+BOX_W-1, BOX_Y+24, '╝', BC, BG);
-    for (let i = 1; i < BOX_W-1; i++) display.draw(BOX_X+i, BOX_Y+24, '═', BC, BG);
-  }
-
-  // ── STOCKS tab ────────────────────────────────────────────────────────────
-  function redrawStocks() {
-    const inv = state.player.inventory;
-    const cap = state.player.inventoryCaps;
-    drawBar(BOX_Y+4, 'Raw Materials', inv.rm,      cap.rm,      '#66cc66', '#ff9933');
-    drawBar(BOX_Y+5, 'Widgets',       inv.widgets, cap.widgets, '#66cc66', BRIGHT_WHITE);
-    irow(BOX_Y+6, '─'.repeat(IW), DC);
-    { // Credits sym row
-      border(BOX_Y+7);
-      const SYM_W = 16, syms = Math.min(Math.floor(state.player.gold/10), SYM_W);
-      let c = CONT_X;
-      const lbl = menuPad('Gold', 16);
-      for (let i = 0; i < 16; i++) display.draw(c++, BOX_Y+7, lbl[i], WC, BG);
-      for (let i = 0; i < SYM_W; i++) display.draw(c++, BOX_Y+7, i<syms?'$':' ', i<syms?'#ffd633':WC, BG);
-      const val = menuPad(`${formatCredits(state.player.gold)}g`, IW-16-SYM_W);
-      for (let i = 0; i < val.length; i++) display.draw(c++, BOX_Y+7, val[i]||' ', '#ffd633', BG);
-    }
-    { // Stamps row
-      border(BOX_Y+8);
-      const SDOT_W = 20;
-      const stamps  = state.player.stamps;
-      const dots    = Math.min(stamps, SDOT_W);
-      const overflow = stamps > SDOT_W;
-      let c = CONT_X;
-      const lbl = menuPad('Stamps', 16);
-      for (let i = 0; i < 16; i++) display.draw(c++, BOX_Y+8, lbl[i], '#555555', BG);
-      for (let i = 0; i < SDOT_W; i++) display.draw(c++, BOX_Y+8, i < dots ? '·' : ' ', COLOR_STAMPS, BG);
-      display.draw(c++, BOX_Y+8, overflow ? '+' : ' ', COLOR_STAMPS, BG);
-      const val = menuPad(String(stamps), IW-16-SDOT_W-1);
-      for (let i = 0; i < val.length; i++) display.draw(c++, BOX_Y+8, val[i]||' ', COLOR_STAMPS, BG);
-    }
-    { // Lifetime sym row
-      border(BOX_Y+9);
-      const SYM_W = 16, syms = Math.min(Math.floor(state.lifetimeGoldEarned/10), SYM_W);
-      let c = CONT_X;
-      const lbl = menuPad('Lifetime', 16);
-      for (let i = 0; i < 16; i++) display.draw(c++, BOX_Y+9, lbl[i], WC, BG);
-      for (let i = 0; i < SYM_W; i++) display.draw(c++, BOX_Y+9, i<syms?'~':' ', i<syms?WC:WC, BG);
-      const val = menuPad(`${formatCredits(state.lifetimeGoldEarned)}g`, IW-16-SYM_W);
-      for (let i = 0; i < val.length; i++) display.draw(c++, BOX_Y+9, val[i]||' ', WC, BG);
-    }
-    irow(BOX_Y+10, '─'.repeat(IW), DC);
-    if (state.phase >= 3) {
-      irow(BOX_Y+11, 'MARKET REPORT', BC);
-      const dl = demandLabel(state.demand);
-      irow(BOX_Y+12, `Demand today:   ${String(state.demand).padStart(3)} widgets  (${dl.text})`, dl.fg);
-      irow(BOX_Y+13, `Price today:    ${state.marketPrice}g`, BRIGHT_WHITE);
-      irow(BOX_Y+14, `Sold today:     ${state.widgetsSoldToday} / ${state.demand}`, BRIGHT_WHITE);
-      irow(BOX_Y+15, `Remaining:      ${Math.max(0, state.demand-state.widgetsSoldToday)} widgets`, BRIGHT_WHITE);
-    } else {
-      irow(BOX_Y+11, 'MARKET REPORT — available in Phase 3', WC);
-    }
-    // Shiny stones — shown when 1+ collected and casino not yet unlocked
-    const anyRock = state.shinyRocks && Object.values(state.shinyRocks).some(r => r.collected);
-    const casinoUnlocked = state.stations.casino?.unlocked;
-    if (anyRock && !casinoUnlocked) {
-      const rDef = [
-        { key: 'red',    col: '#ff5555' },
-        { key: 'yellow', col: '#ffd633' },
-        { key: 'blue',   col: '#66ccff' },
-      ];
-      border(BOX_Y+16);
-      const label = menuPad('Shiny stones', 16);
-      let c = CONT_X;
-      for (let i = 0; i < 16; i++) display.draw(c++, BOX_Y+16, label[i], WC, BG);
-      for (let i = 0; i < 3; i++) {
-        const r = rDef[i];
-        const got = state.shinyRocks[r.key].collected;
-        display.draw(c++, BOX_Y+16, got ? '*' : '·', got ? r.col : '#333333', BG);
-        if (i < 2) display.draw(c++, BOX_Y+16, ' ', BRIGHT_WHITE, BG);
-      }
-      // Fill rest of row
-      while (c < CONT_X + IW) display.draw(c++, BOX_Y+16, ' ', BRIGHT_WHITE, BG);
-      const allRocks = Object.values(state.shinyRocks).every(r => r.collected);
-      if (allRocks) irow(BOX_Y+17, 'Take them somewhere they\'re wanted.', '#aaaaaa');
-    }
-    const ms  = state.marketOpen ? 'OPEN' : 'CLOSED';
-    const mFg = state.marketOpen ? BRIGHT_YELLOW : WC;
-    const mRem = state.marketOpen ? (180-state.dayTick) : (240-state.dayTick);
-    const statusLine = `Day ${state.day}  •  Market: ${ms}  •  ${mRem}s left`;
-    irow(BOX_Y+23, statusLine, BRIGHT_WHITE);
-  }
-
-  // ── OPERATIONS tab ────────────────────────────────────────────────────────
-  function redrawOps() {
-    const sep = LP_W; // divider at column sep within inner
-    for (let r = 4; r <= 21; r++) { border(BOX_Y+r); divider(BOX_Y+r); }
-    lrow(BOX_Y+4, 'PRODUCTION STATS', '#ffd633');
-    const avg  = arr => arr.length ? arr.reduce((s,v)=>s+v,0)/arr.length : 0;
-    const rRM  = avg(state.stats.rmLastTen);
-    const rWg  = avg(state.stats.widgetsLastTen);
-    const rCr  = avg(state.stats.creditsLastTen);
-    const cFg  = rCr >= 0 ? '#66cc66' : '#ff5555';
-    lrow(BOX_Y+5,  `RM/sec    ${Math.abs(rRM).toFixed(1)}`, BRIGHT_WHITE);
-    lrow(BOX_Y+6,  `Wdgt/sec  ${rWg.toFixed(1)}`, BRIGHT_WHITE);
-    lrow(BOX_Y+7,  `Cr/sec  ${(rCr>=0?'+':'')}${rCr.toFixed(1)}g`, cFg);
-    for (let i = 0; i < LP_W; i++) display.draw(CONT_X+i, BOX_Y+8, '─', DC, BG);
-    lrow(BOX_Y+9,  'Today', BRIGHT_WHITE);
-    lrow(BOX_Y+10, `RM in inv.${String(state.player.inventory.rm).padStart(LP_W-10)}`, BRIGHT_WHITE);
-    lrow(BOX_Y+11, `Wdgts made${String(state.stats.widgetsMadeToday).padStart(LP_W-10)}`, BRIGHT_WHITE);
-    lrow(BOX_Y+12, `Wdgts sold${String(state.widgetsSoldToday).padStart(LP_W-10)}`, BRIGHT_WHITE);
-    lrow(BOX_Y+13, `Revenue${(formatCredits(state.stats.revenueToday)+'g').padStart(LP_W-7)}`, '#66cc66');
-    lrow(BOX_Y+14, `Costs  ${(formatCredits(state.stats.costsToday)+'g').padStart(LP_W-7)}`, '#ff5555');
-    const net  = Math.round((state.stats.revenueToday - state.stats.costsToday)*10)/10;
-    const netS = (net>=0?'+':'')+formatCredits(net)+'g';
-    lrow(BOX_Y+15, `Net${netS.padStart(LP_W-3)}`, net>=0?'#66cc66':'#ff5555');
-
-    // Right pane — workers
-    const allW = [
-      ...state.workers.apprentices.map((w,i)=>({type:'appr',idx:i,w})),
-      ...state.workers.couriers.map((c,i)=>({type:'cour',idx:i,w:c})),
-    ];
-    const LINES_PER = 5, maxVis = Math.floor(14/LINES_PER);
-    if (allW.length === 0) {
-      rrow(BOX_Y+10, 'No workers', WC);
-      rrow(BOX_Y+11, 'hired yet.', WC);
-    } else {
-      workerScroll = Math.min(workerScroll, Math.max(0, allW.length - maxVis));
-      if (workerScroll > 0)                    rrow(BOX_Y+4, '▲'.padStart(RP_W), WC);
-      if (workerScroll+maxVis < allW.length)   rrow(BOX_Y+18,'▼'.padStart(RP_W), WC);
-      let row = BOX_Y+5;
-      for (let wi = workerScroll; wi < Math.min(workerScroll+maxVis, allW.length); wi++) {
-        const {type,idx,w} = allW[wi];
-        if (type === 'appr') {
-          const st = w.paused ? 'idle' : w.workerState;
-          let fFg, fig2, stLbl, taskLbl;
-          if (st==='crafting') { fFg='#ff9933'; fig2='[=]'; stLbl='CRAFTING'; taskLbl='making widget'; }
-          else if (st==='fetching'||st==='returning') { fFg='#66ccff'; fig2='\\|/'; stLbl='WORKING'; taskLbl=st==='fetching'?'RM→WB':'WB→RM'; }
-          else { fFg=WC; fig2='...'; stLbl=w.paused?'PAUSED':'IDLE'; taskLbl='waiting'; }
-          rrow(row,   `[o] ${workerLabel(w, idx, 'appr')}`, fFg);
-          rrow(row+1, `${fig2} ${stLbl}`, fFg);
-          rrow(row+2, `    ${taskLbl}`, WC);
-        } else {
-          const st = w.courierState;
-          let fFg, fig2, stLbl, taskLbl;
-          if (st==='loading') { fFg='#cc66cc'; fig2='/=\\'; stLbl='LOADING'; taskLbl='at STG'; }
-          else if (st==='delivering') { fFg='#ffd633'; fig2='>>>'; stLbl='DLVRING'; taskLbl='STG→MKT'; }
-          else if (st==='returning')  { fFg=WC; fig2='<<<'; stLbl='RETURN'; taskLbl='MKT→STG'; }
-          else { fFg=WC; fig2='/=\\'; stLbl='IDLE'; taskLbl='waiting'; }
-          rrow(row,   `[>] ${workerLabel(w, idx, 'courier')}`, fFg);
-          rrow(row+1, `${fig2} ${stLbl}`, fFg);
-          rrow(row+2, `    ${taskLbl}`, WC);
-        }
-        row += LINES_PER;
-      }
-    }
-    const opsStatus = `${state.workers.apprentices.length} apprentice${state.workers.apprentices.length!==1?'s':''}, ${state.workers.couriers.length} courier${state.workers.couriers.length!==1?'s':''}.`;
-    irow(BOX_Y+23, opsStatus, WC);
-  }
-
-  // ── SKILLS tab ────────────────────────────────────────────────────────────
   function getSkillPips(def) {
     if (def.key === 'aquatics') return state.skills.aquatics?.purchased ? 1 : 0;
     return state.skills[def.key]?.pips || 0;
   }
 
-  function redrawSkills() {
-    for (let r = 4; r <= 21; r++) { border(BOX_Y+r); divider(BOX_Y+r); }
+  function cellColor(key) {
+    return CELL_COLORS[key] || '#66ccff';
+  }
 
-    // Left pane — skill list
+  function isCellLocked(key) {
+    if (key === 'storage')   return !state.stations.storage?.unlocked;
+    if (key === 'card')      return !state.bank.card?.tier;
+    if (key === 'equipment') return !state.mine?.discovered;
+    if (key === 'cooking')   return !state.player.homeItems?.includes('kitchen');
+    return false;
+  }
+
+  // ── Shared drawing helpers ────────────────────────────────────────────────
+  function outerBorder(ay, col) {
+    display.draw(BOX_X, ay, '║', col, BG);
+    display.draw(BOX_X + BOX_W - 1, ay, '║', col, BG);
+  }
+  function irow(ay, text, fg, col) {
+    const bc = col || '#66ccff';
+    outerBorder(ay, bc);
+    const p = menuPad(text, IW);
+    for (let i = 0; i < IW; i++) display.draw(CONT_X + i, ay, p[i] || ' ', fg, BG);
+  }
+  function sep(ay, col) {
+    irow(ay, '─'.repeat(IW), DC, col);
+  }
+
+  // ── Outer frame ───────────────────────────────────────────────────────────
+  function drawOuterFrame(titleStr, bc) {
+    const tc = bc || '#66ccff';
+    for (let r = 1; r < BOX_H - 1; r++)
+      for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, BOX_Y + r, ' ', PC, BG);
+    display.draw(BOX_X, BOX_Y, '╔', tc, BG); display.draw(BOX_X+BOX_W-1, BOX_Y, '╗', tc, BG);
+    for (let i = 1; i < BOX_W-1; i++) display.draw(BOX_X+i, BOX_Y, '═', tc, BG);
+    { const ay = BOX_Y+1; outerBorder(ay, tc);
+      const hint = 'esc to exit';
+      for (let i = 0; i < IW; i++) {
+        const ch = i < titleStr.length ? titleStr[i] : (i >= IW-hint.length ? hint[i-(IW-hint.length)] : ' ');
+        display.draw(CONT_X+i, ay, ch, i < titleStr.length ? PC : (i >= IW-hint.length ? DC : PC), BG);
+      }
+    }
+    { const ay = BOX_Y+2; outerBorder(ay, tc);
+      for (let i = 0; i < IW; i++) display.draw(CONT_X+i, ay, '═', DC, BG); }
+    { const ay = BOX_Y+BOX_H-2; outerBorder(ay, tc);
+      for (let i = 0; i < IW; i++) display.draw(CONT_X+i, ay, '═', DC, BG); }
+    display.draw(BOX_X, BOX_Y+BOX_H-1, '╚', tc, BG); display.draw(BOX_X+BOX_W-1, BOX_Y+BOX_H-1, '╝', tc, BG);
+    for (let i = 1; i < BOX_W-1; i++) display.draw(BOX_X+i, BOX_Y+BOX_H-1, '═', tc, BG);
+  }
+
+  // ── Cell drawing (grid view) ──────────────────────────────────────────────
+  function drawCell(cell, idx) {
+    const cx = CONT_X + cell.col * CELL_W;
+    const cy = BOX_Y + 3 + cell.row * CELL_H;
+    const locked = isCellLocked(cell.key);
+    const cc = locked ? '#222222' : cellColor(cell.key);
+    const textFg = locked ? '#444444' : PC;
+    const subFg  = locked ? '#333333' : SC;
+    // Top border with key number and title
+    display.draw(cx, cy, '┌', cc, BG);
+    const titleInner = ` ${idx+1} ${cell.name} `;
+    for (let i = 1; i < CELL_W-1; i++) {
+      const ch = i < titleInner.length ? titleInner[i-1] : '─';
+      display.draw(cx+i, cy, ch, ch === '─' ? cc : (locked ? '#444444' : cc), BG);
+    }
+    display.draw(cx+CELL_W-1, cy, '┐', cc, BG);
+    // Side borders + content rows
+    for (let r = 1; r < CELL_H-1; r++) {
+      display.draw(cx, cy+r, '│', cc, BG);
+      display.draw(cx+CELL_W-1, cy+r, '│', cc, BG);
+      for (let i = 1; i < CELL_W-1; i++) display.draw(cx+i, cy+r, ' ', PC, BG);
+    }
+    // Bottom border
+    display.draw(cx, cy+CELL_H-1, '└', cc, BG);
+    for (let i = 1; i < CELL_W-1; i++) display.draw(cx+i, cy+CELL_H-1, '─', cc, BG);
+    display.draw(cx+CELL_W-1, cy+CELL_H-1, '┘', cc, BG);
+
+    // Content lines (up to 4 inside cell, rows cy+1 to cy+4)
+    const lines = getCellSummary(cell.key);
+    const CW = CELL_W - 2; // inner width
+    for (let li = 0; li < Math.min(lines.length, 4); li++) {
+      const s = lines[li] || '';
+      const fg = li === 0 ? textFg : subFg;
+      for (let i = 0; i < CW; i++) display.draw(cx+1+i, cy+1+li, (s[i]||' '), fg, BG);
+    }
+    if (locked) {
+      const lk = '[locked]';
+      for (let i = 0; i < CW; i++) display.draw(cx+1+i, cy+2, lk[i]||' ', '#444444', BG);
+    }
+  }
+
+  function getCellSummary(key) {
+    const inv = state.player.inventory;
+    const cap = state.player.inventoryCaps;
+    switch (key) {
+      case 'carrying': return [
+        `RM:    ${inv.rm} / ${cap.rm}`,
+        `Widg:  ${inv.widgets} / ${cap.widgets}`,
+        `Cryst: ${state.mine.crystals || 0} / 5`,
+        '',
+      ];
+      case 'storage': {
+        if (!state.stations.storage?.unlocked) return ['[locked]','','',''];
+        const s = state.storage;
+        const lines = [`RM:   ${s.rm} / ${s.rmCap}`, `Widg: ${s.widgets} / ${s.widgetCap}`];
+        if (state.loadingPort?.unlocked) lines.push(`LP:   ${state.loadingPort.widgets} / ${state.loadingPort.capacity}`);
+        return lines;
+      }
+      case 'wallet': {
+        const gFg = state.player.gold < 0 ? '#ff5555' : '#ffd633';
+        return [
+          `Gold:   ${formatCredits(state.player.gold)}g`,
+          `Stamps: ${state.player.stamps}`,
+          `Bank:   ${formatCredits(state.bank.deposit || 0)}g`,
+          state.debt > 0 ? `Debt:   ${formatCredits(state.debt)}g` : '',
+        ];
+      }
+      case 'card': {
+        const card = state.bank.card;
+        if (!card.tier) return ['[not owned]','','',''];
+        const avail = Math.max(0, card.limit - card.balance);
+        return [
+          `Tier:  ${card.tier.toUpperCase()}`,
+          `Bal:   ${formatCredits(card.balance)} / ${formatCredits(card.limit)}`,
+          `Avail: ${formatCredits(avail)}g`,
+          `Score: ${(state.bank.creditRatingScore||0).toFixed(1)} (${state.bank.creditRating||'CC'})`,
+        ];
+      }
+      case 'equipment': {
+        if (!state.mine?.discovered) return ['[locked]','Mine: not found','',''];
+        const pNames = ['Bare Hands','Pickaxe','Brand Pickaxe'];
+        const daysToReset = 2 - (state.day % 2);
+        return [
+          `Pick: ${pNames[state.skills.pickaxeLevel||0]}`,
+          `Lamp: ${state.skills.lantern ? 'Yes' : 'No'}`,
+          `Mine: ${daysToReset}d reset`,
+          `Mined: ${state.mine.totalMined||0} total`,
+        ];
+      }
+      case 'wardrobe': {
+        const cn = state.player.colorName || 'DEFAULT';
+        return [`Outfit:`, ` ${cn}`, `Color:`, ''];
+      }
+      case 'cooking': {
+        if (!state.player.homeItems?.includes('kitchen')) return ['[locked]','Buy cottage','+ kitchen',''];
+        const buff = state.cooking?.activeBuff;
+        const gardenCount = Object.values(state.garden||{}).filter(v=>v===true).length;
+        if (!buff) return ['Buff: None', '', `Garden: ${gardenCount}/12`, ''];
+        const daysLeft = buff.expiresDay ? Math.max(0, buff.expiresDay - state.day) : '?';
+        return [`Buff: ${buff.name||'active'}`, ` ${buff.desc||''}`, ` ${daysLeft}d left`, `Garden: ${gardenCount}/12`];
+      }
+      case 'stats': return [
+        `Made:  ${formatCredits(state.widgetsMade)}`,
+        `Sold:  ${formatCredits(state.lifetimeWidgetsMade||0)}`,
+        `Days:  ${state.day}`,
+        `Phase: ${state.phase}`,
+      ];
+    }
+    return ['','','',''];
+  }
+
+  // ── Grid view ─────────────────────────────────────────────────────────────
+  function drawGrid() {
+    drawOuterFrame('INVENTORY', '#66ccff');
+    for (let i = 0; i < INV_CELLS.length; i++) drawCell(INV_CELLS[i], i);
+    // Footer row
+    const footerRow = BOX_Y + 3 + 2 * CELL_H;
+    for (let r = footerRow; r < BOX_Y + BOX_H - 2; r++) {
+      outerBorder(r, '#66ccff');
+      for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X+x, r, ' ', PC, BG);
+    }
+    irow(BOX_Y+BOX_H-2, '1-8: open detail   ESC: close', WC);
+  }
+
+  // ── Detail views ─────────────────────────────────────────────────────────
+  function drawDetail(idx) {
+    const cell = INV_CELLS[idx];
+    const cc   = cellColor(cell.key);
+    drawOuterFrame(`INVENTORY — ${cell.name}`, cc);
+    const cy = BOX_Y + 3;
+    const detailFns = {
+      carrying:  drawDetailCarrying,
+      storage:   drawDetailStorage,
+      wallet:    drawDetailWallet,
+      card:      drawDetailCard,
+      equipment: drawDetailEquipment,
+      wardrobe:  drawDetailWardrobe,
+      cooking:   drawDetailCooking,
+      stats:     drawDetailStats,
+    };
+    (detailFns[cell.key] || (() => {}))(cy, cc);
+    irow(BOX_Y+BOX_H-2, 'ESC: back to grid', WC, cc);
+  }
+
+  function drawDetailCarrying(cy, cc) {
+    const inv = state.player.inventory;
+    const cap = state.player.inventoryCaps;
+    irow(cy,   'CARRIED ITEMS', cc);
+    sep(cy+1,  cc);
+    if (inv.rm === 0 && inv.widgets === 0 && (state.mine.crystals||0) === 0) {
+      irow(cy+2, 'Your pockets are empty.', WC, cc);
+    } else {
+      irow(cy+2, `Raw Materials: ${inv.rm} / ${cap.rm}`, PC, cc);
+      irow(cy+3, `Widgets:       ${inv.widgets} / ${cap.widgets}`, PC, cc);
+      irow(cy+4, `Crystals:      ${state.mine.crystals||0} / 5`, '#66ccff', cc);
+    }
+    sep(cy+5, cc);
+    irow(cy+6, 'CARRYING CAPACITY', cc);
+    const e = state.skills.endurance?.pips || 0;
+    irow(cy+7, `Endurance level: ${e} / 3`, e > 0 ? '#66cc66' : WC, cc);
+    irow(cy+8, `Max RM / Widgets: ${cap.rm} each`, PC, cc);
+    irow(cy+9, 'Upgrade at INVENTORY → EQUIPMENT', SC, cc);
+  }
+
+  function drawDetailStorage(cy, cc) {
+    if (!state.stations.storage?.unlocked) {
+      irow(cy,   '[locked]', DC, cc);
+      irow(cy+1, 'Storage unlocks in Phase 2.', WC, cc);
+      return;
+    }
+    const s = state.storage;
+    irow(cy,   'STORAGE CONTENTS', cc);
+    sep(cy+1,  cc);
+    irow(cy+2, `Raw Materials: ${s.rm} / ${s.rmCap}`, PC, cc);
+    irow(cy+3, `Widgets:       ${s.widgets} / ${s.widgetCap}`, PC, cc);
+    if (state.loadingPort?.unlocked) {
+      sep(cy+4, cc);
+      irow(cy+5, 'LOADING PORT', cc);
+      irow(cy+6, `Widgets at port: ${state.loadingPort.widgets} / ${state.loadingPort.capacity}`, PC, cc);
+      irow(cy+7, 'Port auto-sells at dawn.', SC, cc);
+    }
+    sep(cy+(state.loadingPort?.unlocked ? 8 : 4), cc);
+    irow(cy+(state.loadingPort?.unlocked ? 9 : 5), 'UPGRADES', cc);
+    const exp1 = state.skills.storageExp1 > 0;
+    const exp2 = state.skills.storageExp2 > 0;
+    irow(cy+(state.loadingPort?.unlocked ? 10 : 6), `RM cap:  ${exp1 ? '✓' : ' '} Exp1   ${exp2 ? '✓' : ' '} Exp2`, exp2 ? '#66cc66' : PC, cc);
+  }
+
+  function drawDetailWallet(cy, cc) {
+    const goldFg = state.player.gold < 0 ? '#ff5555' : '#ffd633';
+    irow(cy,   'FINANCES', cc);
+    sep(cy+1,  cc);
+    irow(cy+2, `Gold on hand:    ${formatCredits(state.player.gold)}g`, goldFg, cc);
+    irow(cy+3, `Stamps:          ${state.player.stamps}`, COLOR_STAMPS, cc);
+    irow(cy+4, `Bank deposit:    ${formatCredits(state.bank.deposit||0)}g`, '#66ccff', cc);
+    if (state.bank.deposit > 0) {
+      const interest = Math.round(state.bank.deposit * 0.01 * 10) / 10;
+      irow(cy+5, `  Daily interest: +${interest}g (1%)`, '#66cc66', cc);
+    }
+    if (state.debt > 0) {
+      irow(cy+6, `Debt:            ${formatCredits(state.debt)}g`, '#ff5555', cc);
+    }
+    sep(cy+7, cc);
+    irow(cy+8,  'LIFETIME TOTALS', cc);
+    irow(cy+9,  `Gold earned: ${formatCredits(state.lifetimeGoldEarned)}g`, WC, cc);
+    irow(cy+10, `Widgets made: ${formatCredits(state.lifetimeWidgetsMade||0)}`, WC, cc);
+    sep(cy+11, cc);
+    irow(cy+12, 'DAILY COSTS', cc);
+    const carryFg = state.player.inventory.widgets > 0 || state.player.inventory.rm > 0 ? '#ff9933' : WC;
+    irow(cy+13, `Carry cost: ${state.skills.reducedCarry > 0 ? 'reduced' : 'normal'}`, carryFg, cc);
+    const wages = state.workers.couriers.length * 2;
+    irow(cy+14, `Courier wages: ${wages > 0 ? wages+'g/day' : 'none'}`, wages > 0 ? '#ff9933' : WC, cc);
+  }
+
+  function drawDetailCard(cy, cc) {
+    const card = state.bank.card;
+    if (!card?.tier) {
+      irow(cy,   'CREDIT CARD', cc);
+      sep(cy+1,  cc);
+      irow(cy+2, 'No card on file.', WC, cc);
+      irow(cy+3, 'Visit the Bank to apply.', WC, cc);
+      irow(cy+4, 'Requires CC credit rating.', WC, cc);
+      sep(cy+5, cc);
+      irow(cy+6, 'CREDIT RATING', cc);
+      irow(cy+7, `Score: ${(state.bank.creditRatingScore||0).toFixed(1)} (${state.bank.creditRating||'CC'})`, PC, cc);
+      irow(cy+8, 'Improve: sell widgets, pay debts.', SC, cc);
+      return;
+    }
+    const tCol   = getCardTierColor(card.tier);
+    const tierDef = CARD_TIERS[card.tier];
+    const pct  = card.limit > 0 ? card.balance / card.limit : 0;
+    const pctP = Math.round(pct * 100);
+    const balFg = pct > 0.8 ? '#ff5555' : pct > 0.5 ? '#ff9933' : '#ffd633';
+    const avail = Math.max(0, card.limit - card.balance);
+    irow(cy,   `${card.tier.toUpperCase()} CARD`, tCol);
+    sep(cy+1,  cc);
+    irow(cy+2, `Balance: ${formatCredits(card.balance)}g  /  Limit: ${formatCredits(card.limit)}g  (${pctP}%)`, balFg, cc);
+    irow(cy+3, `Available: ${formatCredits(avail)}g`, '#66cc66', cc);
+    irow(cy+4, `Interest: ${(tierDef.interestRate*100).toFixed(0)}%/statement   Score: ${(state.bank.creditRatingScore||0).toFixed(1)} (${state.bank.creditRating||'CC'})`, PC, cc);
+    sep(cy+5, cc);
+    irow(cy+6, 'PERKS', tCol);
+    const pg = card.tier === 'black' ? '▪' : '✦';
+    tierDef.perks.forEach((p, i) => irow(cy+7+i, `${pg} ${p.substring(0,IW-4)}`, WC, cc));
+    const nextRow = cy + 7 + tierDef.perks.length;
+    sep(nextRow, cc);
+    const minPay = card.minimumPaymentDue;
+    if (minPay > 0) {
+      irow(nextRow+1, `Payment due: ${formatCredits(minPay)}g by day ${card.paymentDueDay}`, state.day >= card.paymentDueDay ? '#ff5555' : PC, cc);
+    } else {
+      irow(nextRow+1, 'No balance. Nothing due.', '#66cc66', cc);
+    }
+    irow(nextRow+2, 'Visit the Bank to pre-pay.', SC, cc);
+  }
+
+  function drawDetailEquipment(cy, cc) {
+    const pickNames = ['Bare Hands', 'Pickaxe', 'Brand Name Pickaxe'];
+    const hitsPerRock = [3, 2, 1];
+    irow(cy,   'EQUIPMENT', cc);
+    sep(cy+1,  cc);
+    irow(cy+2, `Pickaxe: ${pickNames[state.skills.pickaxeLevel||0]}`, PC, cc);
+    irow(cy+3, `Hits to break rock: ${hitsPerRock[state.skills.pickaxeLevel||0]}`, SC, cc);
+    irow(cy+4, `Lantern: ${state.skills.lantern ? 'Yes — ore shows through walls' : 'No'}`, state.skills.lantern ? '#66cc66' : WC, cc);
+    irow(cy+5, `Crystals: ${state.mine.crystals||0} / 5`, '#66ccff', cc);
+    const daysToReset = 2 - (state.day % 2);
+    irow(cy+6, `Mine resets: ${daysToReset}d   Total mined: ${state.mine.totalMined||0}`, WC, cc);
+    sep(cy+7, cc);
+    irow(cy+8, 'SKILLS', cc);
+    const LP = 33, RP = 34;
     SKILL_DEFS.forEach((def, si) => {
       const pips  = getSkillPips(def);
-      const baseR = BOX_Y + 4 + si * 4;
+      const baseR = cy + 9 + si * 3;
       const isActive = selectedSkill === def.key;
-      const nameFg   = isActive ? BRIGHT_WHITE : WC;
-      lrow(baseR, `${si+1}. ${def.name}`, nameFg);
-      // pip + cost row
-      const nextCost = pips < def.maxPips ? def.costs[pips] : null;
-      let col = 0;
+      const nameFg = isActive ? PC : WC;
+      irow(baseR, `${si+1}. ${def.name}`, nameFg, cc);
+      // Pip row
+      outerBorder(baseR+1, cc);
       let c = CONT_X;
       for (let pi = 0; pi < def.maxPips; pi++) {
         const bought = pi < pips;
@@ -9952,52 +10052,147 @@ function showInventory() {
         display.draw(c++, baseR+1, '[', fg, BG);
         display.draw(c++, baseR+1, bought ? '●' : '○', fg, BG);
         display.draw(c++, baseR+1, ']', fg, BG);
-        col += 3;
       }
-      display.draw(c++, baseR+1, ' ', BRIGHT_WHITE, BG); col++;
+      display.draw(c++, baseR+1, ' ', PC, BG);
+      const nextCost = pips < def.maxPips ? def.costs[pips] : null;
       if (nextCost !== null) {
         const costStr = nextCost.toLocaleString('en-US') + 'g';
-        for (const ch of costStr) { display.draw(c++, baseR+1, ch, WC, BG); col++; }
+        for (const ch of costStr) display.draw(c++, baseR+1, ch, WC, BG);
+        if (isActive) {
+          const hint = '  ← press again to buy';
+          for (const ch of hint) if (c < CONT_X+IW) display.draw(c++, baseR+1, ch, '#66cc66', BG);
+        }
       } else {
-        const done = '✓ DONE';
-        for (const ch of done) { display.draw(c++, baseR+1, ch, '#66cc66', BG); col++; }
+        for (const ch of '✓ DONE') display.draw(c++, baseR+1, ch, '#66cc66', BG);
       }
-      // Fill rest of left pane
-      while (col < LP_W) { display.draw(c++, baseR+1, ' ', BRIGHT_WHITE, BG); col++; }
+      while (c < CONT_X+IW) display.draw(c++, baseR+1, ' ', PC, BG);
     });
-
-    // Right pane — selected skill detail
-    if (!selectedSkill) {
-      rrow(BOX_Y+8, 'Select a skill', WC);
-      rrow(BOX_Y+9, 'with 1 / 2 / 3', WC);
-    } else {
-      const def  = SKILL_DEFS.find(d => d.key === selectedSkill);
-      const pips = getSkillPips(def);
-      rrow(BOX_Y+4, def.name, BC);
-      if (pips > 0) {
-        const descLines = wordWrap(def.descs[pips-1], RP_W);
-        for (let li = 0; li < Math.min(descLines.length, 4); li++)
-          rrow(BOX_Y+6+li, descLines[li], BRIGHT_WHITE);
-      } else {
-        rrow(BOX_Y+6, '???', WC);
-      }
-      if (pips >= def.maxPips) {
-        rrow(BOX_Y+11, 'MASTERED', '#66cc66');
-      } else {
-        const nextCost = def.costs[pips];
-        const canAfford = state.player.gold >= nextCost;
-        rrow(BOX_Y+11, (pips === 0 ? 'Cost: ' : 'Next pip: ') + nextCost.toLocaleString('en-US') + 'g', canAfford ? BRIGHT_WHITE : WC);
-        const ski = SKILL_DEFS.indexOf(def) + 1;
-        rrow(BOX_Y+13, `${ski}. Purchase`, canAfford ? '#66cc66' : WC);
-        rrow(BOX_Y+14, 'ESC: Back', WC);
-        if (skillErrMsg) rrow(BOX_Y+16, skillErrMsg, '#ff5555');
-      }
-    }
-    const allDone = SKILL_DEFS.every(d => getSkillPips(d) >= d.maxPips);
-    irow(BOX_Y+23, allDone ? 'All skills mastered.' : 'Purchase upgrades with gold.', allDone ? '#66cc66' : WC);
+    if (skillErrMsg) irow(cy+18, skillErrMsg, '#ff5555', cc);
+    irow(BOX_Y+BOX_H-2, '1/2/3: select skill   press twice to buy   ESC: back', WC, cc);
   }
 
-  function attemptPurchase() {
+  function drawDetailWardrobe(cy, cc) {
+    irow(cy,  'WARDROBE', cc);
+    sep(cy+1, cc);
+    const cn = state.player.colorName || 'DEFAULT';
+    irow(cy+2, `Current: ${cn}`, PC, cc);
+    // Draw color swatch
+    outerBorder(cy+2, cc);
+    display.draw(CONT_X + IW - 3, cy+2, '█', state.player.color || BRIGHT_WHITE, BG);
+    display.draw(CONT_X + IW - 2, cy+2, '█', state.player.color || BRIGHT_WHITE, BG);
+    sep(cy+3, cc);
+    irow(cy+4, 'OWNED OUTFITS', cc);
+    const owned = state.player.ownedOutfits || [];
+    const letters = 'abcdefghijklm';
+    let row = cy + 5;
+    for (let i = 0; i < OUTFITS.length && row < BOX_Y+BOX_H-3; i++) {
+      const outfit = OUTFITS[i];
+      const isOwned = owned.includes(outfit.key) || outfit.key === 'default';
+      const isEquipped = state.player.colorName === outfit.name;
+      const fg = isOwned ? (isEquipped ? '#ffd633' : PC) : DC;
+      const mark = isEquipped ? '►' : (isOwned ? '·' : ' ');
+      outerBorder(row, cc);
+      let c = CONT_X;
+      display.draw(c++, row, mark, isEquipped ? '#ffd633' : WC, BG);
+      display.draw(c++, row, letters[i] || ' ', isOwned ? '#66ccff' : DC, BG);
+      display.draw(c++, row, '.', WC, BG);
+      display.draw(c++, row, ' ', PC, BG);
+      display.draw(c++, row, '█', isOwned ? outfit.color : '#333333', BG);
+      display.draw(c++, row, ' ', PC, BG);
+      const name = outfit.name.padEnd(16);
+      for (let ni = 0; ni < 16 && ni < name.length; ni++) display.draw(c++, row, name[ni], fg, BG);
+      const priceStr = isOwned ? '✓ owned' : `${outfit.price||15} stamps`;
+      const pfg = isOwned ? '#66cc66' : SC;
+      for (const ch of priceStr) if (c < CONT_X+IW) display.draw(c++, row, ch, pfg, BG);
+      while (c < CONT_X+IW) display.draw(c++, row, ' ', PC, BG);
+      row++;
+    }
+    irow(BOX_Y+BOX_H-2, 'a-m: equip owned outfit   ESC: back', WC, cc);
+  }
+
+  function drawDetailCooking(cy, cc) {
+    const hasCottage = state.player.homeItems?.includes('kitchen');
+    irow(cy, 'COOKING', cc);
+    sep(cy+1, cc);
+    if (!hasCottage) {
+      irow(cy+2, '[locked]', DC, cc);
+      irow(cy+3, 'Buy a Cottage + Kitchen from the', WC, cc);
+      irow(cy+4, 'General Store to unlock cooking.', WC, cc);
+      return;
+    }
+    const buff = state.cooking?.activeBuff;
+    const gardenCount = Object.values(state.garden||{}).filter(v=>v===true).length;
+    irow(cy+2, `Garden: ${gardenCount} / 12 planted`, gardenCount >= 6 ? '#66cc66' : WC, cc);
+    sep(cy+3, cc);
+    irow(cy+4, 'ACTIVE BUFF', cc);
+    if (!buff) {
+      irow(cy+5, 'None. Cook a recipe at your cottage.', WC, cc);
+    } else {
+      const daysLeft = buff.expiresDay ? Math.max(0, buff.expiresDay - state.day) : '?';
+      irow(cy+5, buff.name || 'Active buff', buff.color || PC, cc);
+      irow(cy+6, buff.desc || '', SC, cc);
+      irow(cy+7, `${daysLeft} day${daysLeft !== 1 ? 's' : ''} remaining`, daysLeft > 0 ? '#66cc66' : '#ff5555', cc);
+    }
+    sep(cy+8, cc);
+    irow(cy+9, 'RECIPES', cc);
+    RECIPES.forEach((rec, i) => {
+      if (cy+10+i >= BOX_Y+BOX_H-3) return;
+      const canMake = canCook(rec);
+      const fg = canMake ? '#66cc66' : WC;
+      const ingList = rec.ingredients._any3 ? 'Any 3 veggies' :
+        Object.entries(rec.ingredients).map(([k,v]) => `${v}x ${k}`).join(', ');
+      irow(cy+10+i, `${rec.name.padEnd(18)} ${ingList.substring(0,30)}`, fg, cc);
+    });
+    irow(BOX_Y+BOX_H-2, 'Visit your cottage kitchen to cook.', WC, cc);
+  }
+
+  function drawDetailStats(cy, cc) {
+    irow(cy, 'STATISTICS', cc);
+    sep(cy+1, cc);
+    irow(cy+2,  `Phase:          ${state.phase}`, PC, cc);
+    irow(cy+3,  `Day:            ${state.day}`, PC, cc);
+    irow(cy+4,  `Widgets made:   ${formatCredits(state.widgetsMade)}`, PC, cc);
+    irow(cy+5,  `Lifetime made:  ${formatCredits(state.lifetimeWidgetsMade||0)}`, WC, cc);
+    irow(cy+6,  `Sold today:     ${state.widgetsSoldToday}`, PC, cc);
+    sep(cy+7, cc);
+    irow(cy+8,  'TODAY', cc);
+    const avg = arr => arr.length ? (arr.reduce((s,v)=>s+v,0)/arr.length) : 0;
+    irow(cy+9,  `RM/sec:   ${avg(state.stats.rmLastTen).toFixed(1)}`, PC, cc);
+    irow(cy+10, `Wdgt/sec: ${avg(state.stats.widgetsLastTen).toFixed(1)}`, PC, cc);
+    const net = Math.round((state.stats.revenueToday - state.stats.costsToday)*10)/10;
+    irow(cy+11, `Revenue:  ${formatCredits(state.stats.revenueToday)}g   Costs: ${formatCredits(state.stats.costsToday)}g`, PC, cc);
+    irow(cy+12, `Net:      ${net >= 0 ? '+' : ''}${formatCredits(net)}g`, net >= 0 ? '#66cc66' : '#ff5555', cc);
+    sep(cy+13, cc);
+    irow(cy+14, 'WORKERS', cc);
+    irow(cy+15, `Apprentices: ${state.workers.apprentices.length}   Couriers: ${state.workers.couriers.length}`, PC, cc);
+    sep(cy+16, cc);
+    irow(cy+17, 'MARKET', cc);
+    const ms  = state.marketOpen ? 'OPEN' : 'CLOSED';
+    const mFg = state.marketOpen ? BRIGHT_YELLOW : WC;
+    irow(cy+18, `Status: ${ms}   Price: ${state.marketPrice}g   Demand: ${state.demand}`, mFg, cc);
+    if (state.phase >= 3) {
+      const dl = demandLabel(state.demand);
+      irow(cy+19, `Demand level: ${dl.text}`, dl.fg, cc);
+    }
+    const casino = state.casino;
+    if (casino) {
+      sep(cy+20, cc);
+      irow(cy+21, 'CASINO', cc);
+      irow(cy+22, `Wins: ${casino.totalWins||0}   Losses: ${casino.totalLosses||0}`, PC, cc);
+    }
+  }
+
+  // ── Redraw dispatcher ─────────────────────────────────────────────────────
+  function redraw() {
+    if (detailCell === null) drawGrid();
+    else drawDetail(detailCell);
+  }
+
+  inventoryRedrawFn = redraw;
+  redraw();
+
+  // ── Skills purchase (used from equipment detail) ──────────────────────────
+  function attemptSkillPurchase() {
     if (!selectedSkill) return;
     const def  = SKILL_DEFS.find(d => d.key === selectedSkill);
     const pips = getSkillPips(def);
@@ -10028,102 +10223,9 @@ function showInventory() {
     }
     addLog(`${def.name} upgraded.`, '#66ccff');
     drawStatusBar();
+    selectedSkill = null;
     redraw();
   }
-
-  // ── CARD tab ────────────────────────────────────────────────────────────────
-  function redrawCard() {
-    const card    = state.bank.card;
-    const tCol    = getCardTierColor(card.tier);
-    if (!card.tier) {
-      irow(BOX_Y+6,  '', BRIGHT_WHITE);
-      irow(BOX_Y+7,  'No card on file.', WC);
-      irow(BOX_Y+8,  '', BRIGHT_WHITE);
-      irow(BOX_Y+9,  'Visit the Bank to apply.', WC);
-      irow(BOX_Y+10, 'Requires CC credit rating.', WC);
-      for (let r = 4; r <= 21; r++) if (r < 7 || r > 10) irow(BOX_Y+r, '', BRIGHT_WHITE);
-      irow(BOX_Y+23, 'No card. Visit Bank.', WC);
-      return;
-    }
-    const tierDef = CARD_TIERS[card.tier];
-    const pct  = card.limit > 0 ? card.balance / card.limit : 0;
-    const pctP = Math.round(pct * 100);
-    const balFg = pct > 0.8 ? '#ff5555' : pct > 0.5 ? '#ff9933' : '#ffd633';
-    const minPay = card.minimumPaymentDue;
-    // Card art (centered, rows 4-10)
-    const ART_W = 32, aOff = Math.floor((IW - ART_W) / 2);
-    const artBorder = tCol, artText = tierDef.labelColor;
-    const artRows = [
-      '.' + '─'.repeat(30) + '.',
-      '│  ★  W I D G E T E R         │',
-      '│     ' + card.tier.toUpperCase().padEnd(6) + ' CARD             │',
-      '│                              │',
-      '│  **** **** **** 4892         │',
-      '│  VALID THRU  ∞  WIDGETR      │',
-      "'" + '─'.repeat(30) + "'",
-    ];
-    artRows.forEach((row, ri) => {
-      const ay = BOX_Y + 4 + ri;
-      border(ay); for (let i=0;i<IW;i++) display.draw(BOX_X+1+i,ay,' ',BRIGHT_WHITE,BG);
-      for (let i = 0; i < ART_W && i < row.length; i++) {
-        const ch = row[i];
-        let fg = artBorder;
-        if (ri >= 1 && ri <= 5 && i > 0 && i < ART_W-1) {
-          if (ri === 1 && i >= 5 && i <= 20) fg = artText;
-          else if (ri === 2 && i >= 5 && i <= 20) fg = artText;
-          else if (ri === 4 || ri === 5) fg = '#555555';
-          else fg = artBorder;
-        }
-        if (ch === '│' || ch === '.' || ch === "'" || ch === '─') fg = artBorder;
-        display.draw(BOX_X+1+aOff+i, ay, ch, fg, BG);
-      }
-    });
-    // Card details
-    irow(BOX_Y+11, card.tier.toUpperCase() + ' CARD    Limit: ' + formatCredits(card.limit) + 'g', tCol);
-    irow(BOX_Y+12, 'Balance: ' + formatCredits(card.balance) + 'cr        Used: ' + pctP + '%', balFg);
-    irow(BOX_Y+13, 'Interest: ' + (tierDef.interestRate*100).toFixed(0) + '%/statement   Accruing: +' + formatCredits(Math.round(card.balance*tierDef.interestRate*10)/10) + 'g', card.balance > 0 ? '#ff5555' : WC);
-    irow(BOX_Y+14, '─'.repeat(IW), DC);
-    irow(BOX_Y+15, 'PERKS ACTIVE:', tCol);
-    const pg = card.tier === 'black' ? '▪' : '✦';
-    tierDef.perks.forEach((p, i) => irow(BOX_Y+16+i, pg + ' ' + p.substring(0,IW-2), WC));
-    for (let r = 16+tierDef.perks.length; r <= 19; r++) irow(BOX_Y+r, '', BRIGHT_WHITE);
-    irow(BOX_Y+20, '─'.repeat(IW), DC);
-    irow(BOX_Y+21, 'Next statement: day ' + (card.lastStatementDay + card.statementCycle) + '   Cycle: every ' + card.statementCycle + ' days', BRIGHT_WHITE);
-    if (minPay > 0) {
-      irow(BOX_Y+22, 'Payment due: ' + formatCredits(minPay) + 'cr  Due by day ' + card.paymentDueDay, state.day >= card.paymentDueDay ? '#ff5555' : BRIGHT_WHITE);
-    } else {
-      irow(BOX_Y+22, 'No balance. Nothing due.', '#66cc66');
-    }
-    irow(BOX_Y+23, 'Auto-RM threshold: ' + (card.autoRMThreshold > 0 ? card.autoRMThreshold + ' RM' : 'disabled'), WC);
-  }
-
-  // ── Main redraw ───────────────────────────────────────────────────────────
-  function redrawEquip() {
-    for (let r = 4; r <= 21; r++) { border(BOX_Y+r); for (let i = 0; i < IW; i++) display.draw(CONT_X+i, BOX_Y+r, ' ', BRIGHT_WHITE, BG); }
-    irow(BOX_Y+4, 'EQUIPMENT', BC);
-    irow(BOX_Y+5, '─'.repeat(IW), DC);
-    const pickNames = ['None', 'Pickaxe', 'Brand Name Pickaxe'];
-    irow(BOX_Y+6,  `Pickaxe:  ${pickNames[state.skills.pickaxeLevel] || 'None'}`, BRIGHT_WHITE);
-    irow(BOX_Y+7,  `Lantern:  ${state.skills.lantern ? 'Yes' : 'No'}`, BRIGHT_WHITE);
-    irow(BOX_Y+8,  `Crystals: ${state.mine.crystals} / 5`, '#66ccff');
-    irow(BOX_Y+9, '─'.repeat(IW), DC);
-    const daysToReset = 2 - (state.day % 2);
-    irow(BOX_Y+10, `Mine resets in: ${daysToReset} day${daysToReset !== 1 ? 's' : ''}`, WC);
-    irow(BOX_Y+11, `Total mined: ${state.mine.totalMined}`, WC);
-    irow(BOX_Y+23, 'Mining equipment from the General Store.', WC);
-  }
-
-  function redraw() {
-    drawFrame();
-    if (tab === 'stocks') redrawStocks();
-    else if (tab === 'ops') redrawOps();
-    else if (tab === 'skills') redrawSkills();
-    else if (tab === 'equip') redrawEquip();
-    else redrawCard();
-  }
-
-  inventoryRedrawFn = redraw;
-  redraw();
 
   function closeInventory() {
     inventoryRedrawFn = null;
@@ -10138,25 +10240,41 @@ function showInventory() {
   }
 
   function invKeyHandler(e) {
-    if (e.key === 'Escape' || e.key === 'i') { closeInventory(); return; }
-    if (e.key === 'ArrowLeft')  {
-      const i = TABS.indexOf(tab); tab = TABS[(i - 1 + TABS.length) % TABS.length];
-      selectedSkill = null; workerScroll = 0; redraw(); return;
+    if (e.key === 'Escape' || e.key === 'i') {
+      if (detailCell !== null) { detailCell = null; selectedSkill = null; redraw(); return; }
+      closeInventory(); return;
     }
-    if (e.key === 'ArrowRight') {
-      const i = TABS.indexOf(tab); tab = TABS[(i + 1) % TABS.length];
-      selectedSkill = null; workerScroll = 0; redraw(); return;
+    if (detailCell === null) {
+      const n = parseInt(e.key);
+      if (n >= 1 && n <= 8) { detailCell = n - 1; selectedSkill = null; redraw(); return; }
+      return;
     }
-    if (tab === 'ops') {
-      if (e.key === 'ArrowUp')   { workerScroll = Math.max(0, workerScroll - 1); redraw(); }
-      if (e.key === 'ArrowDown') { workerScroll++; redraw(); }
-    }
-    if (tab === 'skills') {
+    // In detail view
+    const cell = INV_CELLS[detailCell];
+    if (cell.key === 'equipment') {
       const keyToSkill = { '1': 'endurance', '2': 'aquatics', '3': 'interfacing' };
       const sk = keyToSkill[e.key];
       if (sk) {
-        if (selectedSkill === sk) { attemptPurchase(); }
+        if (selectedSkill === sk) { attemptSkillPurchase(); }
         else { selectedSkill = sk; skillErrMsg = null; redraw(); }
+        return;
+      }
+    }
+    if (cell.key === 'wardrobe') {
+      const letters = 'abcdefghijklm';
+      const li = letters.indexOf(e.key);
+      if (li >= 0 && li < OUTFITS.length) {
+        const outfit = OUTFITS[li];
+        const owned = state.player.ownedOutfits || [];
+        if (owned.includes(outfit.key)) {
+          state.player.color = outfit.color;
+          state.player.colorName = outfit.name;
+          addLog(`Outfit changed to ${outfit.name.toLowerCase()}.`, outfit.color);
+          display.draw(state.player.x, state.player.y, '@', state.player.color, BG);
+          redraw();
+        } else {
+          addLog('You don\'t own that outfit.', '#555555');
+        }
         return;
       }
     }
