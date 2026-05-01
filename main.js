@@ -1020,7 +1020,7 @@ drawArt(0);
 drawPrompt(true);
 
 const CREDIT  = "Created by Adam A.";
-const VERSION = "alpha 1.07.25";
+const VERSION = "alpha 1.07.26";
 
 // ── Sound system ──────────────────────────────────────────────────────────────
 const SOUNDS = {};
@@ -8245,6 +8245,7 @@ function openKeyReference() {
 // ── Launch Facility menu (§9) ─────────────────────────────────────────────────
 
 const CHANGELOG = [
+  { version: '1.07.26', summary: 'Fixed extra pip on every skill. All skills use crystals (5 each), not gold.' },
   { version: '1.07.25', summary: 'Combat modes: Space/B enters mode, direction fires. Credit toggle on C. Market courier port/market toggle (space/z).' },
   { version: '1.07.24', summary: 'Skills: fixed pip counts, added Esprit de Corps, 2-row info box, left/right to browse pips.' },
   { version: '1.07.23', summary: 'Portable workbench: press O then Space on yourself to craft. No more Space-anywhere.' },
