@@ -1016,7 +1016,7 @@ drawArt(0);
 drawPrompt(true);
 
 const CREDIT  = "Created by Adam A.";
-const VERSION = "alpha 1.07.19";
+const VERSION = "alpha 1.07.20";
 
 // ── Sound system ──────────────────────────────────────────────────────────────
 const SOUNDS = {};
@@ -5580,7 +5580,7 @@ function openGeneralStoreMenu() {
       drp(BOX_Y+11,`c. Lantern           ${state.skills.lantern?'✓ owned':'20 stamps'}`,(state.skills.lantern)?'#66cc66':'#aaaaaa');
       drp(BOX_Y+12,`d. Sell 1 crystal${state.mine.crystals>0?'  +25g':'  [none]'}`,state.mine.crystals>0?'#66cc66':'#444444');
       drp(BOX_Y+13,'─'.repeat(IPW),DC);
-      drp(BOX_Y+14,'ARMAMENT','#aa77cc');
+      drp(BOX_Y+14,'─── ARMAMENT ───────────────────','#aa77cc');
       drp(BOX_Y+15,`e. Iron Sword        ${state.skills.swordLevel>=1?'✓ owned':'60 stamps'}`,(state.skills.swordLevel>=1)?'#66cc66':'#aaaaaa');
       drp(BOX_Y+16,`f. Steel Sword       ${state.skills.swordLevel>=2?'✓ owned':'150 stamps'}`,(state.skills.swordLevel>=2)?'#66cc66':'#aaaaaa');
       drp(BOX_Y+17,`g. Leather Armor     ${state.skills.armorLevel>=1?'✓ owned':'45 stamps'}`,(state.skills.armorLevel>=1)?'#66cc66':'#aaaaaa');
@@ -5611,8 +5611,9 @@ function openGeneralStoreMenu() {
         drp(row+1,`  ${rd.eff.substring(0,IPW-2)}`,hasCottage?'#444444':'#333333');
       }
     }
-    // Rows 15-20: shopkeeper note in left pane only (shared between both tabs)
-    { const NOTE = [
+    // Rows 15-20: shopkeeper note in left pane only (NOT for tools/recipes — they own those right-pane rows)
+    if(gsTab !== 'tools' && gsTab !== 'recipes'){
+      const NOTE = [
         "  We don't    ",
         "  sell rods.  ",
         "  But someone ",
@@ -5625,6 +5626,12 @@ function openGeneralStoreMenu() {
         for(let i=0;i<AW;i++) display.draw(BOX_X+1+i,ay,NOTE[r][i]||' ','#aaaa66',BG);
         display.draw(BOX_X+1+AW,ay,'│',DC,BG);
         for(let i=0;i<IPW;i++) display.draw(RPX+i,ay,' ',BRIGHT_WHITE,BG);
+      }
+    } else {
+      // For tools/recipes: draw divider but leave right pane content intact
+      for(let r=0;r<6;r++){
+        const ay=BOX_Y+15+r; border(ay);
+        display.draw(BOX_X+1+AW,ay,'│',DC,BG);
       }
     }
     // Row 21: ─
@@ -8004,6 +8011,7 @@ function renderLargeNumber(display, x, y, numberString, color, availableWidth) {
 // ── Launch Facility menu (§9) ─────────────────────────────────────────────────
 
 const CHANGELOG = [
+  { version: '1.07.20', summary: 'GS armament section now visible. Combat items cost stamps. Renamed to ARMAMENT. Shopkeeper note no longer wipes armament rows.' },
   { version: '1.07.19', summary: 'Cooking menu revamped with fire animation and split-pane layout. Auction House reference removed.' },
   { version: '1.07.18', summary: 'Inventory: skills at bottom with a-f keys, BOX_H=38, 6 skills, skills removed from equipment detail. Market top border fixed. Coordination/Rhetoric mine/RM mechanics.' },
   { version: '1.07.17', summary: 'Terminal: 4 tabs — candle chart, derivs, FX spot (stamps/gold exchange), positions. Up/down controls, space toggles field, tab switch only when no instrument selected.' },
