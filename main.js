@@ -1016,7 +1016,7 @@ drawArt(0);
 drawPrompt(true);
 
 const CREDIT  = "Created by Adam A.";
-const VERSION = "alpha 1.07.18";
+const VERSION = "alpha 1.07.19";
 
 // ── Sound system ──────────────────────────────────────────────────────────────
 const SOUNDS = {};
@@ -5390,6 +5390,7 @@ function handlePonder() {
 // ── Interior state (§4.2) ────────────────────────────────────────────────────
 let interiorTileMap  = [];     // [x][y] = {walkable, glyph, fg, description, furniture}
 let fireplaceFrame   = 0;      // 0 or 1
+let cookingFireFrame = 0;      // 0-39 for cooking menu fire animation
 let candlePhase      = false;  // toggles glow dot
 let cottageLookActive = false;
 let cottageLookX     = 1;
@@ -6371,7 +6372,7 @@ const CARD_TIERS = {
     requiresScore: 10, limit: 50000, interestRate: 0.01, cycle: 15,
     color: '#333333', labelColor: '#f0f0f0',
     tagline: null,
-    perks: ['Demand immunity once per week', 'Derivatives insurance up to 10,000g', 'Double stamps on all activities', 'Exclusive Auction House access'],
+    perks: ['Demand immunity once per week', 'Derivatives insurance up to 10,000g', 'Double stamps on all activities'],
   },
 };
 
@@ -6428,7 +6429,6 @@ function getUpgradeLogLines(tierName) {
     { line: '>   ▪ Demand immunity once per week',                  color: '#f0f0f0' },
     { line: '>   ▪ Derivatives insurance up to 10,000g',           color: '#f0f0f0' },
     { line: '>   ▪ Double stamps on all activities',                color: '#f0f0f0' },
-    { line: '>   ▪ Exclusive Auction House access',                 color: '#333333' },
   ];
   return [];
 }
@@ -7174,9 +7174,10 @@ function calculateVolatility() {
 }
 
 // Module-level handle so tick loop can refresh the positions dashboard
-let dashboardRedrawFn  = null;
-let dvMenuRedrawFn     = null;
-let inventoryRedrawFn  = null;
+let dashboardRedrawFn       = null;
+let dvMenuRedrawFn          = null;
+let inventoryRedrawFn       = null;
+let cookingMenuRedrawFireFn = null; // set by openCookingMenu, clears on close
 let lfMenuRedrawFn     = null;
 let lfChyronFn         = null;
 let rmMenuRedrawFn     = null;
@@ -8003,6 +8004,7 @@ function renderLargeNumber(display, x, y, numberString, color, availableWidth) {
 // ── Launch Facility menu (§9) ─────────────────────────────────────────────────
 
 const CHANGELOG = [
+  { version: '1.07.19', summary: 'Cooking menu revamped with fire animation and split-pane layout. Auction House reference removed.' },
   { version: '1.07.18', summary: 'Inventory: skills at bottom with a-f keys, BOX_H=38, 6 skills, skills removed from equipment detail. Market top border fixed. Coordination/Rhetoric mine/RM mechanics.' },
   { version: '1.07.17', summary: 'Terminal: 4 tabs — candle chart, derivs, FX spot (stamps/gold exchange), positions. Up/down controls, space toggles field, tab switch only when no instrument selected.' },
   { version: '1.07.16', summary: 'Hammer block chars, cooking menu bigger, market courier toggle (z), fullscreen removed from settings, dev menu comprehensive, GS tab labels fixed.' },
@@ -8503,63 +8505,224 @@ function consumeIngredients(recipe) {
 
 function openCookingMenu() {
   state.gameState = 'cooking_menu';
-  const OX = 16, OY = 5, OW = 46, OH = 36;
-  const TC = '#ff6633', DC = '#333333', LC = '#ffffff';
+  cookingFireFrame = 0;
 
-  function drawMenu() {
-    for (let r = 0; r < OH; r++) for (let x = 0; x < OW; x++) display.draw(OX+x, OY+r, ' ', LC, BG);
-    display.draw(OX, OY, '╔', TC, BG); display.draw(OX+OW-1, OY, '╗', TC, BG);
-    for (let i = 1; i < OW-1; i++) display.draw(OX+i, OY, '═', TC, BG);
-    display.draw(OX, OY+OH-1, '╚', TC, BG); display.draw(OX+OW-1, OY+OH-1, '╝', TC, BG);
-    for (let i = 1; i < OW-1; i++) display.draw(OX+i, OY+OH-1, '═', TC, BG);
-    for (let r = 1; r < OH-1; r++) { display.draw(OX, OY+r, '║', TC, BG); display.draw(OX+OW-1, OY+r, '║', TC, BG); }
-    function row(r, text, fg) {
-      const p = menuPad(text, OW-2);
-      for (let i = 0; i < OW-2; i++) display.draw(OX+1+i, OY+r, p[i]||' ', fg, BG);
+  const TC  = '#ff6633', DC = '#333333', WC = '#555555', PC = '#f0f0f0';
+  const BOX_W = 58, BOX_H = 36;
+  const AW    = 14; // art pane width
+  const IPW   = BOX_W - AW - 3; // right pane inner width
+  const BOX_X = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
+  const BOX_Y = Math.max(1, Math.floor((WORLD_ROWS - BOX_H) / 2));
+  const DIVX  = BOX_X + 1 + AW; // x position of divider │
+  const RPX   = DIVX + 1;       // right pane content start
+
+  let scrollOffset = 0;
+  const VISIBLE_RECIPES = 8;
+  const ROWS_PER_RECIPE = 3;
+  const RECIPE_AREA_ROWS = BOX_H - 9; // rows available for recipe list
+
+  // ── Border & frame ──────────────────────────────────────────────────────────
+  function drawBorder() {
+    // Top
+    display.draw(BOX_X, BOX_Y, '╔', TC, BG);
+    display.draw(BOX_X + BOX_W - 1, BOX_Y, '╗', TC, BG);
+    for (let i = 1; i < BOX_W - 1; i++) display.draw(BOX_X + i, BOX_Y, '═', TC, BG);
+    // Bottom
+    display.draw(BOX_X, BOX_Y + BOX_H - 1, '╚', TC, BG);
+    display.draw(BOX_X + BOX_W - 1, BOX_Y + BOX_H - 1, '╝', TC, BG);
+    for (let i = 1; i < BOX_W - 1; i++) display.draw(BOX_X + i, BOX_Y + BOX_H - 1, '═', TC, BG);
+    // Sides
+    for (let r = 1; r < BOX_H - 1; r++) {
+      display.draw(BOX_X, BOX_Y + r, '║', TC, BG);
+      display.draw(BOX_X + BOX_W - 1, BOX_Y + r, '║', TC, BG);
     }
-    row(1, '  KITCHEN', TC);
-    row(2, '─'.repeat(OW-2), DC);
-    const letters = 'abcdefgh';
-    let rr = 3;
-    const purchased = RECIPES.filter(r => state.recipes[r.key] !== false);
-    const unpurchased = RECIPES.filter(r => state.recipes[r.key] === false);
-    const displayRecipes = [...purchased, ...unpurchased.slice(0, Math.max(0, 4 - purchased.length))];
-    for (let ri = 0; ri < displayRecipes.length && ri < 8; ri++) {
-      const rec = displayRecipes[ri];
-      const isLearned = state.recipes[rec.key] !== false;
-      const ok = isLearned && canCook(rec);
-      const key = letters[ri];
-      row(rr++, `  ${key}) ${rec.name}`, ok ? rec.color : (isLearned ? '#555555' : '#333333'));
-      if (!isLearned) {
-        row(rr++, `     [not learned]`, '#333333');
-      } else if (rec.ingredients._any3) {
-        const planted = GARDEN_DEFS.filter(g => state.garden[g.key] === true).length;
-        row(rr++, `     Any 3 veggies  [${planted}/3]`, planted >= 3 ? '#66cc66' : '#ff5555');
-      } else {
-        const ingStr = Object.entries(rec.ingredients).map(([k,v]) => {
-          const have = state.garden[k] === true ? 1 : 0;
-          return `${v}x ${k} [${have}/${v}]`;
-        }).join(', ');
-        row(rr++, `     ${ingStr}`, ok ? '#555555' : '#ff5555');
-      }
-      row(rr++, `     → ${rec.desc}`, isLearned ? '#555555' : '#333333');
-      if (rr < OH - 4) row(rr++, '', DC);
+    // Divider
+    for (let r = 1; r < BOX_H - 5; r++) display.draw(DIVX, BOX_Y + r, '│', DC, BG);
+    // Title row
+    const title = 'KITCHEN', hint = 'esc: close';
+    for (let i = 1; i < BOX_W - 1; i++) {
+      let ch = ' ', fg = PC;
+      if (i - 1 < title.length) { ch = title[i - 1]; fg = TC; }
+      else if (i >= BOX_W - 2 - hint.length) { ch = hint[i - (BOX_W - 2 - hint.length)]; fg = DC; }
+      display.draw(BOX_X + i, BOX_Y + 1, ch, fg, BG);
     }
-    const buff = state.cooking?.activeBuff;
-    if (buff) {
-      row(rr++, '─'.repeat(OW-2), DC);
-      row(rr++, `  Active: ${buff.name}`, buff.color);
-      row(rr++, `  Expires: day ${buff.expiresDay}`, '#555555');
-    } else {
-      row(rr++, '─'.repeat(OW-2), DC);
-      row(rr++, '  No active buff.', DC);
-    }
-    row(OH-2, '  ESC: close', DC);
+    // Separator row 2
+    for (let i = 1; i < BOX_W - 1; i++) display.draw(BOX_X + i, BOX_Y + 2, '═', DC, BG);
+    display.draw(DIVX, BOX_Y + 2, '╦', DC, BG);
+    // Horizontal separator before bottom section
+    const sepRow = BOX_Y + BOX_H - 5;
+    for (let i = 1; i < BOX_W - 1; i++) display.draw(BOX_X + i, sepRow, '─', DC, BG);
+    display.draw(BOX_X, sepRow, '╠', TC, BG);
+    display.draw(BOX_X + BOX_W - 1, sepRow, '╣', TC, BG);
   }
 
-  drawMenu();
+  // ── Fire animation ──────────────────────────────────────────────────────────
+  const FIRE_FRAMES = [
+    [ // frame 0
+      ' *    *  ',
+      '^^^*^^^  ',
+      '         ',
+      ' |____| ',
+      ' |    | ',
+    ],
+    [ // frame 1
+      '* ** *   ',
+      '*^*^*^*  ',
+      ' *^*^*   ',
+      ' |____| ',
+      ' |    | ',
+    ],
+  ];
+
+  function drawFirePane(frame) {
+    // Clear left pane rows 3..BOX_H-6
+    for (let r = 3; r < BOX_H - 5; r++) {
+      for (let i = 0; i < AW; i++) display.draw(BOX_X + 1 + i, BOX_Y + r, ' ', PC, BG);
+      display.draw(DIVX, BOX_Y + r, '│', DC, BG);
+    }
+    const lines = FIRE_FRAMES[frame] || FIRE_FRAMES[0];
+    const startRow = BOX_Y + 4;
+    for (let li = 0; li < lines.length; li++) {
+      const line = lines[li];
+      const ay = startRow + li;
+      if (ay >= BOX_Y + BOX_H - 6) break;
+      for (let ci = 0; ci < AW - 1 && ci < line.length; ci++) {
+        const ch = line[ci];
+        let fg = '#886633';
+        if (ch === '*') fg = '#ff9933';
+        else if (ch === '^') fg = '#ffd633';
+        display.draw(BOX_X + 1 + ci, ay, ch, fg, BG);
+      }
+    }
+    display.draw(DIVX, BOX_Y + 2, '╦', DC, BG);
+  }
+
+  // ── Recipe list ──────────────────────────────────────────────────────────────
+  function getIngredientStr(rec) {
+    const ci = state.cookingInventory || {};
+    if (rec.ingredients._any3) {
+      const total = Object.values(ci).reduce((s, v) => s + v, 0);
+      return `Any 3 veggies (have: ${total})`;
+    }
+    return Object.entries(rec.ingredients).map(([k, v]) => {
+      const have = ci[k] || 0;
+      return `${v}x ${k}(${have})`;
+    }).join(' ');
+  }
+
+  function getStatusTag(rec) {
+    const learned = state.recipes[rec.key] !== false;
+    if (!learned) return { tag: '[???]', fg: '#333333' };
+    const ok = canCook(rec);
+    if (ok) return { tag: '[READY]', fg: '#66cc66' };
+    // Count how many ingredients present vs needed
+    const ci = state.cookingInventory || {};
+    if (rec.ingredients._any3) {
+      const total = Object.values(ci).reduce((s, v) => s + v, 0);
+      return { tag: `[${total}/3]`, fg: '#ffd633' };
+    }
+    let have = 0, need = 0;
+    for (const [ing, qty] of Object.entries(rec.ingredients)) { need += qty; have += Math.min(qty, ci[ing] || 0); }
+    if (have > 0) return { tag: `[${have}/${need}]`, fg: '#ffd633' };
+    return { tag: '[NEED]', fg: '#ff5555' };
+  }
+
+  function drawRecipePane() {
+    const maxVisible = Math.floor(RECIPE_AREA_ROWS / ROWS_PER_RECIPE);
+    const startR = BOX_Y + 3;
+    const endR   = BOX_Y + BOX_H - 6;
+    // Clear right pane
+    for (let r = startR; r < endR; r++) {
+      for (let i = 0; i < IPW; i++) display.draw(RPX + i, r, ' ', PC, BG);
+    }
+    // RECIPES label
+    const p = menuPad('RECIPES', IPW);
+    for (let i = 0; i < IPW; i++) display.draw(RPX + i, startR, p[i] || ' ', TC, BG);
+
+    let row = startR + 1;
+    const letters = 'abcdefgh';
+    for (let ri = 0; ri < RECIPES.length; ri++) {
+      if (row + ROWS_PER_RECIPE > endR) break;
+      const rec = RECIPES[ri];
+      const learned = state.recipes[rec.key] !== false;
+      const { tag, fg: tagFg } = getStatusTag(rec);
+      const letter = letters[ri] || '?';
+      const nameFg = learned ? rec.color : '#444444';
+      // Row 1: letter + name + status
+      const nameStr = `  ${letter}. ${rec.name.padEnd(18)} ${tag}`;
+      const nr = menuPad(nameStr, IPW);
+      for (let i = 0; i < IPW; i++) {
+        let fg = nameFg;
+        if (i >= nameStr.indexOf(tag) && nameStr.indexOf(tag) >= 0 && i < nameStr.indexOf(tag) + tag.length) fg = tagFg;
+        display.draw(RPX + i, row, nr[i] || ' ', fg, BG);
+      }
+      row++;
+      // Row 2: ingredients
+      if (row < endR) {
+        const ingStr = `     ${getIngredientStr(rec)}`;
+        const ip = menuPad(ingStr, IPW);
+        for (let i = 0; i < IPW; i++) display.draw(RPX + i, row, ip[i] || ' ', learned ? WC : '#333333', BG);
+        row++;
+      }
+      // Row 3: buff description
+      if (row < endR) {
+        const descStr = `     → ${rec.desc}`;
+        const dp = menuPad(descStr, IPW);
+        for (let i = 0; i < IPW; i++) display.draw(RPX + i, row, dp[i] || ' ', learned ? '#555555' : '#333333', BG);
+        row++;
+      }
+    }
+  }
+
+  // ── Bottom section ───────────────────────────────────────────────────────────
+  function drawBottomSection() {
+    const y1 = BOX_Y + BOX_H - 4;
+    const y2 = BOX_Y + BOX_H - 3;
+    const y3 = BOX_Y + BOX_H - 2;
+    // Clear bottom rows
+    for (let r = y1; r < BOX_Y + BOX_H - 1; r++) {
+      display.draw(BOX_X, r, '║', TC, BG);
+      display.draw(BOX_X + BOX_W - 1, r, '║', TC, BG);
+      for (let i = 1; i < BOX_W - 1; i++) display.draw(BOX_X + i, r, ' ', PC, BG);
+    }
+    // Buff line
+    const buff = state.cooking?.activeBuff;
+    let buffLine, buffFg;
+    if (buff) {
+      const daysLeft = buff.expiresDay ? Math.max(0, buff.expiresDay - state.day) : '?';
+      buffLine = `  Active buff: ${buff.name} (${buff.desc}) — ${daysLeft} day${daysLeft !== 1 ? 's' : ''} left`;
+      buffFg = buff.color || '#ff9933';
+    } else {
+      buffLine = '  No active buff.';
+      buffFg = DC;
+    }
+    const bl = menuPad(buffLine, BOX_W - 2);
+    for (let i = 0; i < BOX_W - 2; i++) display.draw(BOX_X + 1 + i, y1, bl[i] || ' ', buffFg, BG);
+    // Supplies line
+    const ci = state.cookingInventory || {};
+    const supStr = Object.entries(ci).filter(([k, v]) => v > 0).map(([k, v]) => `${k}(${v})`).join(' ');
+    const suppLine = supStr ? `  Supplies: ${supStr}` : '  Supplies: empty (pick veggies from garden)';
+    const sl = menuPad(suppLine, BOX_W - 2);
+    for (let i = 0; i < BOX_W - 2; i++) display.draw(BOX_X + 1 + i, y2, sl[i] || ' ', WC, BG);
+    // Footer hint
+    const hint = menuPad('  a-h: cook   ESC: close', BOX_W - 2);
+    for (let i = 0; i < BOX_W - 2; i++) display.draw(BOX_X + 1 + i, y3, hint[i] || ' ', DC, BG);
+  }
+
+  function drawAll() {
+    // Clear entire menu area
+    for (let r = 0; r < BOX_H; r++) for (let x = 0; x < BOX_W; x++) display.draw(BOX_X + x, BOX_Y + r, ' ', PC, BG);
+    drawBorder();
+    drawFirePane(cookingFireFrame < 20 ? 0 : 1);
+    drawRecipePane();
+    drawBottomSection();
+  }
+
+  cookingMenuRedrawFireFn = (frame) => { drawFirePane(frame); };
+  drawAll();
 
   function closeCooking() {
+    cookingMenuRedrawFireFn = null;
     window.removeEventListener('keydown', cookKeyHandler);
     state.gameState = 'cottage';
     drawCottageInterior();
@@ -8569,17 +8732,14 @@ function openCookingMenu() {
     if (e.key === 'Escape') { closeCooking(); return; }
     const idx = 'abcdefgh'.indexOf(e.key);
     if (idx < 0) return;
-    const purchased = RECIPES.filter(r => state.recipes[r.key] !== false);
-    const unpurchased = RECIPES.filter(r => state.recipes[r.key] === false);
-    const displayRecipes = [...purchased, ...unpurchased.slice(0, Math.max(0, 4 - purchased.length))];
-    const rec = displayRecipes[idx];
+    const rec = RECIPES[idx];
     if (!rec) return;
-    if (state.recipes[rec.key] === false) { addLog(`You haven't learned ${rec.name} yet. Buy the recipe from the General Store.`, '#555555'); return; }
+    if (state.recipes[rec.key] === false) { addLog(`Haven't learned ${rec.name}. Buy recipe from General Store.`, '#555555'); return; }
     if (!canCook(rec)) { addLog(`Missing ingredients for ${rec.name}.`, '#ff5555'); return; }
     consumeIngredients(rec);
     state.cooking.activeBuff = { ...rec, expiresDay: state.day + 1 };
     addLog(`You cook ${rec.name}. Buff active: ${rec.desc}.`, rec.color);
-    renderLog(); drawMenu();
+    renderLog(); drawAll();
   }
   window.addEventListener('keydown', cookKeyHandler);
 }
@@ -12335,6 +12495,8 @@ function devUnlockEverything() {
   // Crystals and shivers companion
   state.mine.crystals = 15;
   state.shiversCompanion = { befriended: true, location: 'cottage' };
+  // Cooking supplies
+  state.cookingInventory = { tomato: 3, carrot: 2, potato: 2, pumpkin: 1, corn: 2, pepper: 1, onion: 1, lettuce: 1, beet: 1, mushroom: 2, celery: 1 };
 
   // Apply unlocks and enter game
   applyPhaseUnlocks(5);
@@ -12910,7 +13072,7 @@ setInterval(() => {
   }
 
   if (state.gameState === 'gameover' || state.gameState === 'ending') return;
-  if (state.gameState !== 'playing' && state.gameState !== 'crafting' && state.gameState !== 'dashboard' && state.gameState !== 'inventory' && state.gameState !== 'lf_menu' && state.gameState !== 'rm_menu' && state.gameState !== 'wb_menu' && state.gameState !== 'mt_menu' && state.gameState !== 'dv_menu' && state.gameState !== 'cottage' && state.gameState !== 'fishing' && state.gameState !== 'casino' && state.gameState !== 'mine' && state.gameState !== 'catacombs') return;
+  if (state.gameState !== 'playing' && state.gameState !== 'crafting' && state.gameState !== 'dashboard' && state.gameState !== 'inventory' && state.gameState !== 'lf_menu' && state.gameState !== 'rm_menu' && state.gameState !== 'wb_menu' && state.gameState !== 'mt_menu' && state.gameState !== 'dv_menu' && state.gameState !== 'cottage' && state.gameState !== 'fishing' && state.gameState !== 'casino' && state.gameState !== 'mine' && state.gameState !== 'catacombs' && state.gameState !== 'cooking_menu') return;
 
   // Stats: snapshot before tick for delta computation
   const _sCr = state.player.gold;
@@ -13707,6 +13869,12 @@ setInterval(() => {
   // Mine lantern pulse — redraw mine at 60fps when lantern active
   if (state.gameState === 'mine' && mineRedrawFn && state.skills.lantern) {
     mineRedrawFn();
+  }
+
+  // Cooking menu fire animation at 60fps
+  if (state.gameState === 'cooking_menu' && cookingMenuRedrawFireFn) {
+    cookingFireFrame = (cookingFireFrame + 1) % 40;
+    cookingMenuRedrawFireFn(cookingFireFrame < 20 ? 0 : 1);
   }
 
   // Animate pause menu cube at 60fps
