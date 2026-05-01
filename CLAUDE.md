@@ -1,3 +1,12 @@
+# RULES
+- NEVER ask for confirmation. NEVER stop to ask questions. NEVER pause for approval.
+- Make every decision yourself. If something is ambiguous, pick the best option and keep going.
+- Do not say "shall I proceed" or "would you like me to" or "should I continue" — just do it.
+- Complete the entire task in one pass, then commit and push.
+- When a prompt says "Do not stop or ask" — that means zero interruptions, zero questions, zero checkpoints.
+
+---
+
 # CLAUDE.md — Conventions for Claude Code
 
 This file is read at the start of every Claude Code session. It tells Claude Code how to work on this project. **Read it fully before any task.**
