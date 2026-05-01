@@ -1016,7 +1016,7 @@ drawArt(0);
 drawPrompt(true);
 
 const CREDIT  = "Created by Adam A.";
-const VERSION = "alpha 1.07.20";
+const VERSION = "alpha 1.07.21";
 
 // ── Sound system ──────────────────────────────────────────────────────────────
 const SOUNDS = {};
@@ -5021,8 +5021,8 @@ function showOfficeMenu() {
           }
           const hintLine = isSel
             ? (type === 'appr'
-                ? `    [1:pause/resume]  [2:rename]  [c:${w.buyOnCredit ? 'cash' : 'credit'}]  [↑↓:navigate]`
-                : '    [2:rename]  [↑↓:navigate]')
+                ? `  1:pause  2:rename  c:${w.buyOnCredit ? 'cash' : 'cred'}  ↑↓:nav`
+                : '  2:rename  ↑↓:navigate')
             : '    ↑↓ to select';
           irow(base + 3, hintLine, DC);
           contentRow += 4;
@@ -5042,8 +5042,8 @@ function showOfficeMenu() {
     { const ay = BOX_Y + 38; border(ay);
       let footerLine, footerFg = '#555555';
       if (state.officeTab === 'workers') {
-        const cardHint = state.bank?.card?.tier ? '  SHIFT=card' : '';
-        footerLine = menuPad(`[ ← → switch tabs ]   Keys: [number] buy  [space] pause  [n] rename${cardHint}`, IW);
+        const cardHint = state.bank?.card?.tier ? '  c:card' : '';
+        footerLine = menuPad(`←→:tabs  [num]:hire  space:pause  n:rename${cardHint}`, IW);
       } else if (state.officeTab === 'upgrades') {
         footerLine = menuPad('[ ← → switch tabs ]  Production stats (read-only)', IW);
       } else {
@@ -5568,9 +5568,8 @@ function openGeneralStoreMenu() {
       if(state.cottage.owned) drp(BOX_Y+12,'Cottage: OWNED','#66cc66');
       else drp(BOX_Y+12,'Cottage: not yet','#555555');
     } else if(gsTab==='garden'){
-      drp(BOX_Y+6,'GARDEN SHOP',TC); drp(BOX_Y+7,'Grow something beautiful.','#555555');
-      drp(BOX_Y+9,'Flowers are forever.','#555555');
-      drp(BOX_Y+10,'Vegetables can be eaten.','#555555');
+      drp(BOX_Y+6,'GARDEN SHOP',TC); drp(BOX_Y+7,'Grow vegetables. Pick them to cook.','#555555');
+      drp(BOX_Y+9,'Veggies regrow 2 days after harvest.','#555555');
       if(state.cottage.owned) drp(BOX_Y+12,'Cottage: OWNED','#66cc66');
       else drp(BOX_Y+12,'Need a cottage first.','#555555');
     } else if(gsTab==='tools'){
@@ -5597,10 +5596,10 @@ function openGeneralStoreMenu() {
         {key:'carrotStew',  label:'b. Carrot Stew',    cost:50, eff:'2x Carrot, 1x Potato → +15% appr'},
         {key:'pumpkinPie',  label:'c. Pumpkin Pie',    cost:50, eff:'1x Pumpkin, 1x Corn → +20% price'},
         {key:'gardenSalad', label:'d. Garden Salad',   cost:50, eff:'Any 3 veggies → halve carry cost'},
-        {key:'pepperSteak', label:'e. Pepper Steak',   cost:50, eff:'2x Pepper, 1x Onion → +25% courier'},
+        {key:'pepperSteak', label:'e. Pepper Steak',   cost:50, eff:'2x Pepper, 1x Onion → +25% cour.'},
         {key:'beetRisotto', label:'f. Beet Risotto',   cost:50, eff:'2x Beet, 1x Mushroom → +1 mine hit'},
-        {key:'mushroomBroth',label:'g. Mushroom Broth',cost:50, eff:'2x Mushroom, 1x Celery → -50% wages'},
-        {key:'cornbread',   label:'h. Cornbread',      cost:50, eff:'2x Corn, 1x Lettuce → +15% interest'},
+        {key:'mushroomBroth',label:'g. Mushroom Broth',cost:50, eff:'2x Mush, 1x Celery → -50% wages'},
+        {key:'cornbread',   label:'h. Cornbread',      cost:50, eff:'2x Corn, 1x Lettuce → +15% int.'},
       ];
       for(let ri=0;ri<recDefs.length;ri++){
         const rd=recDefs[ri], learned=!!state.recipes[rd.key];
@@ -8011,6 +8010,7 @@ function renderLargeNumber(display, x, y, numberString, color, availableWidth) {
 // ── Launch Facility menu (§9) ─────────────────────────────────────────────────
 
 const CHANGELOG = [
+  { version: '1.07.21', summary: 'Full menu text audit — office footer/hint shortened, GS recipe effs fixed, flower text removed from garden, influence prices corrected.' },
   { version: '1.07.20', summary: 'GS armament section now visible. Combat items cost stamps. Renamed to ARMAMENT. Shopkeeper note no longer wipes armament rows.' },
   { version: '1.07.19', summary: 'Cooking menu revamped with fire animation and split-pane layout. Auction House reference removed.' },
   { version: '1.07.18', summary: 'Inventory: skills at bottom with a-f keys, BOX_H=38, 6 skills, skills removed from equipment detail. Market top border fixed. Coordination/Rhetoric mine/RM mechanics.' },
@@ -11659,11 +11659,11 @@ function openNewspaperMenu() {
     } else {
       const stories = allStories();
       const sections = [
-        { title: 'BULLISH STORIES  (+demand)  500g', stories: BULLISH_STORIES, offset: 0, tier: 'plant', cost: 500 },
-        { title: 'BEARISH STORIES  (-demand)  500g', stories: BEARISH_STORIES, offset: 5, tier: 'plant', cost: 500 },
+        { title: 'BULLISH STORIES  (+demand)  100g', stories: BULLISH_STORIES, offset: 0, tier: 'plant', cost: 100 },
+        { title: 'BEARISH STORIES  (-demand)  100g', stories: BEARISH_STORIES, offset: 5, tier: 'plant', cost: 100 },
       ];
       if (hasSmearNow) {
-        sections.push({ title: 'SMEAR CAMPAIGN (+/- demand)  2,000g', stories: [...BULLISH_STORIES, ...BEARISH_STORIES], offset: 10, tier: 'smear', cost: 2000, isSmear: true });
+        sections.push({ title: 'SMEAR CAMPAIGN (+/- demand)  500g', stories: [...BULLISH_STORIES, ...BEARISH_STORIES], offset: 10, tier: 'smear', cost: 500, isSmear: true });
       }
       for (const sec of sections) {
         irow(cr++, sec.title, sec.isSmear ? '#ff5555' : NC);
