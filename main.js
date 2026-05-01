@@ -1016,7 +1016,7 @@ drawArt(0);
 drawPrompt(true);
 
 const CREDIT  = "Created by Adam A.";
-const VERSION = "alpha 1.07.21";
+const VERSION = "alpha 1.07.22";
 
 // ── Sound system ──────────────────────────────────────────────────────────────
 const SOUNDS = {};
@@ -1968,7 +1968,7 @@ function drawWorld() {
 
   // Command hint (§3.9)
   drawRow(HINT_ROW,
-    "[arrows:move] [space:use] [i:inv] [o:look] [p:ponder]",
+    "[arrows:move] [space:use] [i:inv] [o:look] [k:keys]",
     COLOR_HINT_LINE);
   drawPhaseGoal();
 }
@@ -2699,6 +2699,7 @@ window.addEventListener('keydown', (e) => {
   if (e.key === 'o') { enterLookMode(); e.stopImmediatePropagation(); return; }
   if (e.key === 'i') { showInventory(); return; }
   if (e.key === 'p') { handlePonder(); return; }
+  if (e.key === 'k' || e.key === 'K') { openKeyReference(); return; }
   if (e.key === ' ') { e.preventDefault(); handleInteract(); return; }
   const DIRS = { ArrowLeft:[-1,0], ArrowRight:[1,0], ArrowUp:[0,-1], ArrowDown:[0,1] };
   const d = DIRS[e.key];
@@ -8007,9 +8008,217 @@ function renderLargeNumber(display, x, y, numberString, color, availableWidth) {
   }
 }
 
+// ── Key Reference menu (K key) ────────────────────────────────────────────────
+
+function openKeyReference() {
+  state.gameState = 'keyref';
+
+  const sections = [];
+
+  sections.push({
+    title: 'MOVEMENT',
+    color: '#f0f0f0',
+    lines: [
+      ['← → ↑ ↓', 'move around'],
+      ['space', 'interact / use'],
+      ['esc', 'close any menu'],
+    ]
+  });
+
+  sections.push({
+    title: 'MENUS',
+    color: '#f0f0f0',
+    lines: [
+      ['i', 'inventory'],
+      ['o', 'look mode'],
+      ['p', 'ponder (get a hint)'],
+      ['k', 'this menu'],
+    ]
+  });
+
+  const stationLines = [
+    { text: ['RM shed',     'buy raw materials'],                        cond: true },
+    { text: ['Workbench',   'craft widgets'],                             cond: true },
+    { text: ['Market',      'sell widgets, buy from NPCs'],               cond: true },
+    { text: ['Office',      'hire workers, view production info'],        cond: state.phase >= 2 },
+    { text: ['Storage',     'store RM and widgets'],                      cond: state.phase >= 2 },
+    { text: ['Gen. Store',  'outfits, tools, garden, recipes'],           cond: state.phase >= 2 },
+    { text: ['Bank',        'deposits, credit card, loans'],              cond: state.phase >= 3 },
+    { text: ['Newspaper',   'daily edition, market influence'],           cond: state.phase >= 3 },
+    { text: ['Terminal',    'derivatives and FX trading'],                cond: state.phase >= 3 },
+    { text: ['Casino',      'slot machine (collect 3 rocks)'],            cond: !!(state.stations?.casino?.unlocked) },
+    { text: ['Mine',        'mine RM, crystals, stamps'],                 cond: !!(state.mine?.discovered) },
+    { text: ['Cottage',     'your home, kitchen, garden'],                cond: !!(state.cottage?.owned) },
+    { text: ['Loading Pt.', 'couriers deliver, auto-sell at dawn'],       cond: !!(state.loadingPort?.unlocked) },
+    { text: ['Catacombs',   'combat dungeon (night only)'],               cond: !!(state.catacombs?.unlocked) },
+    { text: ['Launch Fac.', 'load rocket with widgets'],                  cond: state.phase >= 5 },
+  ];
+  const activeStations = stationLines.filter(s => s.cond);
+  if (activeStations.length > 0) {
+    sections.push({
+      title: 'STATIONS',
+      color: '#66ccff',
+      lines: activeStations.map(s => s.text),
+    });
+  }
+
+  if (state.bank?.card?.tier) {
+    sections.push({
+      title: 'PURCHASING',
+      color: '#ffd633',
+      lines: [
+        ['c', 'toggle credit card / gold payment'],
+      ]
+    });
+  }
+
+  const skillLines = [];
+  if (state.skills?.interfacing?.pips >= 1) {
+    skillLines.push(['o → your @', 'portable workbench (interfacing)']);
+  }
+  if (state.skills?.aquatics?.purchased) {
+    skillLines.push(['walk into ~', 'swim through water (aquatics)']);
+  }
+  if (skillLines.length > 0) {
+    sections.push({ title: 'SKILLS', color: '#66cc66', lines: skillLines });
+  }
+
+  if (state.catacombs?.unlocked && state.skills?.swordLevel >= 1) {
+    sections.push({
+      title: 'COMBAT (Catacombs)',
+      color: '#ff5555',
+      lines: [
+        ['space', 'enter sword mode → press direction to swing'],
+        ['b', 'enter bow mode → press direction to shoot'],
+        ['esc', 'flee the dungeon'],
+      ]
+    });
+  }
+
+  if (state.mine?.discovered) {
+    sections.push({
+      title: 'MINE',
+      color: '#aa6633',
+      lines: [
+        ['space', 'mine rock (face it) / collect ore'],
+        ['esc', 'exit mine'],
+      ]
+    });
+  }
+
+  if (state.cottage?.owned) {
+    sections.push({
+      title: 'COTTAGE',
+      color: '#ff8800',
+      lines: [
+        ['space on stove', 'open cooking menu'],
+        ['esc', 'leave cottage'],
+      ]
+    });
+  }
+
+  const BOX_W = 76;
+  const IW = 74;
+  const BOX_X = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
+  const CONT_X = BOX_X + 1;
+
+  const rows = [];
+  for (const s of sections) {
+    const barLen = Math.max(0, IW - s.title.length - 5);
+    rows.push({ type: 'header', text: `┌─ ${s.title} ` + '─'.repeat(barLen) + '┐', color: s.color });
+    for (const line of s.lines) {
+      const key  = line[0].padEnd(14);
+      const desc = line[1];
+      rows.push({ type: 'line', text: `│ ${key} ${desc}`, keyColor: '#f0f0f0', color: '#aaaaaa' });
+    }
+    rows.push({ type: 'footer', text: '└' + '─'.repeat(IW - 2) + '┘', color: '#333333' });
+    rows.push({ type: 'spacer' });
+  }
+
+  let totalRows = rows.length;
+  const BOX_H   = Math.min(DISPLAY_HEIGHT - 2, totalRows + 7);
+  const BOX_Y   = Math.max(0, Math.floor((DISPLAY_HEIGHT - BOX_H) / 2));
+  const visibleRows = BOX_H - 5; // header(2) + sep(1) + footer(2)
+  let scrollOffset  = 0;
+  const maxScroll   = Math.max(0, totalRows - visibleRows);
+
+  function redrawKR() {
+    for (let y = BOX_Y; y < BOX_Y + BOX_H; y++)
+      for (let x = BOX_X; x < BOX_X + BOX_W; x++)
+        display.draw(x, y, ' ', BRIGHT_WHITE, BG);
+
+    // Outer double border
+    display.draw(BOX_X, BOX_Y, '╔', '#66ccff', BG);
+    display.draw(BOX_X + BOX_W - 1, BOX_Y, '╗', '#66ccff', BG);
+    display.draw(BOX_X, BOX_Y + BOX_H - 1, '╚', '#66ccff', BG);
+    display.draw(BOX_X + BOX_W - 1, BOX_Y + BOX_H - 1, '╝', '#66ccff', BG);
+    for (let x = 1; x < BOX_W - 1; x++) {
+      display.draw(BOX_X + x, BOX_Y, '═', '#66ccff', BG);
+      display.draw(BOX_X + x, BOX_Y + BOX_H - 1, '═', '#66ccff', BG);
+    }
+    for (let y = 1; y < BOX_H - 1; y++) {
+      display.draw(BOX_X, BOX_Y + y, '║', '#66ccff', BG);
+      display.draw(BOX_X + BOX_W - 1, BOX_Y + y, '║', '#66ccff', BG);
+    }
+
+    // Title line
+    const title = 'KEY REFERENCE';
+    const escHint = 'ESC close';
+    for (let i = 0; i < title.length; i++)   display.draw(CONT_X + 1 + i, BOX_Y + 1, title[i], '#f0f0f0', BG);
+    for (let i = 0; i < escHint.length; i++) display.draw(CONT_X + IW - escHint.length - 1 + i, BOX_Y + 1, escHint[i], '#555555', BG);
+
+    // Separator
+    for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, BOX_Y + 2, '═', '#333333', BG);
+
+    // Content
+    const startY = BOX_Y + 3;
+    for (let vi = 0; vi < visibleRows; vi++) {
+      const ri = vi + scrollOffset;
+      if (ri >= rows.length) break;
+      const r  = rows[ri];
+      const ay = startY + vi;
+      if (r.type === 'spacer') continue;
+      const text = r.text || '';
+      for (let i = 0; i < Math.min(text.length, IW); i++) {
+        let fg = r.color || '#aaaaaa';
+        if (r.type === 'line' && i >= 2 && i < 16) fg = r.keyColor || '#f0f0f0';
+        else if (r.type === 'line' && i >= 16)      fg = '#aaaaaa';
+        display.draw(CONT_X + i, ay, text[i], fg, BG);
+      }
+    }
+
+    // Scroll hint / footer hint
+    if (maxScroll > 0) {
+      const sh = `[ ↑↓ scroll ]  [ ESC close ]`;
+      const sx = CONT_X + IW - sh.length - 1;
+      for (let i = 0; i < sh.length; i++) display.draw(sx + i, BOX_Y + BOX_H - 2, sh[i], '#555555', BG);
+    } else {
+      const sh = '[ ESC close ]';
+      const sx = CONT_X + IW - sh.length - 1;
+      for (let i = 0; i < sh.length; i++) display.draw(sx + i, BOX_Y + BOX_H - 2, sh[i], '#555555', BG);
+    }
+  }
+
+  redrawKR();
+
+  function keyrefHandler(e) {
+    if (e.key === 'Escape' || e.key === 'k' || e.key === 'K') {
+      window.removeEventListener('keydown', keyrefHandler);
+      state.gameState = 'playing';
+      clearScreen(); drawWorld(); drawStatusBar(); renderLog();
+      display.draw(state.player.x, state.player.y, '@', state.player.color || BRIGHT_WHITE, BG);
+      return;
+    }
+    if (e.key === 'ArrowDown') { scrollOffset = Math.min(maxScroll, scrollOffset + 1); redrawKR(); return; }
+    if (e.key === 'ArrowUp')   { scrollOffset = Math.max(0, scrollOffset - 1);         redrawKR(); return; }
+  }
+  window.addEventListener('keydown', keyrefHandler);
+}
+
 // ── Launch Facility menu (§9) ─────────────────────────────────────────────────
 
 const CHANGELOG = [
+  { version: '1.07.22', summary: 'Key reference menu (K) — dynamic based on unlocks. Replaced ponder on hint bar.' },
   { version: '1.07.21', summary: 'Full menu text audit — office footer/hint shortened, GS recipe effs fixed, flower text removed from garden, influence prices corrected.' },
   { version: '1.07.20', summary: 'GS armament section now visible. Combat items cost stamps. Renamed to ARMAMENT. Shopkeeper note no longer wipes armament rows.' },
   { version: '1.07.19', summary: 'Cooking menu revamped with fire animation and split-pane layout. Auction House reference removed.' },
@@ -13080,7 +13289,7 @@ setInterval(() => {
   }
 
   if (state.gameState === 'gameover' || state.gameState === 'ending') return;
-  if (state.gameState !== 'playing' && state.gameState !== 'crafting' && state.gameState !== 'dashboard' && state.gameState !== 'inventory' && state.gameState !== 'lf_menu' && state.gameState !== 'rm_menu' && state.gameState !== 'wb_menu' && state.gameState !== 'mt_menu' && state.gameState !== 'dv_menu' && state.gameState !== 'cottage' && state.gameState !== 'fishing' && state.gameState !== 'casino' && state.gameState !== 'mine' && state.gameState !== 'catacombs' && state.gameState !== 'cooking_menu') return;
+  if (state.gameState !== 'playing' && state.gameState !== 'crafting' && state.gameState !== 'dashboard' && state.gameState !== 'inventory' && state.gameState !== 'lf_menu' && state.gameState !== 'rm_menu' && state.gameState !== 'wb_menu' && state.gameState !== 'mt_menu' && state.gameState !== 'dv_menu' && state.gameState !== 'cottage' && state.gameState !== 'fishing' && state.gameState !== 'casino' && state.gameState !== 'mine' && state.gameState !== 'catacombs' && state.gameState !== 'cooking_menu' && state.gameState !== 'keyref') return;
 
   // Stats: snapshot before tick for delta computation
   const _sCr = state.player.gold;
