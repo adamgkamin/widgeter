@@ -354,6 +354,7 @@ const state = {
     coordination: { pips: 0 },
     rhetoric:     { pips: 0 },
     shivers:      { purchased: false },
+    espritDeCorps: { pips: 0 },
     swordLevel:   0,
     armorLevel:   0,
     bowOwned:     false,
@@ -637,7 +638,7 @@ function loadGame() {
     state.workers.couriers     = state.workers.couriers ?? []; // normalise old saves
     // Migrate old saves: ensure nickname field exists on all workers
     for (const w of state.workers.apprentices) { w.nickname = w.nickname ?? ''; w.buyOnCredit = w.buyOnCredit ?? false; }
-    for (const c of state.workers.couriers)    { c.nickname = c.nickname ?? ''; c.paused = c.paused ?? false; }
+    for (const c of state.workers.couriers)    { c.nickname = c.nickname ?? ''; c.paused = c.paused ?? false; c._finalDelivery = c._finalDelivery ?? false; }
     state.stats                = data.stats ?? { rmLastTen: [], widgetsLastTen: [], creditsLastTen: [], widgetsMadeToday: 0, revenueToday: 0, costsToday: 0 };
     state.rocketWidgets        = data.rocketWidgets       ?? 0;
     state.rocketFull           = data.rocketFull          ?? false;
@@ -671,12 +672,13 @@ function loadGame() {
         volatilitySurface: s.volatilitySurface ?? 0,
         plantStory:        s.plantStory        ?? 0,
         smearCampaign:     s.smearCampaign     ?? 0,
-        endurance:   s.endurance   ?? { pips: 0 },
-        aquatics:    s.aquatics    ?? { purchased: false },
-        interfacing: s.interfacing ?? { pips: 0 },
+        endurance:    s.endurance    ?? { pips: 0 },
+        aquatics:     s.aquatics     ?? { purchased: false },
+        interfacing:  s.interfacing  ?? { pips: 0 },
         coordination: s.coordination ?? { pips: 0 },
         rhetoric:     s.rhetoric     ?? { pips: 0 },
         shivers:      s.shivers      ?? { purchased: false },
+        espritDeCorps: s.espritDeCorps ?? { pips: 0 },
       };
       state.skills.endurance.pips        = state.skills.endurance.pips        ?? 0;
       state.skills.aquatics.purchased    = state.skills.aquatics.purchased    ?? false;
@@ -684,6 +686,7 @@ function loadGame() {
       state.skills.coordination.pips     = state.skills.coordination.pips     ?? 0;
       state.skills.rhetoric.pips         = state.skills.rhetoric.pips         ?? 0;
       state.skills.shivers.purchased     = state.skills.shivers.purchased     ?? false;
+      state.skills.espritDeCorps.pips    = state.skills.espritDeCorps.pips    ?? 0;
     }
     state.craftingTimeRemote = data.craftingTimeRemote ?? 10;
     state.stats.pondStepsWalked = state.stats.pondStepsWalked ?? 0;
@@ -1016,7 +1019,7 @@ drawArt(0);
 drawPrompt(true);
 
 const CREDIT  = "Created by Adam A.";
-const VERSION = "alpha 1.07.23";
+const VERSION = "alpha 1.07.24";
 
 // ── Sound system ──────────────────────────────────────────────────────────────
 const SOUNDS = {};
@@ -8241,6 +8244,7 @@ function openKeyReference() {
 // ── Launch Facility menu (§9) ─────────────────────────────────────────────────
 
 const CHANGELOG = [
+  { version: '1.07.24', summary: 'Skills: fixed pip counts, added Esprit de Corps, 2-row info box, left/right to browse pips.' },
   { version: '1.07.23', summary: 'Portable workbench: press O then Space on yourself to craft. No more Space-anywhere.' },
   { version: '1.07.22', summary: 'Key reference menu (K) — dynamic based on unlocks. Replaced ponder on hint bar.' },
   { version: '1.07.21', summary: 'Full menu text audit — office footer/hint shortened, GS recipe effs fixed, flower text removed from garden, influence prices corrected.' },
@@ -10982,18 +10986,20 @@ function showInventory() {
   };
 
   const SKILL_DEFS = [
-    { key: 'endurance',    name: 'ENDURANCE',    maxPips: 3, costs: [5, 5, 5],
+    { key: 'endurance',     name: 'ENDURANCE',      maxPips: 3, costs: [5, 5, 5],
       descs: ['You feel a bit sturdier.', 'Your limits have expanded.', 'You can carry a remarkable amount.'] },
-    { key: 'aquatics',     name: 'AQUATICS',     maxPips: 1, costs: [5],
+    { key: 'aquatics',      name: 'AQUATICS',        maxPips: 1, costs: [5],
       descs: ['The water parts for you now.'] },
-    { key: 'interfacing',  name: 'INTERFACING',  maxPips: 3, costs: [5, 5, 5],
+    { key: 'interfacing',   name: 'INTERFACING',     maxPips: 3, costs: [5, 5, 5],
       descs: ['Look at yourself to craft anywhere.', 'The craft comes easier now.', "You barely need to think anymore."] },
-    { key: 'coordination', name: 'COORDINATION', maxPips: 2, costs: [5, 5],
+    { key: 'coordination',  name: 'COORDINATION',    maxPips: 2, costs: [5, 5],
       descs: ['The earth gives up its secrets more freely.', "Rare things surface where they didn't before."] },
-    { key: 'rhetoric',     name: 'RHETORIC',     maxPips: 3, costs: [5, 5, 5],
+    { key: 'rhetoric',      name: 'RHETORIC',        maxPips: 3, costs: [5, 5, 5],
       descs: ['You find the right words more often.', 'Materials seem to cost less somehow.', 'Everyone gives you a better deal.'] },
-    { key: 'shivers',      name: 'SHIVERS',      maxPips: 1, costs: [5],
+    { key: 'shivers',       name: 'SHIVERS',         maxPips: 1, costs: [5],
       descs: ['You understand the creature now.'] },
+    { key: 'espritDeCorps', name: 'ESPRIT DE CORPS', maxPips: 2, costs: [5, 5],
+      descs: ["You understand each other now.", "They move differently when you're watching."] },
   ];
 
   function getSkillPips(def) {
@@ -11181,8 +11187,8 @@ function showInventory() {
       const line = `  ═══ SKILLS (5 crystals per pip) ${'═'.repeat(IW - 38 - crystalStr.length)}  ${crystalStr}  ═`;
       irow(skillsHeaderRow, line, '#555555'); }
 
-    // 6 skill rows (rows 22-27, letters a-f)
-    const SKILL_LETTERS = 'abcdef';
+    // 7 skill rows (rows 22-28, letters a-g)
+    const SKILL_LETTERS = 'abcdefg';
     for (let si = 0; si < SKILL_DEFS.length; si++) {
       const def = SKILL_DEFS[si];
       const pips = getSkillPips(def);
@@ -11209,43 +11215,56 @@ function showInventory() {
       }
     }
 
-    // Info box (rows 29-31)
-    const infoBoxTop = BOX_Y + 29;
-    const IB_W = IW - 4; // inner info box width (2px margin each side)
+    // Info box (rows 30-33) — top border + 2 content rows + bottom border
+    const infoBoxTop = BOX_Y + 30;
+    const IB_W = IW - 4;
     const IB_X = CONT_X + 2;
-    // Top border
-    display.draw(IB_X - 1, infoBoxTop, '╔', '#66ccff', BG);
-    for (let i = 0; i < IB_W; i++) display.draw(IB_X + i, infoBoxTop, '═', '#66ccff', BG);
-    display.draw(IB_X + IB_W, infoBoxTop, '╗', '#66ccff', BG);
-    // Text row
+    display.draw(IB_X - 1, infoBoxTop,     '╔', '#66ccff', BG);
     display.draw(IB_X - 1, infoBoxTop + 1, '║', '#66ccff', BG);
+    display.draw(IB_X - 1, infoBoxTop + 2, '║', '#66ccff', BG);
+    display.draw(IB_X - 1, infoBoxTop + 3, '╚', '#66ccff', BG);
+    display.draw(IB_X + IB_W, infoBoxTop,     '╗', '#66ccff', BG);
     display.draw(IB_X + IB_W, infoBoxTop + 1, '║', '#66ccff', BG);
-    let infoText, infoFg;
+    display.draw(IB_X + IB_W, infoBoxTop + 2, '║', '#66ccff', BG);
+    display.draw(IB_X + IB_W, infoBoxTop + 3, '╝', '#66ccff', BG);
+    for (let i = 0; i < IB_W; i++) display.draw(IB_X + i, infoBoxTop,     '═', '#66ccff', BG);
+    for (let i = 0; i < IB_W; i++) display.draw(IB_X + i, infoBoxTop + 3, '═', '#66ccff', BG);
+    for (let i = 0; i < IB_W; i++) display.draw(IB_X + i, infoBoxTop + 1, ' ', PC, BG);
+    for (let i = 0; i < IB_W; i++) display.draw(IB_X + i, infoBoxTop + 2, ' ', PC, BG);
     if (skillErrMsg) {
-      infoText = skillErrMsg; infoFg = '#ff5555';
+      const ep = menuPad('  ' + skillErrMsg, IB_W);
+      for (let i = 0; i < IB_W; i++) display.draw(IB_X + i, infoBoxTop + 1, ep[i] || ' ', '#ff5555', BG);
     } else if (selectedSkill) {
       const def = SKILL_DEFS.find(d => d.key === selectedSkill);
       if (def) {
         const pips = getSkillPips(def);
         const showPip = skillViewPip !== null ? skillViewPip : Math.min(pips, def.maxPips - 1);
-        const desc = def.descs[showPip] || '';
         const owned = showPip < pips;
-        const costHint = !owned && def.costs[showPip] ? `  [${def.costs[showPip]} crystals to unlock]` : (owned ? '  [owned]' : '');
-        infoText = `  ${def.name} pip ${showPip+1}/${def.maxPips}: ${desc}${costHint}`;
-        infoFg = owned ? PC : '#aaaaaa';
-      } else { infoText = ''; infoFg = DC; }
+        // Row 1: skill name + pip fraction
+        const r1 = `  ${def.name} — pip ${showPip + 1}/${def.maxPips}`;
+        const r1Fg = owned ? '#66cc66' : '#aaaaaa';
+        for (let i = 0; i < r1.length && i < IB_W; i++) display.draw(IB_X + i, infoBoxTop + 1, r1[i], r1Fg, BG);
+        if (owned && r1.length + 2 < IB_W) {
+          display.draw(IB_X + r1.length,     infoBoxTop + 1, ' ',  r1Fg, BG);
+          display.draw(IB_X + r1.length + 1, infoBoxTop + 1, '✓', '#66cc66', BG);
+        }
+        // Row 2: description, with cost hint in orange if unowned
+        const desc = def.descs[showPip] || '';
+        const r2 = `  ${desc}`;
+        for (let i = 0; i < r2.length && i < IB_W; i++) display.draw(IB_X + i, infoBoxTop + 2, r2[i], owned ? '#aaaaaa' : '#555555', BG);
+        if (!owned && def.costs[showPip]) {
+          const costStr = `  [${def.costs[showPip]} crystals]`;
+          for (let i = 0; i < costStr.length && r2.length + i < IB_W; i++) {
+            display.draw(IB_X + r2.length + i, infoBoxTop + 2, costStr[i], '#ff9933', BG);
+          }
+        }
+      }
     } else {
-      infoText = '  Press a-f to inspect a skill.  ←→: browse pips.  Enter: buy.';
-      infoFg = '#555555';
+      const dp = menuPad('  Press a-g to inspect a skill.', IB_W);
+      for (let i = 0; i < IB_W; i++) display.draw(IB_X + i, infoBoxTop + 1, dp[i] || ' ', '#555555', BG);
     }
-    const infoPadded = menuPad(infoText, IB_W);
-    for (let i = 0; i < IB_W; i++) display.draw(IB_X + i, infoBoxTop + 1, infoPadded[i] || ' ', infoFg, BG);
-    // Bottom border
-    display.draw(IB_X - 1, infoBoxTop + 2, '╚', '#66ccff', BG);
-    for (let i = 0; i < IB_W; i++) display.draw(IB_X + i, infoBoxTop + 2, '═', '#66ccff', BG);
-    display.draw(IB_X + IB_W, infoBoxTop + 2, '╝', '#66ccff', BG);
 
-    irow(BOX_Y + BOX_H - 2, '  1-8: cell detail   a-f: inspect skill   Enter: buy   ←→: browse pips   ESC: close', WC);
+    irow(BOX_Y + BOX_H - 2, '  1-8: cell detail   a-g: inspect skill   Enter: buy   ←→: browse pips   ESC: close', WC);
   }
 
   // ── Detail views ─────────────────────────────────────────────────────────
@@ -11557,6 +11576,9 @@ function showInventory() {
       state.skills.rhetoric.pips = (state.skills.rhetoric.pips || 0) + 1;
     } else if (selectedSkill === 'shivers') {
       state.skills.shivers = { purchased: true };
+    } else if (selectedSkill === 'espritDeCorps') {
+      state.skills.espritDeCorps = state.skills.espritDeCorps ?? { pips: 0 };
+      state.skills.espritDeCorps.pips = (state.skills.espritDeCorps.pips || 0) + 1;
     }
     addLog(`${def.name} upgraded.`, '#66ccff');
     drawStatusBar();
@@ -11586,8 +11608,8 @@ function showInventory() {
       // 1-8: open cell detail
       const n = parseInt(e.key);
       if (n >= 1 && n <= 8) { detailCell = n - 1; redraw(); return; }
-      // a-f: select/deselect skill
-      const skillIdx = 'abcdef'.indexOf(e.key);
+      // a-g: select/deselect skill
+      const skillIdx = 'abcdefg'.indexOf(e.key);
       if (skillIdx >= 0) {
         const sk = SKILL_DEFS[skillIdx]?.key;
         if (sk) {
@@ -11624,7 +11646,7 @@ function showInventory() {
     // In detail view
     const cell = INV_CELLS[detailCell];
     // a-f skill keys work from detail view too
-    const skillIdx2 = 'abcdef'.indexOf(e.key);
+    const skillIdx2 = 'abcdefg'.indexOf(e.key);
     if (skillIdx2 >= 0 && detailCell !== null) {
       const sk = SKILL_DEFS[skillIdx2]?.key;
       if (sk) {
@@ -12065,13 +12087,17 @@ function tickApprentices() {
   const _silverPlus = cardTierAtLeast('silver');
   const weatherSpeedMult = state.weather.current === 'storm' ? 0.7 : state.weather.current === 'rain' ? 0.8 : 1.0;
   const cookingSpeedMult = state.cooking?.activeBuff?.buff === 'apprSpeed' ? state.cooking.activeBuff.value : 1.0;
-  const speed    = Math.max(1, Math.round(WORKER_SPEEDS[state.skills.workerSpeedLevel || 0] * (_silverPlus ? 1.10 : 1.0) * weatherSpeedMult * cookingSpeedMult));
-  const carryMax = WORKER_CARRY_CAPS[state.skills.workerCarryLevel || 0];
+  const baseSpeed = Math.max(1, Math.round(WORKER_SPEEDS[state.skills.workerSpeedLevel || 0] * (_silverPlus ? 1.10 : 1.0) * weatherSpeedMult * cookingSpeedMult));
+  const esprit2   = (state.skills.espritDeCorps?.pips || 0) >= 2;
+  const carryMax  = WORKER_CARRY_CAPS[state.skills.workerCarryLevel || 0];
 
   for (const w of state.workers.apprentices) {
     if (w.paused) continue; // worker is paused — skip all logic, position unchanged
 
     markDirty(w.x, w.y); // erase from old position
+
+    const wDist  = Math.abs(w.x - state.player.x) + Math.abs(w.y - state.player.y);
+    const wSpeed = (esprit2 && wDist <= 10) ? Math.max(1, Math.round(baseSpeed * 1.05)) : baseSpeed;
 
     // Idle → fetching
     if (w.workerState === 'idle' && !state.productionHalted) {
@@ -12081,7 +12107,7 @@ function tickApprentices() {
 
     // Movement
     if (w.workerState === 'fetching' || w.workerState === 'returning') {
-      for (let step = 0; step < speed; step++) {
+      for (let step = 0; step < wSpeed; step++) {
         const dx = w.target.x - w.x;
         const dy = w.target.y - w.y;
         if (dx === 0 && dy === 0) break;
@@ -12181,13 +12207,15 @@ function tickCouriers() {
   const lpDoor = state.loadingPort?.unlocked ? { x: mtDef.x + 5, y: mtDef.y + 3 } : null;
   const weatherCourierMult = state.weather.current === 'storm' ? 0.85 : state.weather.current === 'fog' ? 0.9 : 1.0;
   const courierSpeedBuffMult = state.cooking?.activeBuff?.buff === 'courierSpeed' ? state.cooking.activeBuff.value : 1.0;
-  const speed    = Math.max(1, Math.round(COURIER_SPEEDS[state.skills.courierSpeedLevel || 0] * weatherCourierMult * courierSpeedBuffMult));
-  const carryMax = COURIER_CARRY_CAPS[state.skills.courierCarryLevel || 0];
-  const PRICE    = state.marketPrice;
-  const toRocket = state.courierDestination === 'rocket' && state.stations.launch_facility?.unlocked && lfDoor;
+  const baseSpeed = Math.max(1, Math.round(COURIER_SPEEDS[state.skills.courierSpeedLevel || 0] * weatherCourierMult * courierSpeedBuffMult));
+  const esprit2   = (state.skills.espritDeCorps?.pips || 0) >= 2;
+  const carryMax  = COURIER_CARRY_CAPS[state.skills.courierCarryLevel || 0];
+  const PRICE     = state.marketPrice;
+  const toRocket  = state.courierDestination === 'rocket' && state.stations.launch_facility?.unlocked && lfDoor;
 
-  function moveToward(c, target) {
-    for (let s = 0; s < speed; s++) {
+  function moveToward(c, target, spd) {
+    const steps = spd !== undefined ? spd : baseSpeed;
+    for (let s = 0; s < steps; s++) {
       const dx = target.x - c.x, dy = target.y - c.y;
       if (dx === 0 && dy === 0) break;
       if (Math.abs(dx) >= Math.abs(dy)) c.x += dx > 0 ? 1 : -1;
@@ -12210,6 +12238,9 @@ function tickCouriers() {
     markDirty(c.x, c.y);
     if (c.paused) continue;
 
+    const cDist  = Math.abs(c.x - state.player.x) + Math.abs(c.y - state.player.y);
+    const cSpeed = (esprit2 && cDist <= 10) ? Math.max(1, Math.round(baseSpeed * 1.05)) : baseSpeed;
+
     if (c.courierState === 'idle') {
       if (state.storage.widgets > 0) {
         c.target = { ...stDoor };
@@ -12218,7 +12249,7 @@ function tickCouriers() {
     }
 
     if (c.courierState === 'loading') {
-      moveToward(c, stDoor);
+      moveToward(c, stDoor, cSpeed);
       if (near(c, stDoor)) {
         const take = Math.min(state.storage.widgets, carryMax);
         state.storage.widgets -= take;
@@ -12230,7 +12261,7 @@ function tickCouriers() {
 
     if (c.courierState === 'delivering') {
       const destDoor = isHeadingToLF(c) ? lfDoor : (isHeadingToLP(c) ? lpDoor : mtDoor);
-      if (!near(c, destDoor)) moveToward(c, destDoor);
+      if (!near(c, destDoor)) moveToward(c, destDoor, cSpeed);
       if (near(c, destDoor)) {
         if (isHeadingToLP(c)) {
           // Deliver to Loading Port
@@ -12286,8 +12317,11 @@ function tickCouriers() {
     }
 
     if (c.courierState === 'returning') {
-      moveToward(c, stDoor);
-      if (near(c, stDoor)) c.courierState = 'idle';
+      moveToward(c, stDoor, cSpeed);
+      if (near(c, stDoor)) {
+        c.courierState = 'idle';
+        if (c._finalDelivery) { c.paused = true; c._finalDelivery = false; }
+      }
     }
 
     markDirty(c.x, c.y);
@@ -12666,13 +12700,15 @@ function devUnlockEverything() {
   state.skills.futures = 1; state.skills.optionsBuy = 1;
   state.skills.optionsWrite = 1; state.skills.volatilitySurface = 1;
 
-  // Player skills (all 6)
-  state.skills.endurance = { pips: 3 };
-  state.skills.aquatics = { purchased: true };
-  state.skills.interfacing = { pips: 3 };
+  // Player skills (all 7)
+  state.skills.endurance    = { pips: 3 };
+  state.skills.aquatics     = { purchased: true };
+  state.skills.interfacing  = { pips: 3 };
   state.skills.coordination = { pips: 2 };
-  state.skills.rhetoric = { pips: 3 };
-  state.skills.shivers = { purchased: true };
+  state.skills.rhetoric     = { pips: 3 };
+  state.skills.shivers      = { purchased: true };
+  state.skills.espritDeCorps = { pips: 2 };
+  state.mine.crystals = 15;
 
   // Black card
   state.bank.creditRating = 'AAA'; state.bank.creditRatingScore = 8.0;
@@ -13800,11 +13836,19 @@ setInterval(() => {
     if (maintenanceCost > 0) {
       if (state.player.gold >= maintenanceCost) {
         state.player.gold -= maintenanceCost;
-        for (const c of state.workers.couriers) c.paused = false;
+        for (const c of state.workers.couriers) { c.paused = false; c._finalDelivery = false; }
         addLog(`Courier wages: ${maintenanceCost}g for ${courierCount} courier${courierCount > 1 ? 's' : ''}.`, '#aaaaaa');
       } else {
-        for (const c of state.workers.couriers) c.paused = true;
-        addLog(`Can't afford courier wages (${maintenanceCost}g). Couriers idle today.`, '#ff5555');
+        const esprit1 = (state.skills.espritDeCorps?.pips || 0) >= 1;
+        for (const c of state.workers.couriers) {
+          if (esprit1) {
+            c.paused = false;
+            c._finalDelivery = true;
+          } else {
+            c.paused = true;
+          }
+        }
+        addLog(`Can't afford courier wages (${maintenanceCost}g). Couriers ${esprit1 ? 'finishing up.' : 'idle today.'}`, '#ff5555');
       }
       drawStatusBar();
     }
