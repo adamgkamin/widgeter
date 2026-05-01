@@ -165,6 +165,15 @@ document.addEventListener('keydown', (e) => {
       state.gameState !== 'playing' && state.gameState !== 'title' && state.gameState !== 'title_menu') {
     e.preventDefault();
   }
+  // Shift key toggles credit card payment mode
+  if (e.key === 'Shift' && state?.bank?.card?.tier && state.gameState === 'playing') {
+    state.creditMode = !state.creditMode;
+    addLog(state.creditMode ? 'Paying on CREDIT CARD.' : 'Paying with GOLD.', state.creditMode ? '#66ccff' : '#ffd633');
+    drawStatusBar();
+    if (officeMenuRedrawFn) officeMenuRedrawFn();
+    if (gsMenuRedrawFn)     gsMenuRedrawFn();
+    if (rmMenuRedrawFn)     rmMenuRedrawFn();
+  }
 }, { capture: true });
 
 // Windowed mode: stay crisp when the browser window is resized
@@ -273,6 +282,9 @@ const state = {
   devUnlocked:          false,
   widgetsMade:          0,
   peakCredits:          0,
+  bankruptcyStipendCount: 0,
+  creditMode:           false,
+  cookingInventory:     {},
   bank: {
     deposit: 0,
     tab:                     'account',
@@ -420,6 +432,8 @@ function saveGame() {
     devUnlocked:          state.devUnlocked,
     widgetsMade:          state.widgetsMade,
     peakCredits:          state.peakCredits,
+    bankruptcyStipendCount: state.bankruptcyStipendCount,
+    cookingInventory:     state.cookingInventory,
     bank:                 state.bank,
     audio:                state.audio,
     settings:             state.settings,
@@ -532,9 +546,12 @@ function loadGame() {
     state.endingTriggered                = data.endingTriggered                ?? false;
     state.endingCompleted                = data.endingCompleted                ?? false;
     state.devUnlocked                    = data.devUnlocked                    ?? false;
-    state.widgetsMade          = data.widgetsMade          ?? 0;
-    state.peakCredits          = data.peakCredits          ?? 0;
-    state.bank                 = data.bank                 ?? { deposit: 0 };
+    state.widgetsMade              = data.widgetsMade              ?? 0;
+    state.peakCredits              = data.peakCredits              ?? 0;
+    state.bankruptcyStipendCount   = data.bankruptcyStipendCount   ?? 0;
+    state.cookingInventory         = data.cookingInventory         ?? {};
+    state.creditMode               = false; // always start with gold mode
+    state.bank                     = data.bank                     ?? { deposit: 0 };
     state.bank.deposit         = state.bank.deposit        ?? 0;
     // Migrate old 'B' start rating to 'CC'
     if (state.bank.creditRating === 'B' && (state.bank.creditRatingScore ?? 3.0) === 3.0) state.bank.creditRating = 'CC';
@@ -935,7 +952,7 @@ drawArt(0);
 drawPrompt(true);
 
 const CREDIT  = "Created by Adam A.";
-const VERSION = "alpha 1.07.11";
+const VERSION = "alpha 1.07.12";
 
 // ── Sound system ──────────────────────────────────────────────────────────────
 const SOUNDS = {};
@@ -1142,6 +1159,10 @@ function drawStatusBar() {
   if (state.cooking?.activeBuff) {
     display.draw(DISPLAY_WIDTH - 4, STATUS_ROW, '♨', state.cooking.activeBuff.color, BG);
   }
+  if (state.creditMode && state.bank?.card?.tier) {
+    const label = '[CREDIT]';
+    for (let i = 0; i < label.length; i++) display.draw(DISPLAY_WIDTH - 12 + i, STATUS_ROW, label[i], '#66ccff', BG);
+  }
 }
 
 // ── Tile map (§4.2) ───────────────────────────────────────────────────────────
@@ -1155,7 +1176,7 @@ const STATION_DEFS = [
   { x:  8, y: 35, label: 'GS', wc: DIM_GRAY,  lc: DIM_GRAY  },
   { x:  9, y:  2, label: 'RM', wc: '#ff9933', lc: '#ffaa55', dc: '#cc7722' },
   { x: 34, y:  8, label: 'WB', wc: '#cc3300', lc: '#ff5533', dc: '#aa2200' },
-  { x: 61, y: 23, label: 'MT', wc: '#ffd633', lc: '#ffea66', dc: '#ccaa22' },
+  { x: 61, y: 23, label: 'MT', wc: '#ffd633', lc: '#ffea66', dc: '#ccaa22', mini: true },
   { x: 23, y: 17, label: 'OF', wc: '#f0f0f0', lc: '#ffffff', dc: '#aaaaaa' },
   { x: 45, y: 32, label: 'NP', wc: DIM_GRAY,  lc: DIM_GRAY  },
 ];
@@ -1632,6 +1653,18 @@ function buildTileMap() {
   };
   for (const s of STATION_DEFS) {
     if (s.wide) continue; // custom stamp handled separately
+    if (s.mini) {
+      // 2-row compact station: just label row + door row (no top border)
+      tileMap[s.x  ][s.y+1] = mk('║',        s.wc, false);
+      tileMap[s.x+1][s.y+1] = mk(s.label[0], s.lc, false);
+      tileMap[s.x+2][s.y+1] = mk(s.label[1], s.lc, false);
+      tileMap[s.x+3][s.y+1] = mk('║',        s.wc, false);
+      tileMap[s.x  ][s.y+2] = mk('╚',        s.wc, false);
+      tileMap[s.x+1][s.y+2] = mk('-',        s.dc || s.wc, true);
+      tileMap[s.x+2][s.y+2] = mk('═',        s.wc, false);
+      tileMap[s.x+3][s.y+2] = mk('╝',        s.wc, false);
+      continue;
+    }
     tileMap[s.x  ][s.y]   = mk('╔',        s.wc, false);
     tileMap[s.x+1][s.y]   = mk('═',        s.wc, false);
     tileMap[s.x+2][s.y]   = mk('═',        s.wc, false);
@@ -1849,7 +1882,7 @@ function drawWorld() {
 
   // Command hint (§3.9)
   drawRow(HINT_ROW,
-    "[arrows: move] [space: use] [i: inv] [o: look] [p: ponder]",
+    "arrows:move  space:use  i:inv  o:look  p:ponder",
     COLOR_HINT_LINE);
   drawPhaseGoal();
 }
@@ -2141,9 +2174,12 @@ function resetState() {
   state.endingTriggered      = false;
   state.endingCompleted      = false;
   state.devUnlocked          = false;
-  state.widgetsMade          = 0;
-  state.peakCredits          = 0;
-  state.bank                 = {
+  state.widgetsMade              = 0;
+  state.peakCredits              = 0;
+  state.bankruptcyStipendCount   = 0;
+  state.cookingInventory         = {};
+  state.creditMode               = false;
+  state.bank                     = {
     deposit: 0,
     creditRating: 'CC', creditRatingScore: 3.0,
     ratingHistory: [], consecutivePositiveDays: 0,
@@ -2600,9 +2636,7 @@ window.addEventListener('keydown', (e) => {
   if (destTile.glyph === '~') state.stats.pondStepsWalked = (state.stats.pondStepsWalked || 0) + 1;
   state.stepsWalked++;
   state.lastNarrativeTick = state.tick;
-  // Stamps: 1 per 15 steps (§13)
-  state.player.stampWalkCounter = (state.player.stampWalkCounter || 0) + 1;
-  if (state.player.stampWalkCounter >= 15) { state.player.stampWalkCounter = 0; awardStamp(1, false); }
+  // (Walk-based stamp awards removed — stamps awarded daily at dawn)
   if (state.stepsWalked === 1000)
     addLog('Your boots have worn a groove in the path.', '#cc66cc');
   if (state.stepsWalked === 5000)
@@ -2686,10 +2720,6 @@ function trackLookStamp(x, y) {
   const key = `${x},${y}`;
   if (!state.player.stampLookTiles.has(key)) {
     state.player.stampLookTiles.add(key);
-    while (state.player.stampLookTiles.size >= state.player.stampLookMilestone + 8) {
-      state.player.stampLookMilestone += 8;
-      awardStamp(1, false);
-    }
   }
 }
 
@@ -3579,10 +3609,17 @@ function calculateDailyDemand() {
 function checkBankruptcyStipend() {
   if (state.player.gold <= -20) {
     state.player.gold = -20; // clamp to floor
+    state.bankruptcyStipendCount = (state.bankruptcyStipendCount || 0) + 1;
+    if (state.bankruptcyStipendCount >= 2) {
+      addLog('You have fallen into debt a second time.', '#ff5555');
+      setTimeout(() => triggerGameOver('debt'), 1500);
+      drawStatusBar();
+      return true;
+    }
     addLog('You feel absolutely screwed.', '#ff5555');
     setTimeout(() => {
       state.player.gold = Math.round((state.player.gold + 30) * 10) / 10;
-      addLog('The bank extends an emergency stipend. +30g.', '#66cc66');
+      addLog("The bank extends an emergency stipend. +30g. Don't let this happen again.", '#66cc66');
       drawStatusBar();
     }, 1500);
     drawStatusBar();
@@ -4604,10 +4641,10 @@ function showOfficeMenu() {
     const courCount = state.workers.couriers.length;
 
     function appHireInfo() {
-      if (appCount >= 5) return { n: '[+] Hire Another Appr.', nfg: '#555555', c: '[MAX]', cfg: '#555555' };
+      if (appCount >= 5) return { n: '[1] Hire Apprentice', nfg: '#555555', c: '[MAX]', cfg: '#555555' };
       const node = OFFICE_NODES.find(nd => nd.countKey === 'apprenticeCount' && nd.tier === appCount + 1);
       if (!node || state.phase < node.minPhase) return { n: '[ locked ]', nfg: '#222222', c: '          ', cfg: '#222222' };
-      const lbl = appCount === 0 ? '[+] Hire Apprentice' : '[+] Hire Another Appr.';
+      const lbl = '[1] Hire Apprentice';
       const ok = state.player.gold >= node.cost;
       return { n: lbl, nfg: ok ? '#66cc66' : '#ff5555', c: `    Cost: ${node.cost}g`, cfg: '#555555' };
     }
@@ -4615,25 +4652,25 @@ function showOfficeMenu() {
       const node = OFFICE_NODES.find(nd => nd.key === 'workerCarry');
       const lv = state.skills.workerCarryLevel || 0;
       if (state.phase < node.minPhase) return { n: '[ locked ]', nfg: '#222222', c: '          ', cfg: '#222222' };
-      if (lv >= node.max) return { n: '[^] Appr. Inventory', nfg: '#555555', c: '[MAX]', cfg: '#555555' };
+      if (lv >= node.max) return { n: '[2] Appr. Inventory', nfg: '#555555', c: '[MAX]', cfg: '#555555' };
       const cost = node.costs[lv];
       const ok = state.player.gold >= cost;
-      return { n: '[^] Appr. Inventory', nfg: ok ? '#66cc66' : '#ff5555', c: `    Cost: ${cost}g (${lv}/${node.max})`, cfg: '#555555' };
+      return { n: '[2] Appr. Inventory', nfg: ok ? '#66cc66' : '#ff5555', c: `    Cost: ${cost}g (${lv}/${node.max})`, cfg: '#555555' };
     }
     function appSpeedInfo() {
       const node = OFFICE_NODES.find(nd => nd.key === 'workerSpeed');
       const lv = state.skills.workerSpeedLevel || 0;
       if (state.phase < node.minPhase) return { n: '[ locked ]', nfg: '#222222', c: '          ', cfg: '#222222' };
-      if (lv >= node.max) return { n: '[>] Train Speed', nfg: '#555555', c: '[MAX]', cfg: '#555555' };
+      if (lv >= node.max) return { n: '[3] Train Speed', nfg: '#555555', c: '[MAX]', cfg: '#555555' };
       const cost = node.costs[lv];
       const ok = state.player.gold >= cost;
-      return { n: '[>] Train Speed', nfg: ok ? '#66cc66' : '#ff5555', c: `    Cost: ${cost}g (${lv}/${node.max})`, cfg: '#555555' };
+      return { n: '[3] Train Speed', nfg: ok ? '#66cc66' : '#ff5555', c: `    Cost: ${cost}g (${lv}/${node.max})`, cfg: '#555555' };
     }
     function courBuildInfo() {
-      if (courCount >= 4) return { n: '[+] Build Another Courier', nfg: '#555555', c: '[MAX]', cfg: '#555555' };
+      if (courCount >= 4) return { n: '[4] Build Courier', nfg: '#555555', c: '[MAX]', cfg: '#555555' };
       const node = OFFICE_NODES.find(nd => nd.countKey === 'courierCount' && nd.tier === courCount + 1);
       if (!node || state.phase < node.minPhase) return { n: '[ locked ]', nfg: '#222222', c: '           ', cfg: '#222222' };
-      const lbl = courCount === 0 ? '[+] Build Courier' : '[+] Build Another Courier';
+      const lbl = courCount === 0 ? '[4] Build Courier' : '[4] Build Courier';
       const wg = state.storage.widgets;
       const ok = wg >= node.widgetCost;
       const c = ok ? `    Cost: ${node.widgetCost} WG (storage)` : `Need ${node.widgetCost} WG from storage (have ${wg})`;
@@ -4643,23 +4680,23 @@ function showOfficeMenu() {
       const node = OFFICE_NODES.find(nd => nd.key === 'courierCarry');
       const lv = state.skills.courierCarryLevel || 0;
       if (state.phase < node.minPhase) return { n: '[ locked ]', nfg: '#222222', c: '           ', cfg: '#222222' };
-      if (lv >= node.max) return { n: '[^] Courier Inv.', nfg: '#555555', c: '[MAX]', cfg: '#555555' };
+      if (lv >= node.max) return { n: '[5] Courier Inv.', nfg: '#555555', c: '[MAX]', cfg: '#555555' };
       const cost = node.costs[lv];
       const wg = state.storage.widgets;
       const ok = wg >= cost;
       const c = ok ? `    Cost: ${cost} WG (storage)(${lv}/${node.max})` : `Need ${cost} WG from storage (have ${wg})`;
-      return { n: '[^] Courier Inv.', nfg: ok ? '#66cc66' : '#ff5555', c, cfg: ok ? '#555555' : '#ff5555' };
+      return { n: '[5] Courier Inv.', nfg: ok ? '#66cc66' : '#ff5555', c, cfg: ok ? '#555555' : '#ff5555' };
     }
     function courSpeedInfo() {
       const node = OFFICE_NODES.find(nd => nd.key === 'courierSpeed');
       const lv = state.skills.courierSpeedLevel || 0;
       if (state.phase < node.minPhase) return { n: '[ locked ]', nfg: '#222222', c: '           ', cfg: '#222222' };
-      if (lv >= node.max) return { n: '[~] Overclock Speed', nfg: '#555555', c: '[MAX]', cfg: '#555555' };
+      if (lv >= node.max) return { n: '[6] Overclock Speed', nfg: '#555555', c: '[MAX]', cfg: '#555555' };
       const cost = node.costs[lv];
       const wg = state.storage.widgets;
       const ok = wg >= cost;
       const c = ok ? `    Cost: ${cost} WG (storage)(${lv}/${node.max})` : `Need ${cost} WG from storage (have ${wg})`;
-      return { n: '[~] Overclock Speed', nfg: ok ? '#66cc66' : '#ff5555', c, cfg: ok ? '#555555' : '#ff5555' };
+      return { n: '[6] Overclock Speed', nfg: ok ? '#66cc66' : '#ff5555', c, cfg: ok ? '#555555' : '#ff5555' };
     }
 
     let r = rowBase;
@@ -5122,7 +5159,6 @@ function awardStamp(amount, announce) {
   state.player.stamps += actual;
   if (announce) {
     addLog(pickStampMsg(), COLOR_STAMPS);
-    if (wasLow) setTimeout(() => addLog('Spend stamps at the General Store for cosmetics and upgrades.', COLOR_STAMPS), 1500);
   }
   if (state.gameState === 'inventory' && inventoryRedrawFn) inventoryRedrawFn();
 }
@@ -6177,7 +6213,8 @@ const CARD_TIER_ORDER = ['bronze', 'silver', 'gold', 'black'];
 
 // Helper: charge cost to card (Shift held) or gold. Returns true on success.
 function payForItem(cost, useCard) {
-  if (useCard) {
+  const actuallyUseCard = useCard !== undefined ? useCard : (state.creditMode && !!state.bank.card?.tier);
+  if (actuallyUseCard) {
     const avail = Math.max(0, (state.bank.card.limit || 0) - (state.bank.card.balance || 0));
     if (avail < cost) { addLog('Card limit reached.', '#ff5555'); return false; }
     state.bank.card.balance = Math.round((state.bank.card.balance + cost) * 10) / 10;
@@ -6231,7 +6268,17 @@ function getUpgradeLogLines(tierName) {
 }
 
 function getBankRatingIdx() {
-  return Math.round(Math.max(0, Math.min(10, state.bank.creditRatingScore)));
+  const s = Math.max(0, Math.min(10, state.bank.creditRatingScore));
+  if (s >= 9.0) return 10; // S
+  if (s >= 8.0) return 9;  // AAA
+  if (s >= 7.0) return 8;  // AA
+  if (s >= 6.0) return 7;  // A
+  if (s >= 5.0) return 6;  // BBB
+  if (s >= 4.0) return 5;  // BB
+  if (s >= 3.0) return 4;  // B
+  if (s >= 2.0) return 3;  // CC
+  if (s >= 1.0) return 1;  // D
+  return 0;                 // F
 }
 function getRatingColor(tier) {
   return RATING_COLORS[tier] ?? '#f0f0f0';
@@ -6247,6 +6294,69 @@ function getMaxEligibleCardTier(score) {
 function getCardTierColor(tier) {
   if (!tier) return '#555555';
   return CARD_TIERS[tier]?.color ?? '#555555';
+}
+
+function triggerGameOver(reason) {
+  state.gameState = 'gameover';
+  for (let y = 0; y < DISPLAY_HEIGHT; y++)
+    for (let x = 0; x < DISPLAY_WIDTH; x++)
+      display.draw(x, y, ' ', BRIGHT_WHITE, BG);
+
+  const lines = [];
+  if (reason === 'credit') {
+    lines.push({ y: 15, text: 'B A N K R U P T', color: '#ff5555', delay: 500 });
+    lines.push({ y: 17, text: 'Your credit rating has fallen to F.', color: '#aaaaaa', delay: 1500 });
+    lines.push({ y: 18, text: 'The bank has seized your assets.', color: '#aaaaaa', delay: 2500 });
+    lines.push({ y: 19, text: 'No one will do business with you.', color: '#666666', delay: 3500 });
+  } else {
+    lines.push({ y: 15, text: 'B A N K R U P T', color: '#ff5555', delay: 500 });
+    lines.push({ y: 17, text: 'You fell into debt a second time.', color: '#aaaaaa', delay: 1500 });
+    lines.push({ y: 18, text: 'The bank has cut you off for good.', color: '#aaaaaa', delay: 2500 });
+    lines.push({ y: 19, text: 'There is nothing left.', color: '#666666', delay: 3500 });
+  }
+  lines.push({ y: 22, text: '─'.repeat(31), color: '#333333', delay: 4500 });
+  lines.push({ y: 24, text: 'Your widget empire lasted ' + state.day + ' days.', color: '#555555', delay: 5500 });
+  lines.push({ y: 25, text: 'Widgets produced: ' + (state.widgetsMade || 0).toLocaleString(), color: '#555555', delay: 6000 });
+  lines.push({ y: 26, text: 'Peak gold: ' + Math.round(state.peakCredits || 0).toLocaleString() + 'g', color: '#555555', delay: 6500 });
+  lines.push({ y: 29, text: '[ press any key ]', color: '#333333', delay: 8000 });
+
+  for (const line of lines) {
+    setTimeout(() => {
+      const startX = Math.floor((DISPLAY_WIDTH - line.text.length) / 2);
+      for (let i = 0; i < line.text.length; i++)
+        display.draw(startX + i, line.y, line.text[i], line.color, BG);
+    }, line.delay);
+  }
+
+  setTimeout(() => {
+    let blinkOn = true;
+    const blinkInterval = setInterval(() => {
+      blinkOn = !blinkOn;
+      const pressText = '[ press any key ]';
+      const sx = Math.floor((DISPLAY_WIDTH - pressText.length) / 2);
+      for (let i = 0; i < pressText.length; i++)
+        display.draw(sx + i, 29, pressText[i], blinkOn ? '#555555' : '#111111', BG);
+    }, 500);
+    function gameOverKeyHandler(e) {
+      clearInterval(blinkInterval);
+      window.removeEventListener('keydown', gameOverKeyHandler);
+      localStorage.removeItem(SAVE_KEY);
+      resetState();
+      state.gameState = 'title';
+      clearScreen();
+      drawArt();
+      drawPrompt(true);
+    }
+    window.addEventListener('keydown', gameOverKeyHandler);
+  }, 8500);
+}
+
+function checkBankruptcy() {
+  if (state.bank.creditRatingScore < 1.0 && state.bank.card?.tier) {
+    triggerGameOver('credit');
+    return true;
+  }
+  return false;
 }
 
 function changeRating(delta, reason) {
@@ -6277,6 +6387,7 @@ function changeRating(delta, reason) {
     }
   }
   if (bankMenuRedrawFn) bankMenuRedrawFn();
+  checkBankruptcy();
 }
 
 // ── Bank menu (§5.4) ─────────────────────────────────────────────────────────
@@ -6464,8 +6575,8 @@ function openBankMenu() {
         srow(BOX_Y + 6,  ` Rating: ${rTier.padEnd(5)} Score: ${state.bank.creditRatingScore.toFixed(1)}/10`, rCol, 1);
         const statusWord = rIdx >= 9 ? 'EXCELLENT' : rIdx >= 7 ? 'GOOD' : rIdx >= 5 ? 'FAIR' : rIdx >= 3 ? 'BUILDING' : 'POOR';
         srow(BOX_Y + 7,  ` Status: ${statusWord}`, rCol, 2);
-        srow(BOX_Y + 8,  ' Improves: on-time payments, low balance', '#555555', 3);
-        srow(BOX_Y + 9,  ' Drops from: missed payments, high utilization', '#555555', 4);
+        srow(BOX_Y + 8,  ' Improves: pay on time, high usage paid off, early payments.', '#555555', 3);
+        srow(BOX_Y + 9,  ' Drops: missed payments, carrying interest.', '#555555', 4);
         if (last2.length === 0) {
           srow(BOX_Y + 10, ' No history yet.', DC, 5);
           srow(BOX_Y + 11, '', BRIGHT_WHITE, 6);
@@ -6741,11 +6852,12 @@ function openBankMenu() {
           if (cardTierAtLeast('gold')) {
             card.consecutiveGoldPayments = (card.consecutiveGoldPayments || 0) + 1;
             if (card.consecutiveGoldPayments >= 3) {
-              changeRating(+1.0, 'Three consecutive Gold payments');
+              changeRating(+0.2, 'Three consecutive Gold payments bonus');
               card.consecutiveGoldPayments = 0;
             }
           }
-          changeRating(+0.5, 'Card payment made on time');
+          const wasHighUtil = card.limit > 0 && (card.balance / card.limit) > 0.5;
+          changeRating(wasHighUtil ? +0.6 : +0.3, wasHighUtil ? 'On-time payment (high utilization)' : 'Card payment made on time');
         }
         addLog(`Card payment: ${formatCredits(pay)}g paid.`, getCardTierColor(card.tier));
         drawStatusBar(); redraw(); return;
@@ -6774,7 +6886,7 @@ function openBankMenu() {
             const actual = Math.min(val, maxPre);
             state.player.gold = Math.round((state.player.gold - actual) * 10) / 10;
             card.balance       = Math.round((card.balance - actual) * 10) / 10;
-            changeRating(+0.1, 'Card pre-payment');
+            changeRating(+0.2, 'Card pre-payment');
             addLog(`Pre-paid ${formatCredits(actual)}g on card. Score improved.`, getCardTierColor(card.tier));
             drawStatusBar(); openBankMenu();
           },
@@ -7534,6 +7646,7 @@ function renderLargeNumber(display, x, y, numberString, color, availableWidth) {
 // ── Launch Facility menu (§9) ─────────────────────────────────────────────────
 
 const CHANGELOG = [
+  { version: '1.07.12', summary: 'Credit score rework, bankruptcy game over, stamp overhaul, kitchen/veggie/credit/fog bug fixes.' },
   { version: '1.07.11', summary: 'Recipe tab (8 recipes, 50 stamps each). Mining tab renamed to Tools. Kitchen stove highlighted. Inventory cells color-coded.' },
   { version: '1.07.10', summary: 'Inventory revamp: 4x2 grid — carrying, storage, wallet, card, equipment, wardrobe, cooking, stats.' },
   { version: '1.07.09', summary: 'Terminal revamp: 4x2 grid, forwards at Phase 3, futures/options at Phase 4, profit scenarios, positions tab.' },
@@ -7947,18 +8060,24 @@ function buildInteriorTileMap() {
   }
   const fur = state.cottage.furniture;
   if (fur.kitchen) {
-    stamp(1,7, 1,3, 'kitchen', '┌', '#886633', 'A modest kitchen. Functional.', false);
-    // Stove tile at (3,2) — walkable=false, interactive
-    if (interiorTileMap[3] && interiorTileMap[3][2]) {
-      interiorTileMap[3][2].glyph = 'π'; interiorTileMap[3][2].fg = '#ff9944'; interiorTileMap[3][2].bg = '#331a00';
-      interiorTileMap[3][2].description = 'The stove. Press Space to cook.';
-      interiorTileMap[3][2].furniture = 'stove';
+    // Kitchen counter rows 1-2 only (leaves row 3-4 walkable for stove access)
+    stamp(1,7, 1,2, 'kitchen', '┌', '#886633', 'A modest kitchen. Functional.', false);
+    // Steam indicator above stove area (non-walkable row 3)
+    if (interiorTileMap[4] && interiorTileMap[4][3]) {
+      interiorTileMap[4][3].glyph = '~'; interiorTileMap[4][3].fg = '#665544';
+      interiorTileMap[4][3].description = 'Steam rises from below.';
+      interiorTileMap[4][3].walkable = false;
     }
-    // Steam indicator above stove
-    if (interiorTileMap[3] && interiorTileMap[3][1]) {
-      interiorTileMap[3][1].glyph = '♨'; interiorTileMap[3][1].fg = '#ff6633';
-      interiorTileMap[3][1].description = 'Steam rises from the stove.';
-      interiorTileMap[3][1].walkable = false;
+    // Three-tile stove at row 4 — walkable so player can step on them to cook
+    const stoveDesc = 'The stove. Press Space to cook.';
+    if (interiorTileMap[3] && interiorTileMap[3][4]) {
+      interiorTileMap[3][4] = { walkable: true, glyph: '▐', fg: '#ff6633', bg: BG, description: stoveDesc, furniture: 'stove' };
+    }
+    if (interiorTileMap[4] && interiorTileMap[4][4]) {
+      interiorTileMap[4][4] = { walkable: true, glyph: '♨', fg: '#ff9944', bg: BG, description: 'The burner. Press Space to cook.', furniture: 'stove' };
+    }
+    if (interiorTileMap[5] && interiorTileMap[5][4]) {
+      interiorTileMap[5][4] = { walkable: true, glyph: '▌', fg: '#ff6633', bg: BG, description: stoveDesc, furniture: 'stove' };
     }
   }
   if (!fur.kitchen && false) { } // no-op
@@ -7991,38 +8110,32 @@ const RECIPES = [
 ];
 
 function canCook(recipe) {
+  const ci = state.cookingInventory || {};
   if (recipe.ingredients._any3) {
-    const planted = GARDEN_DEFS.filter(g => state.garden[g.key] === true);
-    return planted.length >= 3;
+    return Object.values(ci).reduce((s, v) => s + v, 0) >= 3;
   }
   for (const [ing, qty] of Object.entries(recipe.ingredients)) {
-    let count = 0;
-    for (let q = 0; q < qty; q++) {
-      if (state.garden[ing] === true) count++;
-    }
-    if (count < qty) return false;
+    if ((ci[ing] || 0) < qty) return false;
   }
   return true;
 }
 
 function consumeIngredients(recipe) {
+  if (!state.cookingInventory) state.cookingInventory = {};
+  const ci = state.cookingInventory;
   if (recipe.ingredients._any3) {
-    const planted = GARDEN_DEFS.filter(g => state.garden[g.key] === true);
-    const toConsume = planted.slice(0, 3);
-    for (const g of toConsume) {
-      state.garden[g.key] = 'eaten';
-      state.gardenRegrow[g.key] = state.day + 2;
+    let consumed = 0;
+    for (const key of Object.keys(ci)) {
+      while (ci[key] > 0 && consumed < 3) { ci[key]--; consumed++; }
+      if (ci[key] <= 0) delete ci[key];
+      if (consumed >= 3) break;
     }
-    placeGardenTiles();
     return;
   }
   for (const [ing, qty] of Object.entries(recipe.ingredients)) {
-    for (let q = 0; q < qty; q++) {
-      state.garden[ing] = 'eaten';
-      state.gardenRegrow[ing] = state.day + 2;
-    }
+    ci[ing] = Math.max(0, (ci[ing] || 0) - qty);
+    if (ci[ing] === 0) delete ci[ing];
   }
-  placeGardenTiles();
 }
 
 function openCookingMenu() {
@@ -8126,15 +8239,17 @@ function drawInteriorFurniture() {
   const fur = state.cottage.furniture;
   function dp(ix, iy, ch, fg) { if (ix>=0&&ix<=19&&iy>=0&&iy<=11) display.draw(OX+ix, OY+iy, ch, fg, BG); }
 
-  // H — Kitchen Corner (1,1): 7w × 3h
+  // H — Kitchen Counter (1,1): 7w × 2h; stove below at row 4
   if (fur.kitchen) {
     const WC = '#886633', TC = '#aaaaaa';
-    ['┌──┬──┐', '│▦▦│▦▦│', '└──┴──┘'].forEach((row, r) => {
-      const fg = r === 1 ? TC : WC;
+    ['┌──┬──┐', '└──┴──┘'].forEach((row, r) => {
+      const fg = WC;
       for (let i = 0; i < row.length; i++) dp(1+i, 1+r, row[i], fg);
     });
-    dp(3, 2, 'π', '#ff9944'); // stove — warm orange
-    dp(3, 1, '♨', '#ff6633'); // steam above stove
+    dp(4, 3, '~', '#665544'); // steam
+    dp(3, 4, '▐', '#ff6633'); // stove left
+    dp(4, 4, '♨', '#ff9944'); // stove center
+    dp(5, 4, '▌', '#ff6633'); // stove right
   }
 
   // D — Fireplace (8,1): 7w × 3h, two-frame animation
@@ -8217,7 +8332,7 @@ function handleCottageInteract() {
   const px = state.cottage.playerX, py = state.cottage.playerY;
   const fur = state.cottage.furniture;
   // Stove adjacent (3,2) — open cooking menu
-  if (fur.kitchen && Math.abs(px-3)<=1 && Math.abs(py-2)<=1) { openCookingMenu(); return true; }
+  if (fur.kitchen && ((px===3||px===4||px===5) && py===4)) { openCookingMenu(); return true; }
   // Cat adjacent
   if (fur.cat) {
     if (Math.abs(px-state.cottage.catX)<=1 && Math.abs(py-state.cottage.catY)<=1) {
@@ -9275,11 +9390,14 @@ function handleInteract() {
       const item = GARDEN_DEFS[i];
       const gpx = gix + (i % 4), gpy = giy + Math.floor(i / 4);
       if (px === gpx && py === gpy && state.garden[item.key] === true && item.type === 'veggie') {
-        state.garden[item.key] = 'eaten';
+        if (!state.cookingInventory) state.cookingInventory = {};
+        state.cookingInventory[item.key] = (state.cookingInventory[item.key] || 0) + 1;
+        delete state.garden[item.key];
         state.gardenRegrow[item.key] = state.day + 2;
+        state.garden[item.key] = 'eaten';
         placeGardenTiles(); markDirty(gpx, gpy); renderDirty();
         display.draw(px, py, '@', state.player.color || BRIGHT_WHITE, BG);
-        addLog(`> You eat the ${item.name.toLowerCase()}. Not bad.`, item.fg);
+        addLog(`Picked ${item.name.toLowerCase()}. Added to cooking supplies.`, item.fg);
         return;
       }
     }
@@ -11395,6 +11513,9 @@ function devUnlockEverything() {
 
   // All recipes
   state.recipes = { tomatoSoup: true, carrotStew: true, pumpkinPie: true, gardenSalad: true, pepperSteak: true, beetRisotto: true, mushroomBroth: true, cornbread: true };
+  state.bankruptcyStipendCount = 0;
+  state.bank.creditRatingScore = 8.0;
+  state.peakCredits = 25000;
 
   // Stamps
   state.player.stamps = 500;
@@ -11986,6 +12107,7 @@ setInterval(() => {
     if (officeMenuRedrawFn && state.officeTab === 'workers') officeMenuRedrawFn();
   }
 
+  if (state.gameState === 'gameover' || state.gameState === 'ending') return;
   if (state.gameState !== 'playing' && state.gameState !== 'crafting' && state.gameState !== 'dashboard' && state.gameState !== 'inventory' && state.gameState !== 'lf_menu' && state.gameState !== 'rm_menu' && state.gameState !== 'wb_menu' && state.gameState !== 'mt_menu' && state.gameState !== 'dv_menu' && state.gameState !== 'cottage' && state.gameState !== 'fishing' && state.gameState !== 'casino' && state.gameState !== 'mine') return;
 
   // Stats: snapshot before tick for delta computation
@@ -11997,6 +12119,24 @@ setInterval(() => {
   state.dayTick++;
   if (state.dayTick >= 240) {
     state.dayTick = 0; state.day++; state.bellFiredToday = false; state.widgetsSoldToday = 0; state.demandMetLogged = false; state._demandImmunityActiveToday = false; state.stats.widgetsMadeToday = 0; state.stats.revenueToday = 0; state.stats.costsToday = 0; state.fishing.catchesToday = 0;
+    // Daily stamp find
+    { const stampAmount = 2 + Math.floor(Math.random() * 4);
+      state.player.stamps += stampAmount;
+      const STAMP_MSGS = [
+        'You notice some stamps in your pocket.','A few stamps fall out of your sleeve.',
+        'You find stamps stuck to your boot.','There are stamps wedged in your belt.',
+        'You spot stamps on the ground beside you.','Stamps tumble out when you stretch.',
+        'You feel something papery in your coat. Stamps.','A gust of wind blows stamps into your hand.',
+        'You lean against a wall and stamps crinkle underneath.','Something shiny catches your eye. Stamps in the grass.',
+        'Your hat feels heavy. Stamps were hiding inside.','You shake out your bag. Stamps everywhere.',
+        'A stamp is stuck to the bottom of your shoe.','You reach into your back pocket. More stamps.',
+        'Stamps were pressed between the pages of your notebook.','You sit down and hear a crunch. Stamps in your chair.',
+        'The wind delivers stamps to your doorstep.','You open your lunchbox. Stamps instead of lunch.',
+        'A bird drops stamps at your feet and flies away.','You scratch your head and stamps rain down.',
+      ];
+      const stampMsg = STAMP_MSGS[Math.floor(Math.random() * STAMP_MSGS.length)];
+      addLog(`${stampMsg} +${stampAmount}`, COLOR_STAMPS);
+    }
     // Casino daily reset
     if (state.stations.casino) { state.stations.casino.spunToday = 0; state.stations.casino.dailyBetTotal = 0; state.stations.casino.lossesTonight = 0; }
     // Assign three spread-out blink ticks per uncollected rock
@@ -12255,23 +12395,26 @@ setInterval(() => {
       const card = state.bank.card;
       const tierDef = CARD_TIERS[card.tier];
 
-      // Card demotion check
-      if (tierDef && state.bank.creditRatingScore < tierDef.requiresScore) {
+      // Card demotion check — bronze cannot be revoked
+      if (card.tier === 'bronze' && tierDef && state.bank.creditRatingScore < tierDef.requiresScore && !card.demotionWarningDay) {
+        card.demotionWarningDay = state.day; // use to throttle the message
+        addLog('Your card is at the lowest tier. It cannot be revoked.', '#ff9933');
+      }
+      if (tierDef && state.bank.creditRatingScore < tierDef.requiresScore && card.tier !== 'bronze') {
         if (!card.demotionWarningDay) {
           card.demotionWarningDay = state.day;
           addLog(`> [BANK] Rating below card tier requirements.`, '#ff9933');
           addLog(`> You have 3 days to improve.`, '#ff9933');
         } else if (state.day - card.demotionWarningDay >= 3) {
           const oldTier = card.tier;
-          const newEligible = getMaxEligibleCardTier(state.bank.creditRatingScore);
-          const newTierDef  = newEligible ? CARD_TIERS[newEligible] : null;
+          const newEligible = getMaxEligibleCardTier(state.bank.creditRatingScore) || 'bronze';
+          const newTierDef  = CARD_TIERS[newEligible];
           card.tier          = newEligible;
-          card.limit         = newTierDef ? newTierDef.limit : 0;
-          card.interestRate  = newTierDef ? newTierDef.interestRate : 0;
-          card.statementCycle = newTierDef ? newTierDef.cycle : 10;
+          card.limit         = newTierDef.limit;
+          card.interestRate  = newTierDef.interestRate;
+          card.statementCycle = newTierDef.cycle;
           card.demotionWarningDay = null;
-          addLog(`> [BANK] Your ${oldTier.toUpperCase()} card has been revoked.`, '#ff5555');
-          addLog(`> Credit tier has been adjusted.`, '#ff5555');
+          addLog(`> [BANK] Your ${oldTier.toUpperCase()} card has been adjusted to ${newEligible.toUpperCase()}.`, '#ff5555');
         }
       } else if (card.demotionWarningDay) {
         card.demotionWarningDay = null;
@@ -12282,7 +12425,7 @@ setInterval(() => {
       if (state.day === card.paymentDueDay && card.minimumPaymentDue > 0) {
         card.missedPayments++;
         card.consecutiveGoldPayments = 0;
-        changeRating(-2.0, 'Missed card payment');
+        changeRating(-1.0, 'Missed card payment');
         addLog('Card: missed minimum payment. Credit score hit.', '#ff5555');
         card.minimumPaymentDue = 0;
       }
@@ -12292,6 +12435,7 @@ setInterval(() => {
         if (card.balance > 0) {
           const interest = Math.round(card.balance * card.interestRate * 10) / 10;
           card.balance   = Math.round((card.balance + interest) * 10) / 10;
+          changeRating(-0.5, 'Carrying interest on card');
         }
         card.minimumPaymentDue    = card.balance > 0 ? Math.round(Math.max(5, card.balance * 0.1) * 10) / 10 : 0;
         card.paymentDueDay        = state.day + 5;
@@ -12345,14 +12489,7 @@ setInterval(() => {
     if (state.gameState !== 'mine') renderLog();
   }
 
-  // Stamp event timer — only when actively playing (§13)
-  if (state.gameState === 'playing') {
-    state.player.stampEventTimer = (state.player.stampEventTimer ?? 40) - 1;
-    if (state.player.stampEventTimer <= 0) {
-      state.player.stampEventTimer = Math.floor(Math.random() * 21) + 40;
-      awardStamp(1, true);
-    }
-  }
+  // (Per-tick stamp event removed — stamps awarded daily at dawn)
 
   if (state.gameState === 'crafting') {
     const secsLeft = activeCraftTicks - craftProgress;
@@ -12687,7 +12824,7 @@ setInterval(() => {
 
 // ── Effects render loop — runs at ~60fps independent of game tick ─────────────
 ;(function effectsLoop(ts) {
-  if (state.gameState === 'ending') { requestAnimationFrame(effectsLoop); return; }
+  if (state.gameState === 'gameover' || state.gameState === 'ending') { requestAnimationFrame(effectsLoop); return; }
   if (state.gameState !== 'cottage' && state.gameState !== 'mine') effectsManager.render(display);
 
   // Scroll-in: advance pendingLine only when world is active (not paused, not look mode)
@@ -12785,21 +12922,27 @@ setInterval(() => {
   // Fog / storm visibility cone
   if ((state.weather.current === 'fog' || state.weather.current === 'storm') && state.phase >= 2 && state.gameState === 'playing') {
     const px = state.player.x, py = state.player.y;
+    const fogRange = state.skills.lantern ? 8 : 4;
+    const dimRange = state.skills.lantern ? 12 : 7;
     for (let y = 1; y < WORLD_ROWS - 1; y++) {
       for (let x = 1; x < DISPLAY_WIDTH - 1; x++) {
         const dist = Math.sqrt((x - px) * (x - px) + (y - py) * (y - py));
-        if (dist > 10) display.draw(x, y, '·', '#111111', BG);
-        else if (dist > 7) display.draw(x, y, '·', '#222222', BG);
+        if (dist > dimRange) {
+          display.draw(x, y, '·', '#111111', BG);
+        } else if (dist > fogRange) {
+          const t = tileMap[x]?.[y];
+          if (t) display.draw(x, y, t.glyph, '#333333', BG);
+        }
       }
     }
     display.draw(px, py, '@', state.player.color || BRIGHT_WHITE, BG);
     for (const w of state.workers.apprentices) {
       const wd = Math.sqrt((w.x - px) * (w.x - px) + (w.y - py) * (w.y - py));
-      if (wd <= 7) display.draw(w.x, w.y, 'a', '#66ccff', BG);
+      if (wd <= dimRange) display.draw(w.x, w.y, 'a', '#66ccff', BG);
     }
     for (const c of state.workers.couriers) {
       const cd = Math.sqrt((c.x - px) * (c.x - px) + (c.y - py) * (c.y - py));
-      if (cd <= 7) display.draw(c.x, c.y, 'c', '#cc66cc', BG);
+      if (cd <= dimRange) display.draw(c.x, c.y, 'c', '#cc66cc', BG);
     }
   }
 
@@ -12808,6 +12951,10 @@ setInterval(() => {
     if (Math.random() < 0.005) {
       const lx = 2 + Math.floor(Math.random() * (DISPLAY_WIDTH - 4));
       for (let y = 1; y < WORLD_ROWS - 1; y++) display.draw(lx, y, '│', '#ffffff', BG);
+      requestAnimationFrame(() => {
+        for (let y = 1; y < WORLD_ROWS - 1; y++) markDirty(lx, y);
+        renderDirty();
+      });
     }
   }
 
