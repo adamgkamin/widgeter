@@ -812,6 +812,7 @@ function loadGame() {
       _cat.chestOpened = false;
       _cat.swordCooldown = 0; _cat.bowCooldown = 0;
       _cat.engagedEnemy = null; _cat.dungeonName = '';
+      _cat.combatMode = null;
     }
     // Weather
     { const _w = state.weather = data.weather ?? {};
@@ -1019,7 +1020,7 @@ drawArt(0);
 drawPrompt(true);
 
 const CREDIT  = "Created by Adam A.";
-const VERSION = "alpha 1.07.24";
+const VERSION = "alpha 1.07.25";
 
 // ── Sound system ──────────────────────────────────────────────────────────────
 const SOUNDS = {};
@@ -2294,7 +2295,7 @@ function resetState() {
   state.stats = { rmLastTen: [], widgetsLastTen: [], creditsLastTen: [], widgetsMadeToday: 0, revenueToday: 0, costsToday: 0 };
   state.skills = { apprenticeCount: 0, courierCount: 0, workerCarryLevel: 0, workerSpeedLevel: 0, courierCarryLevel: 0, courierSpeedLevel: 0, storageExp1: 0, storageExp2: 0, reducedCarry: 0, discountDump: 0, demandHistory: 0, forecast: 0, futures: 0, optionsBuy: 0, optionsWrite: 0, volatilitySurface: 0, plantStory: 0, smearCampaign: 0, pickaxeLevel: 0, lantern: false, endurance: { pips: 0 }, aquatics: { purchased: false }, interfacing: { pips: 0 }, coordination: { pips: 0 }, rhetoric: { pips: 0 }, shivers: { purchased: false }, swordLevel: 0, armorLevel: 0, bowOwned: false };
   state.shiversCompanion = { befriended: false, location: 'mine' };
-  state.catacombs = { unlocked: false, completedTonight: false, playerX: 0, playerY: 0, hp: 10, maxHp: 10, tiles: [], enemies: [], chestOpened: false, goldCollected: 0, swordCooldown: 0, bowCooldown: 0, engagedEnemy: null, dungeonName: '' };
+  state.catacombs = { unlocked: false, completedTonight: false, playerX: 0, playerY: 0, hp: 10, maxHp: 10, tiles: [], enemies: [], chestOpened: false, goldCollected: 0, swordCooldown: 0, bowCooldown: 0, engagedEnemy: null, dungeonName: '', combatMode: null };
   state.player.arrows = 0;
   state.mine = { discovered: false, discoveredDay: -1, tiles: [], lastGenDay: -1, playerX: 12, playerY: 13, playerDir: { x: 0, y: -1 }, totalMined: 0, crystals: 0, bareHandHits: 0, handsBloodied: false, kickedOut: false, kickedOutUntilPeriod: -1, enemyX: -1, enemyY: -1 };
   state.weather = { current: 'clear', forecast: 'clear', actualTomorrow: 'clear' };
@@ -4208,7 +4209,7 @@ function openMarketMenu(initialTab = 'sell') {
             display.draw(BOX_X+1+i, ay, ch, active ? '#ffd633' : '#555555', BG);
           }
           const ay2 = statusRow + 9; border(ay2);
-          const ht2 = menuPad('  [z] Toggle courier delivery destination', IW);
+          const ht2 = menuPad('  [space/z] Toggle courier delivery destination', IW);
           for (let i = 0; i < IW; i++) display.draw(BOX_X+1+i, ay2, ht2[i]||' ', '#555555', BG);
         }
       }
@@ -4407,9 +4408,9 @@ function openMarketMenu(initialTab = 'sell') {
       }
     }
 
-    // Courier destination toggle
-    if (e.key === 'z' && state.loadingPort?.unlocked && state.couriersOwned > 0) {
-      state.courierDestination = state.courierDestination === 'market' ? 'port' : 'market';
+    // Courier destination toggle (z or space)
+    if ((e.key === 'z' || e.key === ' ') && state.loadingPort?.unlocked && state.couriersOwned > 0) {
+      state.courierDestination = state.courierDestination === 'port' ? 'market' : 'port';
       addLog(`Couriers now delivering to: ${state.courierDestination === 'port' ? 'Loading Port' : 'market'}.`, '#88cc88');
       redraw(); return;
     }
@@ -8244,6 +8245,7 @@ function openKeyReference() {
 // ── Launch Facility menu (§9) ─────────────────────────────────────────────────
 
 const CHANGELOG = [
+  { version: '1.07.25', summary: 'Combat modes: Space/B enters mode, direction fires. Credit toggle on C. Market courier port/market toggle (space/z).' },
   { version: '1.07.24', summary: 'Skills: fixed pip counts, added Esprit de Corps, 2-row info box, left/right to browse pips.' },
   { version: '1.07.23', summary: 'Portable workbench: press O then Space on yourself to craft. No more Space-anywhere.' },
   { version: '1.07.22', summary: 'Key reference menu (K) — dynamic based on unlocks. Replaced ponder on hint bar.' },
@@ -9988,9 +9990,15 @@ function drawCatacombs() {
   const swordStr = ['none','iron','steel'][state.skills.swordLevel || 0];
   const hpBar = `HP:${cat.hp}/${cat.maxHp} ♥  ${swordStr} sword  ${armorStr} armor  arrows:${state.player.arrows||0}`;
   drawRow(STATUS_ROW, hpBar.padEnd(DISPLAY_WIDTH), '#aa77cc');
-  // Log row
-  const logTxt = `${cat.dungeonName}  |  arrows:${state.player.arrows||0}  gold here:${cat.goldCollected}g  |  SPACE+↕←→:sword  B+↕←→:bow  ESC:flee`;
-  drawRow(HINT_ROW, logTxt.substring(0, DISPLAY_WIDTH), '#555555');
+  // Hint row — dynamic based on combat mode
+  if (cat.combatMode === 'sword') {
+    drawRow(HINT_ROW, '  ⚔ SWORD MODE — press a direction to swing, ESC to cancel', '#ff9933');
+  } else if (cat.combatMode === 'bow') {
+    drawRow(HINT_ROW, '  → BOW MODE — press a direction to shoot, ESC to cancel', '#ccaa33');
+  } else {
+    const logTxt = `${cat.dungeonName}  |  space: sword mode  b: bow mode  esc: flee`;
+    drawRow(HINT_ROW, logTxt.substring(0, DISPLAY_WIDTH), '#555555');
+  }
 }
 
 function enterCatacombs() {
@@ -10149,33 +10157,76 @@ function catacombsEnemyMove() {
   }
 }
 
-const _catHeld = new Set();
-window.addEventListener('keyup', e => { _catHeld.delete(e.key); });
-
 catacombsKeyHandler = function(e) {
   if (state.gameState !== 'catacombs') return;
-  if (e.key === 'Escape') { e.preventDefault(); exitCatacombs(false); return; }
-  // Track held keys for combo detection
-  _catHeld.add(e.key);
-  // Directional input
-  let dx = 0, dy = 0;
-  if (e.key === 'ArrowUp')    { dy = -1; e.preventDefault(); }
-  else if (e.key === 'ArrowDown')  { dy = 1;  e.preventDefault(); }
-  else if (e.key === 'ArrowLeft')  { dx = -1; e.preventDefault(); }
-  else if (e.key === 'ArrowRight') { dx = 1;  e.preventDefault(); }
-  else { return; } // non-arrow: just track in heldKeys
-  if (dx === 0 && dy === 0) return;
-  // Space + arrow = sword attack
-  if (_catHeld.has(' ')) { e.preventDefault(); catacombsSwordAttack(dx, dy); return; }
-  // b + arrow = bow attack
-  if (_catHeld.has('b') || _catHeld.has('B')) { e.preventDefault(); catacombsBowAttack(dx, dy); return; }
-  // Plain movement
+  e.preventDefault();
+
+  // ESC — flee or cancel mode
+  if (e.key === 'Escape') {
+    if (state.catacombs.combatMode) {
+      state.catacombs.combatMode = null;
+      drawCatacombs();
+      return;
+    }
+    exitCatacombs(false);
+    return;
+  }
+
+  // Space — enter sword mode
+  if (e.key === ' ') {
+    if (state.skills.swordLevel === 0) {
+      addLog('You need a sword. Check the General Store.', '#555555');
+      drawCatacombs();
+      return;
+    }
+    state.catacombs.combatMode = 'sword';
+    drawCatacombs();
+    return;
+  }
+
+  // B — enter bow mode
+  if (e.key === 'b' || e.key === 'B') {
+    if (!state.skills.bowOwned) {
+      addLog("You don't have a bow.", '#555555');
+      drawCatacombs();
+      return;
+    }
+    if (state.player.arrows <= 0) {
+      addLog('No arrows. Buy more at the General Store.', '#ff5555');
+      drawCatacombs();
+      return;
+    }
+    state.catacombs.combatMode = 'bow';
+    drawCatacombs();
+    return;
+  }
+
+  // Arrow keys — move OR attack depending on mode
+  const DIRS = { ArrowUp:[0,-1], ArrowDown:[0,1], ArrowLeft:[-1,0], ArrowRight:[1,0] };
+  const d = DIRS[e.key];
+  if (!d) return;
+  const [dx, dy] = d;
+
+  if (state.catacombs.combatMode === 'sword') {
+    state.catacombs.combatMode = null;
+    catacombsSwordAttack(dx, dy);
+    return;
+  }
+
+  if (state.catacombs.combatMode === 'bow') {
+    state.catacombs.combatMode = null;
+    catacombsBowAttack(dx, dy);
+    return;
+  }
+
+  // No mode — plain movement
   catacombsMove(dx, dy);
 };
 
 function exitCatacombs(died) {
   if (catacombsKeyHandler) window.removeEventListener('keydown', catacombsKeyHandler, { capture: true });
   state.catacombs.completedTonight = true;
+  state.catacombs.combatMode = null;
   state.gameState = 'playing';
   if (died) {
     addLog('You blacked out in the Catacombs and woke up outside. Lost no gold.', '#ff5555');
