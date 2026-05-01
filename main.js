@@ -1016,7 +1016,7 @@ drawArt(0);
 drawPrompt(true);
 
 const CREDIT  = "Created by Adam A.";
-const VERSION = "alpha 1.07.17";
+const VERSION = "alpha 1.07.18";
 
 // ── Sound system ──────────────────────────────────────────────────────────────
 const SOUNDS = {};
@@ -1242,7 +1242,7 @@ const STATION_DEFS = [
   { x:  8, y: 35, label: 'GS', wc: DIM_GRAY,  lc: DIM_GRAY  },
   { x:  9, y:  2, label: 'RM', wc: '#ff9933', lc: '#ffaa55', dc: '#cc7722' },
   { x: 34, y:  8, label: 'WB', wc: '#cc3300', lc: '#ff5533', dc: '#aa2200' },
-  { x: 61, y: 23, label: 'MT', wc: '#ffd633', lc: '#ffea66', dc: '#ccaa22', mini: true },
+  { x: 61, y: 23, label: 'MT', wc: '#ffd633', lc: '#ffea66', dc: '#ccaa22' },
   { x: 23, y: 17, label: 'OF', wc: '#f0f0f0', lc: '#ffffff', dc: '#aaaaaa' },
   { x: 45, y: 32, label: 'NP', wc: DIM_GRAY,  lc: DIM_GRAY  },
 ];
@@ -2932,7 +2932,7 @@ function isAdjacentToStation(s) {
 function openRMShedMenu() {
   state.gameState = 'rm_menu';
 
-  const COST  = 3;
+  const COST  = (state.skills.rhetoric?.pips >= 2) ? 2 : 3;
   const TC    = '#ff6600'; // theme color
   const DC    = '#333333';
   const BOX_W = 54;
@@ -3928,7 +3928,8 @@ function generateBuyOffers() {
     const name = SELLER_ADJ[adj] + ' ' + SELLER_NOUN[noun];
     const size = (Math.floor(Math.random() * 16) + 5) * 10;
     const markup = 1.10 + Math.random() * 0.15;
-    const askPrice = Math.round(basePrice * markup * 10) / 10;
+    const rhetoricDiscount = (state.skills.rhetoric?.pips >= 1) ? 0.95 : 1;
+    const askPrice = Math.round(basePrice * markup * rhetoricDiscount * 10) / 10;
     return { portIdx, name, size, askPrice, rejected: false, accepted: false };
   });
 }
@@ -8002,6 +8003,7 @@ function renderLargeNumber(display, x, y, numberString, color, availableWidth) {
 // ── Launch Facility menu (§9) ─────────────────────────────────────────────────
 
 const CHANGELOG = [
+  { version: '1.07.18', summary: 'Inventory: skills at bottom with a-f keys, BOX_H=38, 6 skills, skills removed from equipment detail. Market top border fixed. Coordination/Rhetoric mine/RM mechanics.' },
   { version: '1.07.17', summary: 'Terminal: 4 tabs — candle chart, derivs, FX spot (stamps/gold exchange), positions. Up/down controls, space toggles field, tab switch only when no instrument selected.' },
   { version: '1.07.16', summary: 'Hammer block chars, cooking menu bigger, market courier toggle (z), fullscreen removed from settings, dev menu comprehensive, GS tab labels fixed.' },
   { version: '1.07.15', summary: 'Skills cost crystals (5/pip), 6 skills including Coordination/Rhetoric/Shivers. Crystal cap 25. Armament tab uses stamps. C key for credit.' },
@@ -9984,13 +9986,17 @@ function enterMine() {
         state.mine.totalMined++;
         if (here.ore === 'rm') {
           const stormBonus = state.weather.current === 'storm' ? 2 : 1;
+          const coordBonus = (state.skills.coordination?.pips >= 1) ? 2 : 1;
+          const rmYield = stormBonus * coordBonus;
           if (state.stations.storage?.unlocked) {
-            state.storage.rm = Math.min(state.storage.rm + stormBonus, state.storage.rmCap);
-            if (stormBonus > 1) addLog('Storm-loosened rock! Double RM.', '#ffaa00');
+            state.storage.rm = Math.min(state.storage.rm + rmYield, state.storage.rmCap);
+            if (rmYield > 2) addLog('Exceptional ore — extra raw materials found!', '#ffaa00');
+            else if (stormBonus > 1) addLog('Storm-loosened rock! Double RM.', '#ffaa00');
             else addLog('Mined raw material. Stored at the RM shed.', '#ff6600');
           } else {
-            state.player.inventory.rm = Math.min(state.player.inventory.rm + stormBonus, state.player.inventoryCaps.rm);
-            if (stormBonus > 1) addLog('Storm-loosened rock! Double RM.', '#ffaa00');
+            state.player.inventory.rm = Math.min(state.player.inventory.rm + rmYield, state.player.inventoryCaps.rm);
+            if (rmYield > 2) addLog('Exceptional ore — extra raw materials found!', '#ffaa00');
+            else if (stormBonus > 1) addLog('Storm-loosened rock! Double RM.', '#ffaa00');
             else addLog('Mined raw material.', '#ff6600');
           }
         } else if (here.ore === 'crystal') {
@@ -10552,7 +10558,7 @@ function showInventory() {
   let skillErrMsg   = null;
   let skillErrTimer = null;
 
-  const BOX_W  = 70, BOX_H = 28;
+  const BOX_W  = 70, BOX_H = 38;
   const BOX_X  = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
   const BOX_Y  = Math.max(1, Math.floor((WORLD_ROWS - BOX_H) / 2));
   const IW     = 68;
@@ -10651,7 +10657,7 @@ function showInventory() {
   // ── Cell drawing (grid view) ──────────────────────────────────────────────
   function drawCell(cell, idx) {
     const cx = CONT_X + cell.col * CELL_W;
-    const cy = BOX_Y + 3 + cell.row * CELL_H;
+    const cy = BOX_Y + 4 + cell.row * (CELL_H + 1); // +1 blank row between cell rows
     const locked = isCellLocked(cell.key);
     const cc = locked ? '#222222' : cellColor(cell.key);
     const textFg = locked ? '#444444' : PC;
@@ -10762,72 +10768,87 @@ function showInventory() {
   // ── Grid view ─────────────────────────────────────────────────────────────
   function drawGrid() {
     drawOuterFrame('INVENTORY', '#66ccff');
-    for (let i = 0; i < INV_CELLS.length; i++) drawCell(INV_CELLS[i], i);
 
-    // Clear area below cells
-    const skillsRow = BOX_Y + 3 + 2 * CELL_H; // row 17 relative to box
-    for (let r = skillsRow; r < BOX_Y + BOX_H - 2; r++) {
+    // Clear all interior rows
+    for (let r = BOX_Y + 3; r < BOX_Y + BOX_H - 2; r++) {
       outerBorder(r, '#66ccff');
       for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, r, ' ', PC, BG);
     }
 
-    // Skills header
-    irow(skillsRow, `─── SKILLS (5 crystals/pip)  crystals: ${state.mine.crystals||0}/25 ───────────────────`, '#555555');
+    // Draw 2x4 cell grid (rows 4-10, 12-18)
+    for (let i = 0; i < INV_CELLS.length; i++) drawCell(INV_CELLS[i], i);
 
-    // Skill pips row — horizontal
-    const skillsDataRow = skillsRow + 1;
-    outerBorder(skillsDataRow, '#66ccff');
-    for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, skillsDataRow, ' ', PC, BG);
-    let sc = CONT_X + 1;
+    // SKILLS header (row 20)
+    const skillsHeaderRow = BOX_Y + 20;
+    { const crystalStr = `Crystals: ${state.mine.crystals||0}/25`;
+      const line = `  ═══ SKILLS (5 crystals per pip) ${'═'.repeat(IW - 38 - crystalStr.length)}  ${crystalStr}  ═`;
+      irow(skillsHeaderRow, line, '#555555'); }
+
+    // 6 skill rows (rows 22-27, letters a-f)
+    const SKILL_LETTERS = 'abcdef';
     for (let si = 0; si < SKILL_DEFS.length; si++) {
       const def = SKILL_DEFS[si];
       const pips = getSkillPips(def);
       const isSelected = selectedSkill === def.key;
+      const ay = BOX_Y + 22 + si;
       const labelFg = isSelected ? '#ffd633' : (pips > 0 ? '#66cc66' : '#aaaaaa');
-      const label = `${si+1}:${def.name}`;
-      for (const ch of label) { if (sc < CONT_X + IW - 2) display.draw(sc++, skillsDataRow, ch, labelFg, BG); }
-      if (sc < CONT_X + IW - 2) display.draw(sc++, skillsDataRow, ' ', PC, BG);
+      let pipStr = '';
+      for (let pi = 0; pi < def.maxPips; pi++) pipStr += (pi < pips ? '●' : '○');
+      const namePad = def.name.padEnd(14);
+      const line = `   ${SKILL_LETTERS[si]}. ${namePad}  ${pipStr}`;
+      const padded = menuPad(line, IW);
+      // Draw letter+dot in dim, name in label color, pips in own colors
+      const letterEnd = 6; // '   a. ' = 6 chars
+      for (let i = 0; i < IW; i++) {
+        let fg = labelFg;
+        if (i < letterEnd) fg = isSelected ? '#ffd633' : '#555555';
+        display.draw(CONT_X + i, ay, padded[i] || ' ', fg, BG);
+      }
+      // Recolor pips
+      let pipStart = CONT_X + letterEnd + 15 + 2; // after "   a. " + 14-char name + "  "
       for (let pi = 0; pi < def.maxPips; pi++) {
         const bought = pi < pips;
-        if (sc < CONT_X + IW - 2) display.draw(sc++, skillsDataRow, bought ? '●' : '○', bought ? '#66cc66' : '#555555', BG);
+        display.draw(pipStart + pi, ay, bought ? '●' : '○', bought ? '#66cc66' : '#555555', BG);
       }
-      if (sc < CONT_X + IW - 2) display.draw(sc++, skillsDataRow, ' ', PC, BG);
-      if (sc < CONT_X + IW - 2) display.draw(sc++, skillsDataRow, ' ', PC, BG);
     }
 
-    // Skill info box
-    const infoRow = skillsRow + 2;
-    outerBorder(infoRow, '#66ccff');
-    for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, infoRow, ' ', PC, BG);
-    if (selectedSkill) {
+    // Info box (rows 29-31)
+    const infoBoxTop = BOX_Y + 29;
+    const IB_W = IW - 4; // inner info box width (2px margin each side)
+    const IB_X = CONT_X + 2;
+    // Top border
+    display.draw(IB_X - 1, infoBoxTop, '╔', '#66ccff', BG);
+    for (let i = 0; i < IB_W; i++) display.draw(IB_X + i, infoBoxTop, '═', '#66ccff', BG);
+    display.draw(IB_X + IB_W, infoBoxTop, '╗', '#66ccff', BG);
+    // Text row
+    display.draw(IB_X - 1, infoBoxTop + 1, '║', '#66ccff', BG);
+    display.draw(IB_X + IB_W, infoBoxTop + 1, '║', '#66ccff', BG);
+    let infoText, infoFg;
+    if (skillErrMsg) {
+      infoText = skillErrMsg; infoFg = '#ff5555';
+    } else if (selectedSkill) {
       const def = SKILL_DEFS.find(d => d.key === selectedSkill);
       if (def) {
         const pips = getSkillPips(def);
         const showPip = skillViewPip !== null ? skillViewPip : Math.min(pips, def.maxPips - 1);
         const desc = def.descs[showPip] || '';
         const owned = showPip < pips;
-        const cost = (!owned && def.costs[showPip]) ? `  [${def.costs[showPip]} crystals]` : (owned ? '  [owned]' : '');
-        const txt = `${def.name} pip ${showPip+1}/${def.maxPips}: ${desc}${cost}`;
-        const padded = menuPad(txt, IW - 2);
-        for (let i = 0; i < IW - 2; i++) display.draw(CONT_X + 1 + i, infoRow, padded[i] || ' ', owned ? PC : '#aaaaaa', BG);
-      }
-      if (skillErrMsg) {
-        const padded = menuPad(skillErrMsg, IW - 2);
-        for (let i = 0; i < IW - 2; i++) display.draw(CONT_X + 1 + i, infoRow, padded[i] || ' ', '#ff5555', BG);
-      }
+        const costHint = !owned && def.costs[showPip] ? `  [${def.costs[showPip]} crystals to unlock]` : (owned ? '  [owned]' : '');
+        infoText = `  ${def.name} pip ${showPip+1}/${def.maxPips}: ${desc}${costHint}`;
+        infoFg = owned ? PC : '#aaaaaa';
+      } else { infoText = ''; infoFg = DC; }
     } else {
-      const hint = 'Press 1-6 to inspect a skill  Enter: buy  ←→: browse pips  1-8: open cell detail';
-      const padded = menuPad(hint, IW - 2);
-      for (let i = 0; i < IW - 2; i++) display.draw(CONT_X + 1 + i, infoRow, padded[i] || ' ', '#555555', BG);
+      infoText = '  Press a-f to inspect a skill.  ←→: browse pips.  Enter: buy.';
+      infoFg = '#555555';
     }
+    const infoPadded = menuPad(infoText, IB_W);
+    for (let i = 0; i < IB_W; i++) display.draw(IB_X + i, infoBoxTop + 1, infoPadded[i] || ' ', infoFg, BG);
+    // Bottom border
+    display.draw(IB_X - 1, infoBoxTop + 2, '╚', '#66ccff', BG);
+    for (let i = 0; i < IB_W; i++) display.draw(IB_X + i, infoBoxTop + 2, '═', '#66ccff', BG);
+    display.draw(IB_X + IB_W, infoBoxTop + 2, '╝', '#66ccff', BG);
 
-    // Clear remaining rows between info and footer
-    for (let r = infoRow + 1; r < BOX_Y + BOX_H - 2; r++) {
-      outerBorder(r, '#66ccff');
-      for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, r, ' ', PC, BG);
-    }
-
-    irow(BOX_Y+BOX_H-2, '1-8: cell detail  1-6: skill  Enter: buy  ←→: pips  ESC: close', WC);
+    irow(BOX_Y + BOX_H - 2, '  1-8: cell detail   a-f: inspect skill   Enter: buy   ←→: browse pips   ESC: close', WC);
   }
 
   // ── Detail views ─────────────────────────────────────────────────────────
@@ -10972,40 +10993,13 @@ function showInventory() {
     const daysToReset = 2 - (state.day % 2);
     irow(cy+6, `Mine resets: ${daysToReset}d   Total mined: ${state.mine.totalMined||0}`, WC, cc);
     sep(cy+7, cc);
-    irow(cy+8, 'SKILLS', cc);
-    const LP = 33, RP = 34;
-    SKILL_DEFS.forEach((def, si) => {
-      const pips  = getSkillPips(def);
-      const baseR = cy + 9 + si * 3;
-      const isActive = selectedSkill === def.key;
-      const nameFg = isActive ? PC : WC;
-      irow(baseR, `${si+1}. ${def.name}`, nameFg, cc);
-      // Pip row
-      outerBorder(baseR+1, cc);
-      let c = CONT_X;
-      for (let pi = 0; pi < def.maxPips; pi++) {
-        const bought = pi < pips;
-        const fg = bought ? '#66cc66' : DC;
-        display.draw(c++, baseR+1, '[', fg, BG);
-        display.draw(c++, baseR+1, bought ? '●' : '○', fg, BG);
-        display.draw(c++, baseR+1, ']', fg, BG);
-      }
-      display.draw(c++, baseR+1, ' ', PC, BG);
-      const nextCost = pips < def.maxPips ? def.costs[pips] : null;
-      if (nextCost !== null) {
-        const costStr = nextCost.toLocaleString('en-US') + ' crystals';
-        for (const ch of costStr) display.draw(c++, baseR+1, ch, WC, BG);
-        if (isActive) {
-          const hint = '  ← press again to buy';
-          for (const ch of hint) if (c < CONT_X+IW) display.draw(c++, baseR+1, ch, '#66cc66', BG);
-        }
-      } else {
-        for (const ch of '✓ DONE') display.draw(c++, baseR+1, ch, '#66cc66', BG);
-      }
-      while (c < CONT_X+IW) display.draw(c++, baseR+1, ' ', PC, BG);
-    });
-    if (skillErrMsg) irow(cy+27, skillErrMsg, '#ff5555', cc);
-    irow(BOX_Y+BOX_H-2, '1-6: select skill   press twice to buy   ESC: back', WC, cc);
+    irow(cy+8, 'COMBAT', cc);
+    const swordNames = ['None', 'Iron Sword', 'Steel Sword'];
+    const armorNames = ['None', 'Leather Armor', 'Chain Armor'];
+    irow(cy+9,  `Sword: ${swordNames[state.skills.swordLevel||0]}`, state.skills.swordLevel ? '#aa77cc' : WC, cc);
+    irow(cy+10, `Armor: ${armorNames[state.skills.armorLevel||0]}`, state.skills.armorLevel ? '#aa77cc' : WC, cc);
+    irow(cy+11, `Bow: ${state.skills.bowOwned ? 'Owned' : 'None'}   Arrows: ${state.player.arrows||0}`, state.skills.bowOwned ? '#aa77cc' : WC, cc);
+    irow(BOX_Y+BOX_H-2, 'ESC: back to grid', WC, cc);
   }
 
   function drawDetailWardrobe(cy, cc) {
@@ -11188,34 +11182,42 @@ function showInventory() {
   function invKeyHandler(e) {
     if (e.key === 'Escape' || e.key === 'i') {
       if (detailCell !== null) { detailCell = null; selectedSkill = null; redraw(); return; }
+      if (selectedSkill) { selectedSkill = null; skillViewPip = null; redraw(); return; }
       closeInventory(); return;
     }
     if (detailCell === null) {
+      // 1-8: open cell detail
       const n = parseInt(e.key);
-      if (n >= 1 && n <= 8) {
-        // Numbers 1-6 also select the corresponding skill for the info box
-        if (n >= 1 && n <= 6) {
-          selectedSkill = SKILL_DEFS[n - 1].key;
-          skillViewPip = null;
-          skillErrMsg = null;
+      if (n >= 1 && n <= 8) { detailCell = n - 1; redraw(); return; }
+      // a-f: select/deselect skill
+      const skillIdx = 'abcdef'.indexOf(e.key);
+      if (skillIdx >= 0) {
+        const sk = SKILL_DEFS[skillIdx]?.key;
+        if (sk) {
+          if (selectedSkill === sk) { attemptSkillPurchase(); }
+          else { selectedSkill = sk; skillViewPip = null; skillErrMsg = null; redraw(); }
         }
-        detailCell = n - 1; redraw(); return;
+        return;
       }
       if (e.key === 'Enter' && selectedSkill) { attemptSkillPurchase(); return; }
       if (e.key === 'ArrowLeft' && selectedSkill) {
+        e.preventDefault();
         const def = SKILL_DEFS.find(d => d.key === selectedSkill);
         if (def) {
           const cur = skillViewPip !== null ? skillViewPip : Math.min(getSkillPips(def), def.maxPips - 1);
           skillViewPip = Math.max(0, cur - 1);
+          skillErrMsg = null;
           redraw();
         }
         return;
       }
       if (e.key === 'ArrowRight' && selectedSkill) {
+        e.preventDefault();
         const def = SKILL_DEFS.find(d => d.key === selectedSkill);
         if (def) {
           const cur = skillViewPip !== null ? skillViewPip : Math.min(getSkillPips(def), def.maxPips - 1);
           skillViewPip = Math.min(def.maxPips - 1, cur + 1);
+          skillErrMsg = null;
           redraw();
         }
         return;
@@ -11224,14 +11226,16 @@ function showInventory() {
     }
     // In detail view
     const cell = INV_CELLS[detailCell];
-    if (cell.key === 'equipment') {
-      const keyToSkill = { '1': 'endurance', '2': 'aquatics', '3': 'interfacing', '4': 'coordination', '5': 'rhetoric', '6': 'shivers' };
-      const sk = keyToSkill[e.key];
+    // a-f skill keys work from detail view too
+    const skillIdx2 = 'abcdef'.indexOf(e.key);
+    if (skillIdx2 >= 0 && detailCell !== null) {
+      const sk = SKILL_DEFS[skillIdx2]?.key;
       if (sk) {
+        detailCell = null; // go back to grid view
         if (selectedSkill === sk) { attemptSkillPurchase(); }
-        else { selectedSkill = sk; skillErrMsg = null; redraw(); }
-        return;
+        else { selectedSkill = sk; skillViewPip = null; skillErrMsg = null; redraw(); }
       }
+      return;
     }
     if (cell.key === 'wardrobe') {
       const letters = 'abcdefghijklm';
@@ -12328,8 +12332,9 @@ function devUnlockEverything() {
   state.player.inventory.widgets = 5;
   state.player.inventoryCaps = { rm: 10, widgets: 10 };
 
-  // Crystals
+  // Crystals and shivers companion
   state.mine.crystals = 15;
+  state.shiversCompanion = { befriended: true, location: 'cottage' };
 
   // Apply unlocks and enter game
   applyPhaseUnlocks(5);
