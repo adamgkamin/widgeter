@@ -244,6 +244,7 @@ const state = {
   garden: {},
   gardenRegrow: {},
   cooking: { activeBuff: null },
+  recipes: { tomatoSoup: false, carrotStew: false, pumpkinPie: false, gardenSalad: false, pepperSteak: false, beetRisotto: false, mushroomBroth: false, cornbread: false },
   bookshelfLog: [],
   officeUnlocked:      false,
   officeTab:           'workers',  // 'workers' | 'upgrades' | 'info'
@@ -434,6 +435,7 @@ function saveGame() {
     garden:               state.garden,
     gardenRegrow:         state.gardenRegrow,
     cooking:              state.cooking,
+    recipes:              state.recipes,
     bookshelfLog:         state.bookshelfLog,
     mine:                 state.mine,
     weather:              state.weather,
@@ -642,6 +644,7 @@ function loadGame() {
     state.gardenRegrow = data.gardenRegrow ?? {};
     state.cooking = data.cooking ?? { activeBuff: null };
     state.cooking.activeBuff = state.cooking.activeBuff ?? null;
+    state.recipes = data.recipes ?? { tomatoSoup: false, carrotStew: false, pumpkinPie: false, gardenSalad: false, pepperSteak: false, beetRisotto: false, mushroomBroth: false, cornbread: false };
     state.bookshelfLog = data.bookshelfLog ?? [];
     // Stamps (§13)
     state.player.stamps            = data.stamps            ?? 0;
@@ -932,7 +935,7 @@ drawArt(0);
 drawPrompt(true);
 
 const CREDIT  = "Created by Adam A.";
-const VERSION = "alpha 1.07.10";
+const VERSION = "alpha 1.07.11";
 
 // ── Sound system ──────────────────────────────────────────────────────────────
 const SOUNDS = {};
@@ -2175,6 +2178,7 @@ function resetState() {
   state.garden = {};
   state.gardenRegrow = {};
   state.cooking = { activeBuff: null };
+  state.recipes = { tomatoSoup: false, carrotStew: false, pumpkinPie: false, gardenSalad: false, pepperSteak: false, beetRisotto: false, mushroomBroth: false, cornbread: false };
   state.bookshelfLog = [];
   state.officeAnim = { apprenticeFlash: 0, courierFlash: 0 };
   state.player.stamps            = 0;
@@ -5303,7 +5307,7 @@ function openGeneralStoreMenu() {
   const BOX_Y = Math.max(1, Math.floor((WORLD_ROWS - BOX_H) / 2));
   const RPX   = BOX_X + 1 + AW + 1;
 
-  let gsTab = 'clothing'; // 'clothing' | 'home_goods' | 'garden' | 'mining'
+  let gsTab = 'clothing'; // 'clothing' | 'home_goods' | 'garden' | 'tools' | 'recipes'
 
   const GS_ART = [
     '  +--------+  ', ' /  GENERAL\\ ', '/    STORE  \\ ',
@@ -5392,9 +5396,9 @@ function openGeneralStoreMenu() {
       for(let i=0;i<IW;i++){const ch=i<title.length?title[i]:(i>=IW-hint.length?hint[i-(IW-hint.length)]:'');const fg=i<title.length?LC:(i>=IW-hint.length?DC:BRIGHT_WHITE);display.draw(BOX_X+1+i,ay,ch||' ',fg,BG);} }
     // Row 2: ═
     { const ay=BOX_Y+2; border(ay); for(let i=0;i<IW;i++) display.draw(BOX_X+1+i,ay,'═',DC,BG); }
-    // Row 3: tab bar — four tabs: CLOTHING(13) | HOME GOODS(12) | GARDEN(12) | MINING(12) = 52 (with 3 separators)
+    // Row 3: tab bar — five tabs: CLOTHING(11)|HOME(10)|GARDEN(10)|TOOLS(10)|RECIPES(10) = 52 (with 4 separators)
     { const ay=BOX_Y+3; border(ay);
-      const tabs=[{k:'clothing',lbl:'[CLOTHING ]',w:13},{k:'home_goods',lbl:'[HOME GOODS]',w:12},{k:'garden',lbl:'[ GARDEN  ]',w:12},{k:'mining',lbl:'[ MINING  ]',w:12}];
+      const tabs=[{k:'clothing',lbl:'[CLOTHING]',w:11},{k:'home_goods',lbl:'[  HOME  ]',w:10},{k:'garden',lbl:'[ GARDEN ]',w:10},{k:'tools',lbl:'[ TOOLS ]',w:10},{k:'recipes',lbl:'[RECIPES]',w:10}];
       let cx=BOX_X+1;
       for(let ti=0;ti<tabs.length;ti++){
         const t=tabs[ti],active=gsTab===t.k;
@@ -5429,8 +5433,8 @@ function openGeneralStoreMenu() {
       drp(BOX_Y+10,'Vegetables can be eaten.','#555555');
       if(state.cottage.owned) drp(BOX_Y+12,'Cottage: OWNED','#66cc66');
       else drp(BOX_Y+12,'Need a cottage first.','#555555');
-    } else {
-      drp(BOX_Y+6,'MINING EQUIPMENT',TC); drp(BOX_Y+7,'Tools for the underground.','#555555');
+    } else if(gsTab==='tools'){
+      drp(BOX_Y+6,'TOOLS',TC); drp(BOX_Y+7,'Equipment for the underground.','#555555');
       drp(BOX_Y+9,`a. Pickaxe           ${state.skills.pickaxeLevel>=1?'✓ owned':'15 stamps'}`,(state.skills.pickaxeLevel>=1)?'#66cc66':'#aaaaaa');
       drp(BOX_Y+10,`b. Brand Name Pickaxe ${state.skills.pickaxeLevel>=2?'✓ owned':'40 stamps'}`,(state.skills.pickaxeLevel>=2)?'#66cc66':'#aaaaaa');
       drp(BOX_Y+11,`c. Lantern           ${state.skills.lantern?'✓ owned':'20 stamps'}`,(state.skills.lantern)?'#66cc66':'#aaaaaa');
@@ -5438,6 +5442,29 @@ function openGeneralStoreMenu() {
       drp(BOX_Y+13,`Sell crystal: 25g each`,'#555555');
       drp(BOX_Y+14,`d. Sell 1 crystal${state.mine.crystals>0?'  +25g':'  [none]'}`,state.mine.crystals>0?'#66cc66':'#444444');
       drp(BOX_Y+15,`Crystals: ${state.mine.crystals}/5`,'#66ccff');
+    } else {
+      // recipes tab
+      const hasCottage = state.cottage.owned;
+      drp(BOX_Y+6,'RECIPE BOOK',TC);
+      drp(BOX_Y+7,hasCottage?'Learn to cook at your cottage.':'Buy a cottage first.','#555555');
+      const recDefs=[
+        {key:'tomatoSoup',  label:'a. Tomato Soup',    cost:50, eff:'2x Tomato → +10% demand'},
+        {key:'carrotStew',  label:'b. Carrot Stew',    cost:50, eff:'2x Carrot, 1x Potato → +15% appr'},
+        {key:'pumpkinPie',  label:'c. Pumpkin Pie',    cost:50, eff:'1x Pumpkin, 1x Corn → +20% price'},
+        {key:'gardenSalad', label:'d. Garden Salad',   cost:50, eff:'Any 3 veggies → halve carry cost'},
+        {key:'pepperSteak', label:'e. Pepper Steak',   cost:50, eff:'2x Pepper, 1x Onion → +25% courier'},
+        {key:'beetRisotto', label:'f. Beet Risotto',   cost:50, eff:'2x Beet, 1x Mushroom → +1 mine hit'},
+        {key:'mushroomBroth',label:'g. Mushroom Broth',cost:50, eff:'2x Mushroom, 1x Celery → -50% wages'},
+        {key:'cornbread',   label:'h. Cornbread',      cost:50, eff:'2x Corn, 1x Lettuce → +15% interest'},
+      ];
+      for(let ri=0;ri<recDefs.length;ri++){
+        const rd=recDefs[ri], learned=!!state.recipes[rd.key];
+        const af=!hasCottage?'#333333':(learned?'#66cc66':(state.player.stamps>=rd.cost?'#aaaaaa':'#555555'));
+        const row=BOX_Y+9+ri*2;
+        if(row>BOX_Y+24) break;
+        drp(row,`${rd.label.padEnd(22)} ${learned?'✓':rd.cost+' ·'}`,af);
+        drp(row+1,`  ${rd.eff.substring(0,IPW-2)}`,hasCottage?'#444444':'#333333');
+      }
     }
     // Rows 15-20: shopkeeper note in left pane only (shared between both tabs)
     { const NOTE = [
@@ -5459,7 +5486,7 @@ function openGeneralStoreMenu() {
     { const ay=BOX_Y+21; border(ay); for(let i=0;i<IW;i++) display.draw(BOX_X+1+i,ay,'─',DC,BG); }
     // Rows 22-27: grid (6 rows)
     const letters='abcdefghijkl';
-    if(gsTab==='mining'){
+    if(gsTab==='tools'||gsTab==='recipes'){
       for(let row=0;row<6;row++){const ay=BOX_Y+22+row;border(ay);for(let i=0;i<IW;i++) display.draw(BOX_X+1+i,ay,' ',BRIGHT_WHITE,BG);}
     } else if(gsTab==='clothing'){
       const rows=Math.ceil(OUTFITS.length/2);
@@ -5493,7 +5520,7 @@ function openGeneralStoreMenu() {
     { const ay=BOX_Y+30; border(ay); for(let i=0;i<IW;i++) display.draw(BOX_X+1+i,ay,'═',DC,BG); }
     // Row 31: footer
     { const ay=BOX_Y+31; border(ay);
-      const txt=gsTab==='clothing'?'a–m: buy/equip  →: next tab  ESC: exit':gsTab==='home_goods'?'a–l: buy/visit  ←→: switch tab  ESC: exit':gsTab==='garden'?'a–l: plant  ←→: switch tab  ESC: exit':'a–d: buy/sell  ←: prev tab  ESC: exit';
+      const txt=gsTab==='clothing'?'a–m: buy/equip  ←→: switch tab  ESC: exit':gsTab==='home_goods'?'a–l: buy/visit  ←→: switch tab  ESC: exit':gsTab==='garden'?'a–l: plant  ←→: switch tab  ESC: exit':gsTab==='tools'?'a–d: buy/sell  ←→: switch tab  ESC: exit':'a–h: buy recipe (50 stamps)  ←: prev  ESC: exit';
       const pad=' '.repeat(Math.max(0,Math.floor((IW-txt.length)/2)));
       const padded=menuPad(pad+txt,IW);
       for(let i=0;i<IW;i++) display.draw(BOX_X+1+i,ay,padded[i]||' ','#555555',BG); }
@@ -5520,18 +5547,20 @@ function openGeneralStoreMenu() {
       e.preventDefault();
       if (gsTab === 'clothing') { gsTab = 'home_goods'; playSound('click'); redraw(); }
       else if (gsTab === 'home_goods') { gsTab = 'garden'; playSound('click'); redraw(); }
-      else if (gsTab === 'garden') { gsTab = 'mining'; playSound('click'); redraw(); }
+      else if (gsTab === 'garden') { gsTab = 'tools'; playSound('click'); redraw(); }
+      else if (gsTab === 'tools') { gsTab = 'recipes'; playSound('click'); redraw(); }
       return;
     }
     if (e.key === 'ArrowLeft') {
       e.preventDefault();
       if (gsTab === 'home_goods') { gsTab = 'clothing'; playSound('click'); redraw(); }
       else if (gsTab === 'garden') { gsTab = 'home_goods'; playSound('click'); redraw(); }
-      else if (gsTab === 'mining') { gsTab = 'garden'; playSound('click'); redraw(); }
+      else if (gsTab === 'tools') { gsTab = 'garden'; playSound('click'); redraw(); }
+      else if (gsTab === 'recipes') { gsTab = 'tools'; playSound('click'); redraw(); }
       return;
     }
 
-    if (gsTab === 'mining') {
+    if (gsTab === 'tools') {
       if (e.key === 'a') {
         if (!state.mine.discovered) { addLog('Find the mine first.', '#555555'); return; }
         if (state.skills.pickaxeLevel >= 1) { addLog('You already own a pickaxe.', '#555555'); return; }
@@ -5565,6 +5594,22 @@ function openGeneralStoreMenu() {
         addLog('Sold 1 crystal for 25g.', '#66ccff'); playSound('sold'); drawStatusBar(); redraw();
         return;
       }
+      return;
+    }
+
+    if (gsTab === 'recipes') {
+      const recKeys=['tomatoSoup','carrotStew','pumpkinPie','gardenSalad','pepperSteak','beetRisotto','mushroomBroth','cornbread'];
+      const li = 'abcdefgh'.indexOf(e.key);
+      if (li < 0 || li >= recKeys.length) return;
+      const rk = recKeys[li];
+      if (!state.cottage.owned) { addLog('You need a cottage first.', '#555555'); return; }
+      if (state.recipes[rk]) { addLog('You already know that recipe.', '#555555'); return; }
+      if (state.player.stamps < 50) { addLog(`Need ${50 - state.player.stamps} more stamps.`, '#ff5555'); return; }
+      state.player.stamps -= 50;
+      state.recipes[rk] = true;
+      const rec = RECIPES.find(r => r.key === rk);
+      addLog(`Learned ${rec.name}! Cook it at your cottage stove.`, rec.color);
+      playSound('bought'); drawStatusBar(); redraw();
       return;
     }
 
@@ -7489,6 +7534,7 @@ function renderLargeNumber(display, x, y, numberString, color, availableWidth) {
 // ── Launch Facility menu (§9) ─────────────────────────────────────────────────
 
 const CHANGELOG = [
+  { version: '1.07.11', summary: 'Recipe tab (8 recipes, 50 stamps each). Mining tab renamed to Tools. Kitchen stove highlighted. Inventory cells color-coded.' },
   { version: '1.07.10', summary: 'Inventory revamp: 4x2 grid — carrying, storage, wallet, card, equipment, wardrobe, cooking, stats.' },
   { version: '1.07.09', summary: 'Terminal revamp: 4x2 grid, forwards at Phase 3, futures/options at Phase 4, profit scenarios, positions tab.' },
   { version: '1.07.08', summary: 'Garden is veggies-only. Kitchen cooking with 4 recipes for daily buffs. Veggies regrow.' },
@@ -7904,9 +7950,15 @@ function buildInteriorTileMap() {
     stamp(1,7, 1,3, 'kitchen', '┌', '#886633', 'A modest kitchen. Functional.', false);
     // Stove tile at (3,2) — walkable=false, interactive
     if (interiorTileMap[3] && interiorTileMap[3][2]) {
-      interiorTileMap[3][2].glyph = 'π'; interiorTileMap[3][2].fg = '#ff6633';
+      interiorTileMap[3][2].glyph = 'π'; interiorTileMap[3][2].fg = '#ff9944'; interiorTileMap[3][2].bg = '#331a00';
       interiorTileMap[3][2].description = 'The stove. Press Space to cook.';
       interiorTileMap[3][2].furniture = 'stove';
+    }
+    // Steam indicator above stove
+    if (interiorTileMap[3] && interiorTileMap[3][1]) {
+      interiorTileMap[3][1].glyph = '♨'; interiorTileMap[3][1].fg = '#ff6633';
+      interiorTileMap[3][1].description = 'Steam rises from the stove.';
+      interiorTileMap[3][1].walkable = false;
     }
   }
   if (!fur.kitchen && false) { } // no-op
@@ -7931,7 +7983,11 @@ const RECIPES = [
   { key: 'tomatoSoup',  name: 'Tomato Soup',   ingredients: { tomato: 2 },                buff: 'demand',    value: 1.10, desc: '+10% demand',           color: '#ff4444' },
   { key: 'carrotStew',  name: 'Carrot Stew',   ingredients: { carrot: 2, potato: 1 },     buff: 'apprSpeed', value: 1.15, desc: 'Apprentices +15% speed', color: '#ff8833' },
   { key: 'pumpkinPie',  name: 'Pumpkin Pie',   ingredients: { pumpkin: 1, corn: 1 },      buff: 'price',     value: 1.20, desc: '+20% market price',      color: '#ff8800' },
-  { key: 'gardenSalad', name: 'Garden Salad',  ingredients: { _any3: true },               buff: 'carryCost', value: 0.50, desc: 'Carry cost halved',       color: '#44aa44' },
+  { key: 'gardenSalad',   name: 'Garden Salad',   ingredients: { _any3: true },                  buff: 'carryCost',    value: 0.50, desc: 'Carry cost halved',       color: '#44aa44' },
+  { key: 'pepperSteak',   name: 'Pepper Steak',   ingredients: { pepper: 2, onion: 1 },           buff: 'courierSpeed', value: 1.25, desc: 'Couriers +25% speed',     color: '#ff3333' },
+  { key: 'beetRisotto',   name: 'Beet Risotto',   ingredients: { beet: 2, mushroom: 1 },          buff: 'mineHits',     value: 1,    desc: '+1 bare hand mine hits', color: '#882255' },
+  { key: 'mushroomBroth', name: 'Mushroom Broth', ingredients: { mushroom: 2, celery: 1 },        buff: 'courierWages', value: 0.50, desc: 'Courier wages halved',    color: '#886655' },
+  { key: 'cornbread',     name: 'Cornbread',      ingredients: { corn: 2, lettuce: 1 },           buff: 'bankInterest', value: 1.15, desc: '+15% bank interest',      color: '#ccaa33' },
 ];
 
 function canCook(recipe) {
@@ -7987,15 +8043,20 @@ function openCookingMenu() {
     }
     row(1, '  KITCHEN', TC);
     row(2, '─'.repeat(OW-2), DC);
-    const letters = 'abcd';
+    const letters = 'abcdefgh';
     let rr = 3;
-    for (let ri = 0; ri < RECIPES.length; ri++) {
-      const rec = RECIPES[ri];
-      const ok = canCook(rec);
+    const purchased = RECIPES.filter(r => state.recipes[r.key] !== false);
+    const unpurchased = RECIPES.filter(r => state.recipes[r.key] === false);
+    const displayRecipes = [...purchased, ...unpurchased.slice(0, Math.max(0, 4 - purchased.length))];
+    for (let ri = 0; ri < displayRecipes.length && ri < 8; ri++) {
+      const rec = displayRecipes[ri];
+      const isLearned = state.recipes[rec.key] !== false;
+      const ok = isLearned && canCook(rec);
       const key = letters[ri];
-      row(rr++, `  ${key}) ${rec.name}`, ok ? rec.color : '#555555');
-      // Ingredient list
-      if (rec.ingredients._any3) {
+      row(rr++, `  ${key}) ${rec.name}`, ok ? rec.color : (isLearned ? '#555555' : '#333333'));
+      if (!isLearned) {
+        row(rr++, `     [not learned]`, '#333333');
+      } else if (rec.ingredients._any3) {
         const planted = GARDEN_DEFS.filter(g => state.garden[g.key] === true).length;
         row(rr++, `     Any 3 veggies  [${planted}/3]`, planted >= 3 ? '#66cc66' : '#ff5555');
       } else {
@@ -8005,8 +8066,8 @@ function openCookingMenu() {
         }).join(', ');
         row(rr++, `     ${ingStr}`, ok ? '#555555' : '#ff5555');
       }
-      row(rr++, `     → ${rec.desc}`, '#555555');
-      row(rr++, '', DC);
+      row(rr++, `     → ${rec.desc}`, isLearned ? '#555555' : '#333333');
+      if (rr < OH - 4) row(rr++, '', DC);
     }
     const buff = state.cooking?.activeBuff;
     if (buff) {
@@ -8030,9 +8091,14 @@ function openCookingMenu() {
 
   function cookKeyHandler(e) {
     if (e.key === 'Escape') { closeCooking(); return; }
-    const idx = 'abcd'.indexOf(e.key);
-    if (idx < 0 || !RECIPES[idx]) return;
-    const rec = RECIPES[idx];
+    const idx = 'abcdefgh'.indexOf(e.key);
+    if (idx < 0) return;
+    const purchased = RECIPES.filter(r => state.recipes[r.key] !== false);
+    const unpurchased = RECIPES.filter(r => state.recipes[r.key] === false);
+    const displayRecipes = [...purchased, ...unpurchased.slice(0, Math.max(0, 4 - purchased.length))];
+    const rec = displayRecipes[idx];
+    if (!rec) return;
+    if (state.recipes[rec.key] === false) { addLog(`You haven't learned ${rec.name} yet. Buy the recipe from the General Store.`, '#555555'); return; }
     if (!canCook(rec)) { addLog(`Missing ingredients for ${rec.name}.`, '#ff5555'); return; }
     consumeIngredients(rec);
     state.cooking.activeBuff = { ...rec, expiresDay: state.day + 1 };
@@ -8067,7 +8133,8 @@ function drawInteriorFurniture() {
       const fg = r === 1 ? TC : WC;
       for (let i = 0; i < row.length; i++) dp(1+i, 1+r, row[i], fg);
     });
-    dp(3, 2, 'π', '#ff6633'); // stove
+    dp(3, 2, 'π', '#ff9944'); // stove — warm orange
+    dp(3, 1, '♨', '#ff6633'); // steam above stove
   }
 
   // D — Fireplace (8,1): 7w × 3h, two-frame animation
@@ -9162,7 +9229,8 @@ function enterMine() {
           return;
         }
         state.mine.bareHandHits++;
-        if (state.mine.bareHandHits >= 5) {
+        const bareHandLimit = 5 + (state.cooking?.activeBuff?.buff === 'mineHits' ? state.cooking.activeBuff.value : 0);
+        if (state.mine.bareHandHits >= bareHandLimit) {
           state.mine.handsBloodied = true;
           addLog("Your hands begin to bleed. You can't mine anymore.", '#ff5555');
         }
@@ -9728,7 +9796,7 @@ function showInventory() {
     if (key === 'storage')   return !state.stations.storage?.unlocked;
     if (key === 'card')      return !state.bank.card?.tier;
     if (key === 'equipment') return !state.mine?.discovered;
-    if (key === 'cooking')   return !state.player.homeItems?.includes('kitchen');
+    if (key === 'cooking')   return !state.cottage.furniture?.kitchen;
     return false;
   }
 
@@ -9863,7 +9931,7 @@ function showInventory() {
         return [`Outfit:`, ` ${cn}`, `Color:`, ''];
       }
       case 'cooking': {
-        if (!state.player.homeItems?.includes('kitchen')) return ['[locked]','Buy cottage','+ kitchen',''];
+        if (!state.cottage.furniture?.kitchen) return ['[locked]','Buy cottage','+ kitchen',''];
         const buff = state.cooking?.activeBuff;
         const gardenCount = Object.values(state.garden||{}).filter(v=>v===true).length;
         if (!buff) return ['Buff: None', '', `Garden: ${gardenCount}/12`, ''];
@@ -10111,7 +10179,7 @@ function showInventory() {
   }
 
   function drawDetailCooking(cy, cc) {
-    const hasCottage = state.player.homeItems?.includes('kitchen');
+    const hasCottage = !!state.cottage.furniture?.kitchen;
     irow(cy, 'COOKING', cc);
     sep(cy+1, cc);
     if (!hasCottage) {
@@ -10806,7 +10874,8 @@ function tickCouriers() {
   const lfDoor = lfDef ? { x: lfDef.x + 1, y: lfDef.y + 2 } : null;
   const lpDoor = state.loadingPort?.unlocked ? { x: mtDef.x + 5, y: mtDef.y + 3 } : null;
   const weatherCourierMult = state.weather.current === 'storm' ? 0.85 : state.weather.current === 'fog' ? 0.9 : 1.0;
-  const speed    = Math.max(1, Math.round(COURIER_SPEEDS[state.skills.courierSpeedLevel || 0] * weatherCourierMult));
+  const courierSpeedBuffMult = state.cooking?.activeBuff?.buff === 'courierSpeed' ? state.cooking.activeBuff.value : 1.0;
+  const speed    = Math.max(1, Math.round(COURIER_SPEEDS[state.skills.courierSpeedLevel || 0] * weatherCourierMult * courierSpeedBuffMult));
   const carryMax = COURIER_CARRY_CAPS[state.skills.courierCarryLevel || 0];
   const PRICE    = state.marketPrice;
   const toRocket = state.courierDestination === 'rocket' && state.stations.launch_facility?.unlocked && lfDoor;
@@ -11323,6 +11392,9 @@ function devUnlockEverything() {
     if (f.key !== 'cottage') state.cottage.furniture[f.key] = true;
   }
   for (const g of GARDEN_DEFS) state.garden[g.key] = true;
+
+  // All recipes
+  state.recipes = { tomatoSoup: true, carrotStew: true, pumpkinPie: true, gardenSalad: true, pepperSteak: true, beetRisotto: true, mushroomBroth: true, cornbread: true };
 
   // Stamps
   state.player.stamps = 500;
@@ -12370,7 +12442,8 @@ setInterval(() => {
     }
     // Courier daily maintenance
     const courierCount = state.workers.couriers.length;
-    const maintenanceCost = courierCount * 5;
+    const courierWageMult = state.cooking?.activeBuff?.buff === 'courierWages' ? state.cooking.activeBuff.value : 1.0;
+    const maintenanceCost = Math.round(courierCount * 5 * courierWageMult * 10) / 10;
     if (maintenanceCost > 0) {
       if (state.player.gold >= maintenanceCost) {
         state.player.gold -= maintenanceCost;
@@ -12390,7 +12463,8 @@ setInterval(() => {
     }
     // Deposit interest: 10% per day
     if (state.bank.deposit > 0) {
-      const interest = Math.round(state.bank.deposit * 0.10 * 10) / 10;
+      const bankInterestMult = state.cooking?.activeBuff?.buff === 'bankInterest' ? state.cooking.activeBuff.value : 1.0;
+      const interest = Math.round(state.bank.deposit * 0.10 * bankInterestMult * 10) / 10;
       if (interest > 0) {
         state.bank.deposit = Math.round((state.bank.deposit + interest) * 10) / 10;
         addLog(`Bank interest: +${interest}g.`, '#66cc66');
