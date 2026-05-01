@@ -1016,7 +1016,7 @@ drawArt(0);
 drawPrompt(true);
 
 const CREDIT  = "Created by Adam A.";
-const VERSION = "alpha 1.07.22";
+const VERSION = "alpha 1.07.23";
 
 // ── Sound system ──────────────────────────────────────────────────────────────
 const SOUNDS = {};
@@ -2760,10 +2760,10 @@ function getDescription(x, y, glyph) {
   if (!descriptions) return 'Nothing remarkable.';
   // Dynamic @ description reflects current outfit
   if (glyph === '@' && x === state.player.x && y === state.player.y) {
-    if (state.player.colorName && state.player.colorName !== 'DEFAULT') {
-      return `That's you. You look tired, but sharp in ${state.player.colorName.toLowerCase()}.`;
+    if ((state.skills.interfacing?.pips || 0) >= 1) {
+      return "It's you. Press Space to open your portable workbench.";
     }
-    return "That's you. You look tired.";
+    return "It's you.";
   }
   const td0 = tileMap[x]?.[y]?.description;
   if (td0) return td0;
@@ -2834,6 +2834,29 @@ window.addEventListener('keydown', (e) => {
   if (state.gameState !== 'look') return;
   if (e.key === 'o') { exitLookMode(); return; }
   if (e.key === 'Escape') { exitLookMode(); showPauseMenu(); return; }
+  if (e.key === ' ') {
+    e.preventDefault();
+    if (lookX === state.player.x && lookY === state.player.y) {
+      if ((state.skills.interfacing?.pips || 0) >= 1) {
+        if (state.player.inventory.rm > 0) {
+          exitLookMode();
+          openWorkbenchMenu(true);
+          return;
+        } else {
+          for (let r = LOG_START_ROW; r <= LOG_END_ROW; r++) drawRow(r, '', BRIGHT_WHITE);
+          const msg = 'You have no raw materials to craft with.';
+          for (let i = 0; i < msg.length; i++) display.draw(2 + i, LOG_START_ROW, msg[i], '#ff5555', BG);
+          return;
+        }
+      } else {
+        for (let r = LOG_START_ROW; r <= LOG_END_ROW; r++) drawRow(r, '', BRIGHT_WHITE);
+        const msg = 'You look at your hands. Nothing special... yet.';
+        for (let i = 0; i < msg.length; i++) display.draw(2 + i, LOG_START_ROW, msg[i], '#555555', BG);
+        return;
+      }
+    }
+    return;
+  }
   const DIRS = { ArrowLeft:[-1,0], ArrowRight:[1,0], ArrowUp:[0,-1], ArrowDown:[0,1] };
   const d = DIRS[e.key];
   if (!d) return;
@@ -8074,7 +8097,7 @@ function openKeyReference() {
 
   const skillLines = [];
   if (state.skills?.interfacing?.pips >= 1) {
-    skillLines.push(['o → your @', 'portable workbench (interfacing)']);
+    skillLines.push(['o → @ → Space', 'portable workbench (interfacing)']);
   }
   if (state.skills?.aquatics?.purchased) {
     skillLines.push(['walk into ~', 'swim through water (aquatics)']);
@@ -8218,6 +8241,7 @@ function openKeyReference() {
 // ── Launch Facility menu (§9) ─────────────────────────────────────────────────
 
 const CHANGELOG = [
+  { version: '1.07.23', summary: 'Portable workbench: press O then Space on yourself to craft. No more Space-anywhere.' },
   { version: '1.07.22', summary: 'Key reference menu (K) — dynamic based on unlocks. Replaced ponder on hint bar.' },
   { version: '1.07.21', summary: 'Full menu text audit — office footer/hint shortened, GS recipe effs fixed, flower text removed from garden, influence prices corrected.' },
   { version: '1.07.20', summary: 'GS armament section now visible. Combat items cost stamps. Renamed to ARMAMENT. Shopkeeper note no longer wipes armament rows.' },
@@ -10502,10 +10526,6 @@ function handleInteract() {
     const px = state.player.x, py = state.player.y;
     if (Math.abs(px - doorX) <= 1 && Math.abs(py - doorY) <= 1) { enterCottage(); return; }
   }
-  // Remote crafting via INTERFACING skill (not adjacent to workbench)
-  if ((state.skills.interfacing?.pips || 0) >= 1 && state.player.inventory.rm > 0) {
-    openWorkbenchMenu(true); return;
-  }
 }
 
 // ── Rock collection and casino interact (§4.2) ───────────────────────────────
@@ -10967,7 +10987,7 @@ function showInventory() {
     { key: 'aquatics',     name: 'AQUATICS',     maxPips: 1, costs: [5],
       descs: ['The water parts for you now.'] },
     { key: 'interfacing',  name: 'INTERFACING',  maxPips: 3, costs: [5, 5, 5],
-      descs: ['Your hands remember the motions.', 'The craft comes easier now.', 'You barely need to think anymore.'] },
+      descs: ['Look at yourself to craft anywhere.', 'The craft comes easier now.', "You barely need to think anymore."] },
     { key: 'coordination', name: 'COORDINATION', maxPips: 2, costs: [5, 5],
       descs: ['The earth gives up its secrets more freely.', "Rare things surface where they didn't before."] },
     { key: 'rhetoric',     name: 'RHETORIC',     maxPips: 3, costs: [5, 5, 5],
