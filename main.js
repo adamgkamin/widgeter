@@ -260,6 +260,8 @@ const state = {
   storage: { widgets: 0, rm: 0, widgetCap: 50, rmCap: 50 },
   workbenchWidgets:  0,
   workbenchHammerFrame: 0,
+  craftStartTime:       0,
+  craftDurationMs:      3000,
   workbenchHammerTick:  0,
   productionHalted:  false,
   wbFullLogged:      false,
@@ -952,7 +954,7 @@ drawArt(0);
 drawPrompt(true);
 
 const CREDIT  = "Created by Adam A.";
-const VERSION = "alpha 1.07.12";
+const VERSION = "alpha 1.07.13";
 
 // ── Sound system ──────────────────────────────────────────────────────────────
 const SOUNDS = {};
@@ -3175,12 +3177,15 @@ function startCrafting(n, ticks = CRAFT_TICKS, remote = false) {
   activeCraftTicks = ticks + weatherCraftPenalty;
   craftingRemote   = remote;
   state.gameState  = 'crafting';
+  state.craftStartTime  = Date.now();
+  state.craftDurationMs = activeCraftTicks * 1000;
   drawStatusBar();
   addLog(`Crafting ${n} widget${n !== 1 ? 's' : ''}...`, BRIGHT_CYAN);
 }
 
 function cancelCrafting() {
   craftQueue = 0; craftProgress = 0;
+  state.craftStartTime = 0;
   state.workbenchHammerFrame = 0; state.workbenchHammerTick = 0;
   if (!craftingRemote) {
     WB_LABEL_TILES.forEach(([x, y]) => { markDirty(x, y); });
@@ -7646,6 +7651,7 @@ function renderLargeNumber(display, x, y, numberString, color, availableWidth) {
 // ── Launch Facility menu (§9) ─────────────────────────────────────────────────
 
 const CHANGELOG = [
+  { version: '1.07.13', summary: 'Hammer animation driven at 60fps — all 10 frames now visible.' },
   { version: '1.07.12', summary: 'Credit score rework, bankruptcy game over, stamp overhaul, kitchen/veggie/credit/fog bug fixes.' },
   { version: '1.07.11', summary: 'Recipe tab (8 recipes, 50 stamps each). Mining tab renamed to Tools. Kitchen stove highlighted. Inventory cells color-coded.' },
   { version: '1.07.10', summary: 'Inventory revamp: 4x2 grid — carrying, storage, wallet, card, equipment, wardrobe, cooking, stats.' },
@@ -12494,14 +12500,6 @@ setInterval(() => {
   if (state.gameState === 'crafting') {
     const secsLeft = activeCraftTicks - craftProgress;
     drawRow(LOG_END_ROW, `> Crafting — ${secsLeft}s remaining`, '#ff9933');
-    const prevHF = state.workbenchHammerFrame;
-    state.workbenchHammerFrame = Math.min(9, Math.floor((craftProgress / activeCraftTicks) * 10));
-    const wbDef2 = STATION_DEFS.find(s => s.label === 'WB');
-    if (wbDef2) {
-      const doorX = wbDef2.x + 1, doorY = wbDef2.y + 2;
-      if (state.workbenchHammerFrame >= 6 && prevHF < 6) display.draw(doorX, doorY, '*', '#ffd633', BG);
-      else if (prevHF >= 6 && prevHF <= 7 && state.workbenchHammerFrame >= 8) { markDirty(doorX, doorY); renderDirty(); }
-    }
     craftProgress++;
     if (!craftingRemote) pulseWB();
     if (craftProgress >= activeCraftTicks) {
@@ -12519,6 +12517,8 @@ setInterval(() => {
         state.player.inventory.rm--;
         state.workbenchHammerFrame = 0;
         state.workbenchHammerTick  = 0;
+        state.craftStartTime  = Date.now();
+        state.craftDurationMs = activeCraftTicks * 1000;
         addLog(`Widget complete. ${stillLeft} remaining.`, '#66cc66');
         drawStatusBar();
       } else {
@@ -12825,6 +12825,23 @@ setInterval(() => {
 // ── Effects render loop — runs at ~60fps independent of game tick ─────────────
 ;(function effectsLoop(ts) {
   if (state.gameState === 'gameover' || state.gameState === 'ending') { requestAnimationFrame(effectsLoop); return; }
+
+  // Hammer animation — driven at 60fps for smooth 10-frame animation over the full craft duration
+  if (state.gameState === 'crafting' && state.craftStartTime > 0) {
+    const elapsed  = Date.now() - state.craftStartTime;
+    const craftMs  = state.craftDurationMs || 3000;
+    const progress = Math.min(1.0, elapsed / craftMs);
+    const newFrame = Math.min(9, Math.floor(progress * 10));
+    if (newFrame !== state.workbenchHammerFrame) {
+      state.workbenchHammerFrame = newFrame;
+      if (wbMenuRedrawFn) wbMenuRedrawFn();
+      if (newFrame >= 6 && newFrame <= 7) {
+        const wbDef = STATION_DEFS.find(s => s.label === 'WB');
+        if (wbDef) display.draw(wbDef.x + 1, wbDef.y + 2, '*', '#ffd633', BG);
+      }
+    }
+  }
+
   if (state.gameState !== 'cottage' && state.gameState !== 'mine') effectsManager.render(display);
 
   // Scroll-in: advance pendingLine only when world is active (not paused, not look mode)
