@@ -7631,9 +7631,9 @@ function openDerivativesMenu() {
       const days  = Math.max(1, fDays);
       const delDay = state.day + days;
       const fee   = r10(lockP * fQty * 0.10);
-      irow(baseRow + 3, `${cur1?'>'.' '} Lock price:  ${lockP}g ${cur1?'[↑↓]':'    '}`, cur1 ? '#ffd633' : LC);
-      irow(baseRow + 4, `${cur0?'>'.' '} Quantity:    ${fQty} widgets ${cur0?'[↑↓]':'    '}`, cur0 ? '#ffd633' : LC);
-      irow(baseRow + 5, `${cur2?'>'.' '} Delivery:    Day ${delDay} (+${days}) ${cur2?'[↑↓]':'    '}  [SPACE: toggle field]`, cur2 ? '#ffd633' : LC);
+      irow(baseRow + 3, `${cur1?'>':' '} Lock price:  ${lockP}g ${cur1?'[↑↓]':'    '}`, cur1 ? '#ffd633' : LC);
+      irow(baseRow + 4, `${cur0?'>':' '} Quantity:    ${fQty} widgets ${cur0?'[↑↓]':'    '}`, cur0 ? '#ffd633' : LC);
+      irow(baseRow + 5, `${cur2?'>':' '} Delivery:    Day ${delDay} (+${days}) ${cur2?'[↑↓]':'    '}  [SPACE: toggle field]`, cur2 ? '#ffd633' : LC);
       irow(baseRow + 6, `  Lock-in fee: ${fee}g (10%)`, '#aaaaaa');
       sep(baseRow + 7);
       // Profit scenarios
@@ -7649,7 +7649,7 @@ function openDerivativesMenu() {
       const marg = r10(spot * fQty * 0.10);
       const canOpen = state.player.gold >= marg || (state.bank?.card?.tier && (state.bank.card.limit - state.bank.card.balance) >= marg);
       irow(baseRow + 3, `  Direction:   ${inst.key === 'fut_long' ? 'LONG (profit if UP)' : 'SHORT (profit if DOWN)'}`, TC);
-      irow(baseRow + 4, `${cur0?'>'.' '} Size:        ${fQty} widgets ${cur0?'[↑↓]':'    '}`, cur0 ? '#ffd633' : LC);
+      irow(baseRow + 4, `${cur0?'>':' '} Size:        ${fQty} widgets ${cur0?'[↑↓]':'    '}`, cur0 ? '#ffd633' : LC);
       irow(baseRow + 5, `  Entry price: ${spot}g (current)`, LC);
       irow(baseRow + 6, `  Margin:      ${marg}g (10%)  ${canOpen ? '' : '[NOT ENOUGH GOLD]'}`, canOpen ? '#aaaaaa' : '#ff5555');
       sep(baseRow + 7);
@@ -7668,8 +7668,8 @@ function openDerivativesMenu() {
       const strike = r10(fStrike || spot);
       const prem   = calcOptionPremium(isCall ? 'call' : 'put', strike, days);
       irow(baseRow + 3, `  Type:        ${isCall ? 'CALL' : 'PUT'} ${isBuy ? '(Buy — pay premium)' : '(Sell — receive premium)'}`, TC);
-      irow(baseRow + 4, `${cur1?'>'.' '} Strike: ${strike}g ${cur1?'[↑↓±0.5]':'        '}   ${cur0?'>'.' '} Qty: ${fQty} ${cur0?'[↑↓±10]':'       '}`, cur1||cur0 ? '#ffd633' : LC);
-      irow(baseRow + 5, `${cur2?'>'.' '} Expiry:      Day ${state.day + days} (+${days} days) ${cur2?'[↑↓]':'    '}  [SPACE: toggle field]`, cur2 ? '#ffd633' : LC);
+      irow(baseRow + 4, `${cur1?'>':' '} Strike: ${strike}g ${cur1?'[↑↓±0.5]':'        '}   ${cur0?'>':' '} Qty: ${fQty} ${cur0?'[↑↓±10]':'       '}`, cur1||cur0 ? '#ffd633' : LC);
+      irow(baseRow + 5, `${cur2?'>':' '} Expiry:      Day ${state.day + days} (+${days} days) ${cur2?'[↑↓]':'    '}  [SPACE: toggle field]`, cur2 ? '#ffd633' : LC);
       irow(baseRow + 6, `  Premium:     ${prem}g/contract   Vol: ${volLabel()}`, '#aaaaaa');
       sep(baseRow + 7);
       irow(baseRow + 8, `  ─── P&L scenarios (${isCall?'CALL':'PUT'} @${strike}g, prem=${prem}g) ───`, '#aaaaaa');
