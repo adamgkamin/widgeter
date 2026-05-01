@@ -1007,7 +1007,7 @@ drawArt(0);
 drawPrompt(true);
 
 const CREDIT  = "Created by Adam A.";
-const VERSION = "alpha 1.07.15";
+const VERSION = "alpha 1.07.16";
 
 // ── Sound system ──────────────────────────────────────────────────────────────
 const SOUNDS = {};
@@ -2396,16 +2396,13 @@ function showTitleOptions() {
       for (let i = 0; i < ttl.length; i++) display.draw(CX+i, BOX_Y+1, ttl[i], BRIGHT_CYAN, BG);
       const sndLabel = state.audio.muted ? '[OFF]' : '[ON ]';
       const sndFg    = state.audio.muted ? '#555555' : '#66cc66';
-      const fsLabel  = state.settings.fullscreen ? '[ON ]' : '[OFF]';
-      const fsFg     = state.settings.fullscreen ? '#66cc66' : '#555555';
       const line1 = `1. Sound   ${sndLabel}`;
-      const line2 = `2. Fullscr ${fsLabel}`;
-      const line3 = '3. Dev Mode';
-      const line4 = '4. Back';
+      const line2 = '2. Dev Mode';
+      const line3 = '3. Back';
       for (let i = 0; i < line1.length; i++) display.draw(CX+i, BOX_Y+3, line1[i], i >= 11 ? sndFg : BRIGHT_WHITE, BG);
-      for (let i = 0; i < line2.length; i++) display.draw(CX+i, BOX_Y+4, line2[i], i >= 11 ? fsFg  : BRIGHT_WHITE, BG);
-      for (let i = 0; i < line3.length; i++) display.draw(CX+i, BOX_Y+5, line3[i], BRIGHT_WHITE, BG);
-      for (let i = 0; i < line4.length; i++) display.draw(CX+i, BOX_Y+6, line4[i], WC, BG);
+      for (let i = 0; i < line2.length; i++) display.draw(CX+i, BOX_Y+4, line2[i], BRIGHT_WHITE, BG);
+      for (let i = 0; i < line3.length; i++) display.draw(CX+i, BOX_Y+5, line3[i], WC, BG);
+      for (let i = 0; i < 14; i++) display.draw(CX+i, BOX_Y+6, ' ', BRIGHT_WHITE, BG);
     }
   }
 
@@ -2433,10 +2430,6 @@ function showTitleOptions() {
       renderOpts(); return;
     }
     if (e.key === '2') {
-      setFullscreen(!state.settings.fullscreen);
-      renderOpts(); return;
-    }
-    if (e.key === '3') {
       if (state.devUnlocked) {
         window.removeEventListener('keydown', optsKeyHandler);
         showContinueMenu();
@@ -2446,7 +2439,7 @@ function showTitleOptions() {
       }
       return;
     }
-    if (e.key === '4' || e.key === 'Escape') {
+    if (e.key === '3' || e.key === 'Escape') {
       window.removeEventListener('keydown', optsKeyHandler);
       showContinueMenu();
     }
@@ -3317,7 +3310,7 @@ function openWorkbenchMenu(isRemote = false) {
         if (ch === '*') fg = '#ffd633';
         else if (ch === '.') fg = '#ff9933';
         else if (ch === '\\' || ch === '/') fg = '#ff9933';
-        else if (ch === '=' || ch === '-') fg = '#886633';
+        else if (ch === '█') fg = '#aaaaaa';
         else fg = '#aaaaaa';
       } else {
         fg = base;
@@ -4162,6 +4155,25 @@ function openMarketMenu(initialTab = 'sell') {
         }
         mtLPRow(5, 'Loading Port',       'w', lpOwned,  500, false);
         mtLPRow(6, 'Expand Port (x2)',   'x', expOwned, 800, !lpOwned);
+        // Courier destination toggle (when LP is unlocked)
+        if (lpOwned && state.couriersOwned > 0) {
+          const ay = statusRow + 8; border(ay);
+          for (let i = 0; i < IW; i++) display.draw(BOX_X+1+i, ay, ' ', BRIGHT_WHITE, BG);
+          const dest = state.courierDestination;
+          const HALF2 = Math.floor(IW / 2);
+          const center2 = (s, w) => { const p = Math.max(0, w - s.length); const l = Math.floor(p/2); return ' '.repeat(l) + s + ' '.repeat(p-l); };
+          const mLbl = center2(dest === 'market' ? '>> [ MARKET ] <<' : '[ MARKET ]', HALF2);
+          const pLbl = center2(dest === 'port'   ? '>> [ PORT ] <<'   : '[ PORT ]',   IW - HALF2);
+          for (let i = 0; i < IW; i++) {
+            const inLeft = i < HALF2;
+            const ch = (inLeft ? mLbl : pLbl)[inLeft ? i : i - HALF2] || ' ';
+            const active = (inLeft && dest === 'market') || (!inLeft && dest === 'port');
+            display.draw(BOX_X+1+i, ay, ch, active ? '#ffd633' : '#555555', BG);
+          }
+          const ay2 = statusRow + 9; border(ay2);
+          const ht2 = menuPad('  [z] Toggle courier delivery destination', IW);
+          for (let i = 0; i < IW; i++) display.draw(BOX_X+1+i, ay2, ht2[i]||' ', '#555555', BG);
+        }
       }
 
     } else {
@@ -4356,6 +4368,13 @@ function openMarketMenu(initialTab = 'sell') {
         addLog('Loading Port expanded to 200 widget capacity.', '#88cc88');
         playSound('bought'); drawStatusBar(); redraw(); return;
       }
+    }
+
+    // Courier destination toggle
+    if (e.key === 'z' && state.loadingPort?.unlocked && state.couriersOwned > 0) {
+      state.courierDestination = state.courierDestination === 'market' ? 'port' : 'market';
+      addLog(`Couriers now delivering to: ${state.courierDestination === 'port' ? 'Loading Port' : 'market'}.`, '#88cc88');
+      redraw(); return;
     }
 
     if (marketTab === 'sell') {
@@ -5508,7 +5527,7 @@ function openGeneralStoreMenu() {
     { const ay=BOX_Y+2; border(ay); for(let i=0;i<IW;i++) display.draw(BOX_X+1+i,ay,'═',DC,BG); }
     // Row 3: tab bar — five tabs: CLOTHING(11)|HOME(10)|GARDEN(10)|TOOLS(10)|RECIPES(10) = 52 (with 4 separators)
     { const ay=BOX_Y+3; border(ay);
-      const tabs=[{k:'clothing',lbl:'[CLOTHING]',w:11},{k:'home_goods',lbl:'[  HOME  ]',w:10},{k:'garden',lbl:'[ GARDEN ]',w:10},{k:'tools',lbl:'[ TOOLS ]',w:10},{k:'recipes',lbl:'[RECIPES]',w:10}];
+      const tabs=[{k:'clothing',lbl:'[CLOTH]',w:8},{k:'home_goods',lbl:'[HOME]',w:7},{k:'garden',lbl:'[GARDEN]',w:9},{k:'tools',lbl:'[TOOLS]',w:8},{k:'recipes',lbl:'[RECIPE]',w:9}];
       let cx=BOX_X+1;
       for(let ti=0;ti<tabs.length;ti++){
         const t=tabs[ti],active=gsTab===t.k;
@@ -7783,6 +7802,7 @@ function renderLargeNumber(display, x, y, numberString, color, availableWidth) {
 // ── Launch Facility menu (§9) ─────────────────────────────────────────────────
 
 const CHANGELOG = [
+  { version: '1.07.16', summary: 'Hammer block chars, cooking menu bigger, market courier toggle (z), fullscreen removed from settings, dev menu comprehensive, GS tab labels fixed.' },
   { version: '1.07.15', summary: 'Skills cost crystals (5/pip), 6 skills including Coordination/Rhetoric/Shivers. Crystal cap 25. Armament tab uses stamps. C key for credit.' },
   { version: '1.07.14', summary: 'The Catacombs — night combat dungeon, sword/bow, 5 goblins + dragon boss, treasure. Dev menu updated with all unlocks.' },
   { version: '1.07.13', summary: 'Hammer animation driven at 60fps — all 10 frames now visible.' },
@@ -8280,7 +8300,7 @@ function consumeIngredients(recipe) {
 
 function openCookingMenu() {
   state.gameState = 'cooking_menu';
-  const OX = 25, OY = 10, OW = 32, OH = 26;
+  const OX = 16, OY = 5, OW = 46, OH = 36;
   const TC = '#ff6633', DC = '#333333', LC = '#ffffff';
 
   function drawMenu() {
@@ -12017,7 +12037,7 @@ function devUnlockEverything() {
   state.lifetimeGoldEarned = 50000;
   state.devUnlocked = true;
 
-  // Workers: 5 apprentices, 4 couriers
+  // Workers
   state.skills.apprenticeCount = 5;
   state.skills.courierCount = 4;
   state.skills.workerCarryLevel = 5;
@@ -12032,9 +12052,9 @@ function devUnlockEverything() {
       state.workers.couriers.push({ x: ofDef.x+1, y: ofDef.y+2, courierState: 'idle', carryWidgets: 0, target: {x:0,y:0}, nickname: '', paused: false });
   }
 
-  // Storage maxed
+  // Storage
   state.skills.storageExp1 = 1; state.skills.storageExp2 = 1;
-  state.storage.widgetCap = 1000; state.storage.rmCap = 1000;
+  state.storage.widgetCap = 1000; state.storage.rmCap = 200;
   state.storage.widgets = 200; state.storage.rm = 100;
 
   // All Office upgrades
@@ -12044,13 +12064,16 @@ function devUnlockEverything() {
   state.skills.futures = 1; state.skills.optionsBuy = 1;
   state.skills.optionsWrite = 1; state.skills.volatilitySurface = 1;
 
-  // Player skills
+  // Player skills (all 6)
   state.skills.endurance = { pips: 3 };
   state.skills.aquatics = { purchased: true };
   state.skills.interfacing = { pips: 3 };
+  state.skills.coordination = { pips: 2 };
+  state.skills.rhetoric = { pips: 3 };
+  state.skills.shivers = { purchased: true };
 
   // Black card
-  state.bank.creditRating = 'AAA'; state.bank.creditRatingScore = 10.0;
+  state.bank.creditRating = 'AAA'; state.bank.creditRatingScore = 8.0;
   state.bank.card = {
     tier: 'black', limit: 50000, balance: 0, interestRate: 0.01,
     statementCycle: 15, lastStatementDay: 0,
@@ -12064,7 +12087,7 @@ function devUnlockEverything() {
   state.bank.upgradeLogQueue    = state.bank.upgradeLogQueue    || [];
   state.bank.upgradeLogLastFired = state.bank.upgradeLogLastFired || 0;
 
-  // Casino unlocked
+  // Casino
   state.shinyRocks.red.collected = true;
   state.shinyRocks.yellow.collected = true;
   state.shinyRocks.blue.collected = true;
@@ -12080,7 +12103,6 @@ function devUnlockEverything() {
   // All recipes
   state.recipes = { tomatoSoup: true, carrotStew: true, pumpkinPie: true, gardenSalad: true, pepperSteak: true, beetRisotto: true, mushroomBroth: true, cornbread: true };
   state.bankruptcyStipendCount = 0;
-  state.bank.creditRatingScore = 8.0;
   state.peakCredits = 25000;
 
   // Stamps
@@ -12090,29 +12112,36 @@ function devUnlockEverything() {
   state.rocketWidgets = 4990;
   state.courierDestination = 'market';
 
+  // Loading Port
+  state.loadingPort = { unlocked: true, widgets: 0, capacity: 200 };
+
   // Market and economy
   calculateDailyDemand();
   state.widgetsSoldToday = 0;
   state.terminalUnlocked = true;
   state.officeUnlocked = true;
+  state.creditMode = false;
 
   // Inventory
   state.player.inventory.rm = 5;
   state.player.inventory.widgets = 5;
   state.player.inventoryCaps = { rm: 10, widgets: 10 };
 
+  // Crystals
+  state.mine.crystals = 15;
+
   // Apply unlocks and enter game
   applyPhaseUnlocks(5);
   state.gameState = 'playing';
   clearScreen();
   drawWorld();
+
   // Mine
   state.mine.discovered = true;
-  state.mine.crystals = 3;
   state.skills.pickaxeLevel = 2;
   state.skills.lantern = true;
   placeMineEntrance();
-  state.weather = { current: 'clear', forecast: 'rain', actualTomorrow: 'storm' };
+  stampLoadingPort();
 
   // Catacombs and combat gear
   state.catacombs.unlocked = true;
@@ -12121,6 +12150,9 @@ function devUnlockEverything() {
   state.skills.bowOwned = true;
   state.player.arrows = 10;
   state.catacombs.maxHp = 20;
+
+  // Weather
+  state.weather = { current: 'clear', forecast: 'rain', actualTomorrow: 'storm' };
 
   addLog('DEV: Everything unlocked. Rocket at 4,990. Catacombs unlocked.', '#ff5555');
   addLog('Toggle couriers to rocket when ready for the finale.', '#ff5555');
@@ -12345,34 +12377,17 @@ function showPauseMenu() {
     rsep(3);
     rrow(4, '', BRIGHT_WHITE);
     const soundOn = !state.audio.muted;
-    const fsOn    = state.settings.fullscreen;
     optRow(5,  1, `Sound      [${soundOn ? 'ON ' : 'OFF'}]`, selOpt === 0);
     rrow(6, '', BRIGHT_WHITE);
-    optRow(7,  2, `Fullscreen [${fsOn    ? 'ON ' : 'OFF'}]`, selOpt === 1);
+    optRow(7,  2, 'Dev Mode',  selOpt === 1);
     rrow(8, '', BRIGHT_WHITE);
-    optRow(9,  3, 'Dev Mode',  selOpt === 2);
-    rrow(10, '', BRIGHT_WHITE);
-    optRow(11, 4, 'Back',      selOpt === 3);
-    // Recolor ON/OFF bracket values (both options have value at RPX+19)
-    const colorBrack = (rPaneRow, isOn) => {
-      const dy    = BOX_Y + PS + rPaneRow;
-      const valFg = isOn ? '#66cc66' : WC;
-      const vStr  = isOn ? 'ON ' : 'OFF';
-      for (let i = 0; i < vStr.length; i++) display.draw(RPX + 19 + i, dy, vStr[i], valFg, BG);
-    };
-    colorBrack(5, soundOn);
-    colorBrack(7, fsOn);
-    rrow(12, '', BRIGHT_WHITE);
-    if (fsError) {
-      const eTrunc = fsError.substring(0, RP_W);
-      for (let i = 0; i < RP_W; i++) display.draw(RPX + i, BOX_Y + PS + 13, ' ', BRIGHT_WHITE, BG);
-      for (let i = 0; i < eTrunc.length; i++) display.draw(RPX + i, BOX_Y + PS + 13, eTrunc[i], '#ff5555', BG);
-    } else {
-      rrow(13, '', BRIGHT_WHITE);
-    }
-    rrow(14, '', BRIGHT_WHITE);
-    rrow(15, '', BRIGHT_WHITE);
-    rrow(16, '', BRIGHT_WHITE);
+    optRow(9,  3, 'Back',      selOpt === 2);
+    // Recolor ON/OFF bracket for sound
+    const soundDy  = BOX_Y + PS + 5;
+    const soundValFg = soundOn ? '#66cc66' : WC;
+    const soundStr   = soundOn ? 'ON ' : 'OFF';
+    for (let i = 0; i < soundStr.length; i++) display.draw(RPX + 19 + i, soundDy, soundStr[i], soundValFg, BG);
+    for (let r = 10; r <= 16; r++) rrow(r, '', BRIGHT_WHITE);
   }
 
   function drawRightDevPw() {
@@ -12454,7 +12469,7 @@ function showPauseMenu() {
 
   function maxOpts() {
     if (screen === 'pause')    return 3;
-    if (screen === 'settings') return 4;
+    if (screen === 'settings') return 3;
     if (screen === 'dev')      return 10;
     return 0;
   }
@@ -12488,12 +12503,11 @@ function showPauseMenu() {
       }
     } else if (screen === 'settings') {
       if      (selOpt === 0) { state.audio.muted = !state.audio.muted; saveGame(); drawBorder(); render(); }
-      else if (selOpt === 1) { setFullscreen(!state.settings.fullscreen); drawBorder(); render(); }
-      else if (selOpt === 2) {
+      else if (selOpt === 1) {
         if (state.devUnlocked) { screen = 'dev'; selOpt = 0; render(); }
         else { devPwBuf = ''; devPwErr = false; screen = 'devPassword'; render(); }
       }
-      else if (selOpt === 3) { screen = 'pause'; selOpt = 0; render(); }
+      else if (selOpt === 2) { screen = 'pause'; selOpt = 0; render(); }
     } else if (screen === 'dev') {
       if (selOpt >= 0 && selOpt <= 3) {
         pauseMenuRedrawFn = null;
