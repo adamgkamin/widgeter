@@ -282,7 +282,7 @@ const state = {
   demandHistory:        [],
   terminalUnlocked:     false,
   derivatives:          { forwards: [], futures: [], options: [], pnlToday: 0, totalPnL: 0, marginCallActive: false, marginCallDay: 0, nextSpreadId: 0 },
-  terminal:             { positions: [], totalPnL: 0, pnlToday: 0, _nextId: 0 },
+  terminal:             { positions: [], totalPnL: 0, pnlToday: 0, _nextId: 0, candleHistory: [], fx: { stampToGold: 60, goldToStamp: 1/60, history: [], positions: [], tickCounter: 0 } },
   volatility:           0.2,
   endingTriggered:      false,
   endingCompleted:      false,
@@ -494,6 +494,7 @@ function saveGame() {
     },
     playerArrows: state.player.arrows,
     shiversCompanion: state.shiversCompanion,
+    terminal: state.terminal,
   };
   localStorage.setItem(SAVE_KEY, JSON.stringify(data));
 }
@@ -564,6 +565,14 @@ function loadGame() {
     state.terminal.totalPnL  = state.terminal.totalPnL  ?? 0;
     state.terminal.pnlToday  = state.terminal.pnlToday  ?? 0;
     state.terminal._nextId   = state.terminal._nextId   ?? 0;
+    state.terminal.candleHistory = state.terminal.candleHistory ?? [];
+    { const _fx = state.terminal.fx = state.terminal.fx ?? {};
+      _fx.stampToGold  = _fx.stampToGold  ?? 60;
+      _fx.goldToStamp  = _fx.goldToStamp  ?? (1/60);
+      _fx.history      = _fx.history      ?? [];
+      _fx.positions    = _fx.positions    ?? [];
+      _fx.tickCounter  = _fx.tickCounter  ?? 0;
+    }
     // Migrate old derivatives.forwards to terminal.positions
     if ((data.derivatives?.forwards ?? []).length > 0 && state.terminal.positions.length === 0) {
       for (const f of state.derivatives.forwards) {
@@ -1007,7 +1016,7 @@ drawArt(0);
 drawPrompt(true);
 
 const CREDIT  = "Created by Adam A.";
-const VERSION = "alpha 1.07.16";
+const VERSION = "alpha 1.07.17";
 
 // ── Sound system ──────────────────────────────────────────────────────────────
 const SOUNDS = {};
@@ -2246,7 +2255,7 @@ function resetState() {
   state.demandHistory        = [];
   state.terminalUnlocked     = false;
   state.derivatives          = { forwards: [], futures: [], options: [], pnlToday: 0, totalPnL: 0, marginCallActive: false, marginCallDay: 0 };
-  state.terminal             = { positions: [], totalPnL: 0, pnlToday: 0, _nextId: 0 };
+  state.terminal             = { positions: [], totalPnL: 0, pnlToday: 0, _nextId: 0, candleHistory: [], fx: { stampToGold: 60, goldToStamp: 1/60, history: [], positions: [], tickCounter: 0 } };
   state.volatility           = 0.2;
   state.endingTriggered      = false;
   state.endingCompleted      = false;
@@ -7283,18 +7292,19 @@ function openDerivativesMenu() {
   if (!state.stations.terminal?.unlocked) return;
   state.gameState = 'dv_menu';
   const TC = '#cc66cc', DC = '#333333', WC = '#555555', LC = '#ffffff';
-  const BOX_W = 70, BOX_H = 38, IW = 68, AW = 0;
+  const BOX_W = 70, BOX_H = 38, IW = 68;
   const BOX_X = Math.floor((DISPLAY_WIDTH - BOX_W) / 2);
   const BOX_Y = Math.max(1, Math.floor((WORLD_ROWS - BOX_H) / 2));
   const CONT_X = BOX_X + 1;
-  const CELL_W = 17; // IW / 4 = 17 chars per cell
-  const CELL_H = 7;  // rows per grid cell
+  const CELL_W = 17;
+  const CELL_H = 7;
 
-  let dvTab = 'trade'; // 'trade' | 'positions'
-  let selInst = -1;    // -1 = none; 0-7 = instrument index
-  // Form values
+  let dvTab = 'chart'; // 'chart' | 'derivs' | 'fx' | 'positions'
+  let selInst = -1;
   let fQty = 10, fLockPrice = 0, fDays = 2, fStrike = 0;
   let formFocus = 0; // 0=qty, 1=price/strike, 2=days
+  let fxQty = 58;
+  let fxSubView = 'stamps_to_gold'; // 'stamps_to_gold' | 'gold_to_stamps'
 
   function r10(n) { return Math.round(n * 10) / 10; }
   function pnlFg(v) { return v > 0 ? '#66cc66' : v < 0 ? '#ff5555' : WC; }
@@ -7333,18 +7343,23 @@ function openDerivativesMenu() {
     }
     { const ay = BOX_Y + 2; border(ay);
       for (let i = 0; i < IW; i++) display.draw(CONT_X + i, ay, '═', DC, BG); }
+    // 4-tab bar
     { const ay = BOX_Y + 3; border(ay);
-      const HALF = Math.floor(IW / 2);
-      const tL = dvTab === 'trade'     ? '>> [ NEW TRADE ] <<' : '[ NEW TRADE ]';
-      const tR = dvTab === 'positions' ? '>> [ POSITIONS ] <<' : '[ POSITIONS ]';
-      const lPad = Math.floor((HALF - tL.length) / 2);
-      const rPad = Math.floor((IW - HALF - tR.length) / 2);
-      const left  = ' '.repeat(lPad) + tL + ' '.repeat(Math.max(0, HALF - tL.length - lPad));
-      const right = ' '.repeat(rPad) + tR + ' '.repeat(Math.max(0, IW - HALF - tR.length - rPad));
-      for (let i = 0; i < IW; i++) {
-        const inLeft = i < HALF;
-        const ch = (inLeft ? left[i] : right[i - HALF]) || ' ';
-        display.draw(CONT_X + i, ay, ch, (inLeft && dvTab === 'trade') || (!inLeft && dvTab === 'positions') ? TC : '#555555', BG);
+      const TABS = [
+        { key: 'chart',     lbl: 'CHART' },
+        { key: 'derivs',    lbl: 'DERIVS' },
+        { key: 'fx',        lbl: 'FX SPOT' },
+        { key: 'positions', lbl: 'POSITIONS' },
+      ];
+      const tabW = Math.floor(IW / 4);
+      for (let ti = 0; ti < 4; ti++) {
+        const t = TABS[ti];
+        const active = dvTab === t.key;
+        const lbl = active ? `>>[${t.lbl}]<<` : `[${t.lbl}]`;
+        const cx = CONT_X + ti * tabW;
+        const pad = Math.max(0, Math.floor((tabW - lbl.length) / 2));
+        const padded = (' '.repeat(pad) + lbl).padEnd(tabW);
+        for (let i = 0; i < tabW; i++) display.draw(cx + i, ay, padded[i] || ' ', active ? TC : '#555555', BG);
       }
     }
     { const ay = BOX_Y + 4; border(ay);
@@ -7352,6 +7367,166 @@ function openDerivativesMenu() {
     display.draw(BOX_X, BOX_Y + BOX_H - 1, '╚', TC, BG);
     display.draw(BOX_X + BOX_W - 1, BOX_Y + BOX_H - 1, '╝', TC, BG);
     for (let i = 1; i < BOX_W - 1; i++) display.draw(BOX_X + i, BOX_Y + BOX_H - 1, '═', TC, BG);
+  }
+
+  // ── Chart tab ────────────────────────────────────────────────────────────────
+  function drawCandleChart(candles, baseRow, chartRows, xOffset) {
+    if (!candles || candles.length === 0) {
+      irow(baseRow + Math.floor(chartRows / 2), '  No price history yet. Check back after a few days.', WC);
+      return;
+    }
+    const LABEL_W = 6;
+    const plotW = IW - LABEL_W;
+    let minP = Infinity, maxP = -Infinity;
+    for (const c of candles) {
+      if (c.low  < minP) minP = c.low;
+      if (c.high > maxP) maxP = c.high;
+    }
+    if (minP === maxP) { minP -= 1; maxP += 1; }
+    const range = maxP - minP;
+    function priceToRow(p) { return Math.min(chartRows - 1, Math.max(0, Math.round((maxP - p) / range * (chartRows - 1)))); }
+
+    const grid = [];
+    for (let c = 0; c < plotW; c++) { grid[c] = []; for (let r = 0; r < chartRows; r++) grid[c][r] = { ch: ' ', fg: DC }; }
+
+    const candleW = 4;
+    const maxVisible = Math.floor(plotW / candleW);
+    const start = Math.max(0, candles.length - maxVisible);
+    const visible = candles.slice(start);
+
+    for (let ci = 0; ci < visible.length; ci++) {
+      const c = visible[ci];
+      const colBase = ci * candleW;
+      if (colBase + 2 >= plotW) break;
+      const openRow  = priceToRow(c.open);
+      const closeRow = priceToRow(c.close);
+      const highRow  = priceToRow(c.high);
+      const lowRow   = priceToRow(c.low);
+      const bullish  = c.close >= c.open;
+      const bodyFg   = bullish ? '#66cc66' : '#ff5555';
+      const wickFg   = bullish ? '#338833' : '#883333';
+      const bodyTop  = Math.min(openRow, closeRow);
+      const bodyBot  = Math.max(openRow, closeRow);
+      // Wick (center col)
+      for (let r = highRow; r <= lowRow; r++) {
+        if (r < 0 || r >= chartRows) continue;
+        if (r >= bodyTop && r <= bodyBot) grid[colBase + 1][r] = { ch: '█', fg: bodyFg };
+        else grid[colBase + 1][r] = { ch: '│', fg: wickFg };
+      }
+      // Body sides
+      if (bodyTop === bodyBot) {
+        for (let bc = 0; bc < 3; bc++) grid[colBase + bc][bodyTop] = { ch: '─', fg: '#aaaaaa' };
+      } else {
+        for (let r = bodyTop; r <= bodyBot; r++) {
+          if (r < 0 || r >= chartRows) continue;
+          if (colBase     < plotW) grid[colBase    ][r] = { ch: '▌', fg: bodyFg };
+          if (colBase + 2 < plotW) grid[colBase + 2][r] = { ch: '▐', fg: bodyFg };
+        }
+      }
+    }
+
+    for (let r = 0; r < chartRows; r++) {
+      const ay = baseRow + r;
+      border(ay);
+      const priceAtRow = maxP - (r / Math.max(1, chartRows - 1)) * range;
+      let lbl = '';
+      if (r === 0 || r === Math.floor(chartRows / 2) || r === chartRows - 1) lbl = priceAtRow.toFixed(1) + 'g';
+      const lblPad = lbl.padStart(LABEL_W);
+      for (let i = 0; i < LABEL_W; i++) display.draw(CONT_X + xOffset + i, ay, lblPad[i] || ' ', '#666666', BG);
+      display.draw(CONT_X + xOffset + LABEL_W - 1, ay, '│', '#444444', BG);
+      for (let c = 0; c < plotW && xOffset + LABEL_W + c < IW; c++) {
+        const cell = grid[c]?.[r] || { ch: ' ', fg: DC };
+        display.draw(CONT_X + xOffset + LABEL_W + c, ay, cell.ch, cell.fg, BG);
+      }
+    }
+  }
+
+  function drawChartTab() {
+    const baseRow = BOX_Y + 5;
+    const chartRows = 16;
+    const candles = state.terminal.candleHistory || [];
+    const last7 = candles.slice(-7);
+    const high7 = last7.length > 0 ? Math.max(...last7.map(c => c.high)).toFixed(1) : state.marketPrice.toFixed(1);
+    const low7  = last7.length > 0 ? Math.min(...last7.map(c => c.low)).toFixed(1)  : state.marketPrice.toFixed(1);
+
+    irow(baseRow - 1, `  WIDGET PRICE HISTORY (${candles.length} days)    Vol: ${volLabel()}    Day: ${state.day}`, WC);
+    drawCandleChart(candles, baseRow, chartRows, 0);
+
+    const statsRow = baseRow + chartRows;
+    sep(statsRow);
+    irow(statsRow + 1, `  Current: ${state.marketPrice}g   7d High: ${high7}g   7d Low: ${low7}g   Vol: ${Math.round(state.volatility*100)}% (${volLabel()})`, WC);
+    const pos = state.terminal.positions;
+    irow(statsRow + 2, `  Open positions: ${pos.length}   PnL today: ${pStr(state.terminal.pnlToday)}g   Total: ${pStr(state.terminal.totalPnL)}g`, WC);
+    for (let r = statsRow + 3; r < BOX_Y + BOX_H - 2; r++) { border(r); for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, r, ' ', LC, BG); }
+    irow(BOX_Y + BOX_H - 2, '  ←→: switch tabs   ESC: exit', DC);
+  }
+
+  // ── FX Spot tab ───────────────────────────────────────────────────────────────
+  function drawFXTab() {
+    const baseRow = BOX_Y + 5;
+    const fx = state.terminal.fx;
+    const rate = Math.round(fx.stampToGold * 10) / 10;
+    const isStampView = fxSubView === 'stamps_to_gold';
+
+    // Sub-view toggle header
+    { const ay = baseRow; border(ay);
+      const lbl1 = isStampView ? '>>[STAMPS → GOLD]<<' : '[STAMPS → GOLD]';
+      const lbl2 = !isStampView ? '>>[GOLD → STAMPS]<<' : '[GOLD → STAMPS]';
+      const HALF = Math.floor(IW / 2);
+      const pad1 = Math.max(0, Math.floor((HALF - lbl1.length) / 2));
+      const pad2 = Math.max(0, Math.floor((IW - HALF - lbl2.length) / 2));
+      const left  = (' '.repeat(pad1) + lbl1).padEnd(HALF);
+      const right = (' '.repeat(pad2) + lbl2).padEnd(IW - HALF);
+      for (let i = 0; i < IW; i++) {
+        const inLeft = i < HALF;
+        const ch = inLeft ? (left[i] || ' ') : (right[i - HALF] || ' ');
+        const active = (inLeft && isStampView) || (!inLeft && !isStampView);
+        display.draw(CONT_X + i, ay, ch, active ? TC : '#555555', BG);
+      }
+    }
+    sep(baseRow + 1);
+
+    // Mini chart
+    const history = fx.history || [];
+    const chartRows = 10;
+    if (history.length >= 2) {
+      const chartCandles = [];
+      for (let i = 1; i < history.length; i++) {
+        const prev = history[i-1].rate, cur = history[i].rate;
+        const noise = Math.abs(cur - prev) * 0.1;
+        chartCandles.push({ open: prev, close: cur, high: Math.max(prev, cur) + noise, low: Math.min(prev, cur) - noise });
+      }
+      drawCandleChart(chartCandles, baseRow + 2, chartRows, 0);
+    } else {
+      for (let r = 0; r < chartRows; r++) irow(baseRow + 2 + r, r === 4 ? '  Accumulating rate history...' : '', WC);
+    }
+
+    const chartEnd = baseRow + 2 + chartRows;
+    sep(chartEnd);
+
+    // Rate display
+    irow(chartEnd + 1, `  Live Rate: 1 gold = ${rate.toFixed(1)} stamps   (${(1/rate*100).toFixed(2)} gold per stamp)`, '#ffd633');
+    sep(chartEnd + 2);
+
+    // Trade interface
+    if (isStampView) {
+      // BUY stamps with gold
+      const goldCost = Math.max(0.1, fxQty / rate);
+      const goldFg = state.player.gold >= goldCost ? '#66cc66' : '#ff5555';
+      irow(chartEnd + 3, `  BUY ${fxQty} stamps   cost: ${goldCost.toFixed(2)}g   [↑↓ ±10 stamps]`, '#aaaaaa');
+      irow(chartEnd + 4, `  Your gold: ${formatCredits(state.player.gold)}g   Your stamps: ${state.player.stamps}`, goldFg);
+      irow(chartEnd + 5, `  [B] Execute buy   [TAB] Switch view`, '#aaaaaa');
+    } else {
+      // SELL stamps for gold
+      const goldGain = Math.max(0, fxQty / rate);
+      const hasFg = state.player.stamps >= fxQty ? '#66cc66' : '#ff5555';
+      irow(chartEnd + 3, `  SELL ${fxQty} stamps   gain: ${goldGain.toFixed(2)}g   [↑↓ ±10 stamps]`, '#aaaaaa');
+      irow(chartEnd + 4, `  Your stamps: ${state.player.stamps}   Your gold: ${formatCredits(state.player.gold)}g`, hasFg);
+      irow(chartEnd + 5, `  [S] Execute sell   [TAB] Switch view`, '#aaaaaa');
+    }
+
+    for (let r = chartEnd + 6; r < BOX_Y + BOX_H - 2; r++) { border(r); for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, r, ' ', LC, BG); }
+    irow(BOX_Y + BOX_H - 2, '  ↑↓: adjust quantity   TAB: toggle direction   B/S: transact   ←→: switch tabs', DC);
   }
 
   // Draw a 17-wide × 7-tall instrument cell
@@ -7407,36 +7582,23 @@ function openDerivativesMenu() {
     display.draw(cx+1, cy, keyNum, locked ? '#444444' : '#ffd633', cellBC);
   }
 
-  function drawTradeGrid() {
-    // Draw 4×2 grid of cells
-    for (let i = 0; i < INSTRUMENTS.length; i++) {
-      const inst = INSTRUMENTS[i];
-      drawCell(inst, inst.row, inst.col, selInst === i);
-    }
-    // Info below grid (rows 19+)
-    const infoBase = BOX_Y + 5 + 2 * CELL_H; // row 19
-    for (let r = infoBase; r < BOX_Y + BOX_H - 2; r++) {
-      border(r);
-      for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, r, ' ', LC, BG);
-    }
+  function drawDerivsTab() {
+    for (let i = 0; i < INSTRUMENTS.length; i++) drawCell(INSTRUMENTS[i], INSTRUMENTS[i].row, INSTRUMENTS[i].col, selInst === i);
+    const infoBase = BOX_Y + 5 + 2 * CELL_H;
+    for (let r = infoBase; r < BOX_Y + BOX_H - 2; r++) { border(r); for (let x = 1; x < BOX_W - 1; x++) display.draw(BOX_X + x, r, ' ', LC, BG); }
     const spot = state.marketPrice;
-
     if (selInst < 0) {
-      // No selection — show market context
       irow(infoBase,     `  Today: ${state.day}   Market: ${spot}g   Vol: ${Math.round(state.volatility*100)}% (${volLabel()})   Phase: ${state.phase}`, WC);
-      irow(infoBase + 1, `  1-4: Row 1 instruments   5-8: Row 2   ←→: switch tabs   ESC: exit`, DC);
+      irow(infoBase + 1, `  1-8: select instrument   ←→: switch tabs   ESC: exit`, DC);
       const pos = state.terminal.positions;
-      if (pos.length > 0) {
-        irow(infoBase + 3, `  Open positions: ${pos.length}   Use POSITIONS tab to manage.`, '#aaaaaa');
-      }
+      if (pos.length > 0) irow(infoBase + 3, `  Open positions: ${pos.length}   Use POSITIONS tab to manage.`, '#aaaaaa');
     } else {
       drawInstrumentForm(infoBase);
     }
-    // Footer
     { const ay = BOX_Y + BOX_H - 2; border(ay);
       for (let i = 0; i < IW; i++) display.draw(CONT_X + i, ay, '═', DC, BG); }
     const footHint = selInst >= 0
-      ? '  ↑↓: adjust quantity   ←→: adjust price   ENTER: confirm   ESC: cancel'
+      ? '  ↑↓: qty/price   SPACE: toggle field   TAB: ±days   ENTER: confirm   ESC: cancel'
       : '  1-8: select instrument   ←→: switch tabs   ESC: exit';
     irow(BOX_Y + BOX_H - 2, footHint, DC);
   }
@@ -7455,14 +7617,15 @@ function openDerivativesMenu() {
     const isFuture  = inst.key.startsWith('fut');
     const isOption  = inst.key.startsWith('call') || inst.key.startsWith('put');
 
+    const cur0 = formFocus === 0, cur1 = formFocus === 1, cur2 = formFocus === 2;
     if (isForward) {
       const lockP = r10(fLockPrice || spot);
       const days  = Math.max(1, fDays);
       const delDay = state.day + days;
       const fee   = r10(lockP * fQty * 0.10);
-      irow(baseRow + 3, `  Lock price:  ${lockP}g  [↑↓ ±0.5]         [focused: ${formFocus===1?'PRICE':'---'}]`, formFocus === 1 ? '#ffd633' : LC);
-      irow(baseRow + 4, `  Quantity:    ${fQty} widgets  [←→ ±10]   [focused: ${formFocus===0?'QTY':'---'}]`,  formFocus === 0 ? '#ffd633' : LC);
-      irow(baseRow + 5, `  Delivery:    Day ${delDay} (+${days})  [TAB ±1 day]`, LC);
+      irow(baseRow + 3, `${cur1?'>'.' '} Lock price:  ${lockP}g ${cur1?'[↑↓]':'    '}`, cur1 ? '#ffd633' : LC);
+      irow(baseRow + 4, `${cur0?'>'.' '} Quantity:    ${fQty} widgets ${cur0?'[↑↓]':'    '}`, cur0 ? '#ffd633' : LC);
+      irow(baseRow + 5, `${cur2?'>'.' '} Delivery:    Day ${delDay} (+${days}) ${cur2?'[↑↓]':'    '}  [SPACE: toggle field]`, cur2 ? '#ffd633' : LC);
       irow(baseRow + 6, `  Lock-in fee: ${fee}g (10%)`, '#aaaaaa');
       sep(baseRow + 7);
       // Profit scenarios
@@ -7478,7 +7641,7 @@ function openDerivativesMenu() {
       const marg = r10(spot * fQty * 0.10);
       const canOpen = state.player.gold >= marg || (state.bank?.card?.tier && (state.bank.card.limit - state.bank.card.balance) >= marg);
       irow(baseRow + 3, `  Direction:   ${inst.key === 'fut_long' ? 'LONG (profit if UP)' : 'SHORT (profit if DOWN)'}`, TC);
-      irow(baseRow + 4, `  Size:        ${fQty} widgets  [←→ ±10]`, LC);
+      irow(baseRow + 4, `${cur0?'>'.' '} Size:        ${fQty} widgets ${cur0?'[↑↓]':'    '}`, cur0 ? '#ffd633' : LC);
       irow(baseRow + 5, `  Entry price: ${spot}g (current)`, LC);
       irow(baseRow + 6, `  Margin:      ${marg}g (10%)  ${canOpen ? '' : '[NOT ENOUGH GOLD]'}`, canOpen ? '#aaaaaa' : '#ff5555');
       sep(baseRow + 7);
@@ -7497,8 +7660,8 @@ function openDerivativesMenu() {
       const strike = r10(fStrike || spot);
       const prem   = calcOptionPremium(isCall ? 'call' : 'put', strike, days);
       irow(baseRow + 3, `  Type:        ${isCall ? 'CALL' : 'PUT'} ${isBuy ? '(Buy — pay premium)' : '(Sell — receive premium)'}`, TC);
-      irow(baseRow + 4, `  Strike:      ${strike}g  [↑↓ ±0.5]       Qty: ${fQty}  [←→ ±10]`, LC);
-      irow(baseRow + 5, `  Expiry:      Day ${state.day + days} (+${days} days)  [TAB ±1]`, LC);
+      irow(baseRow + 4, `${cur1?'>'.' '} Strike: ${strike}g ${cur1?'[↑↓±0.5]':'        '}   ${cur0?'>'.' '} Qty: ${fQty} ${cur0?'[↑↓±10]':'       '}`, cur1||cur0 ? '#ffd633' : LC);
+      irow(baseRow + 5, `${cur2?'>'.' '} Expiry:      Day ${state.day + days} (+${days} days) ${cur2?'[↑↓]':'    '}  [SPACE: toggle field]`, cur2 ? '#ffd633' : LC);
       irow(baseRow + 6, `  Premium:     ${prem}g/contract   Vol: ${volLabel()}`, '#aaaaaa');
       sep(baseRow + 7);
       irow(baseRow + 8, `  ─── P&L scenarios (${isCall?'CALL':'PUT'} @${strike}g, prem=${prem}g) ───`, '#aaaaaa');
@@ -7522,7 +7685,7 @@ function openDerivativesMenu() {
     sep(baseRow + 1);
     if (pos.length === 0) {
       irow(baseRow + 2, '  No open positions.', WC);
-      irow(baseRow + 3, '  Use NEW TRADE tab to open contracts.', DC);
+      irow(baseRow + 3, '  Use DERIVS tab to open contracts.', DC);
     } else {
       for (let i = 0; i < pos.length; i++) {
         const p = pos[i];
@@ -7559,13 +7722,15 @@ function openDerivativesMenu() {
     }
     sep(BOX_Y + BOX_H - 4);
     irow(BOX_Y + BOX_H - 3, `  Total realized PnL: ${pStr(state.terminal.totalPnL)}g   Today: ${pStr(state.terminal.pnlToday)}g`, WC);
-    irow(BOX_Y + BOX_H - 2, '  [number + x] close position   ←→: switch tabs   ESC: exit', DC);
+    irow(BOX_Y + BOX_H - 2, '  [number] twice to close position   ←→: switch tabs   ESC: exit', DC);
   }
 
   function redraw() {
     drawFrame();
-    if (dvTab === 'trade') drawTradeGrid();
-    else drawPositions();
+    if      (dvTab === 'chart')     drawChartTab();
+    else if (dvTab === 'derivs')    drawDerivsTab();
+    else if (dvTab === 'fx')        drawFXTab();
+    else                            drawPositions();
   }
 
   function openPosition(inst) {
@@ -7660,7 +7825,8 @@ function openDerivativesMenu() {
     state.gameState = 'playing';
   }
 
-  let closingPositionIdx = -1; // -1 = no close pending
+  let closingPositionIdx = -1;
+  const TABS_ORDER = ['chart', 'derivs', 'fx', 'positions'];
 
   function dvKeyHandler(e) {
     if (e.key === 'Escape') {
@@ -7668,16 +7834,50 @@ function openDerivativesMenu() {
       if (closingPositionIdx >= 0) { closingPositionIdx = -1; redraw(); return; }
       closeDV(); return;
     }
-    // Tab switch
-    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+
+    // Tab switch — only when no instrument selected
+    if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && selInst < 0) {
       e.preventDefault();
-      dvTab = dvTab === 'trade' ? 'positions' : 'trade';
-      selInst = -1; closingPositionIdx = -1;
+      const idx = TABS_ORDER.indexOf(dvTab);
+      dvTab = e.key === 'ArrowRight'
+        ? TABS_ORDER[(idx + 1) % TABS_ORDER.length]
+        : TABS_ORDER[(idx - 1 + TABS_ORDER.length) % TABS_ORDER.length];
+      closingPositionIdx = -1;
       redraw(); return;
     }
 
-    if (dvTab === 'trade') {
-      // Instrument selection
+    // FX tab controls
+    if (dvTab === 'fx') {
+      if (e.key === 'Tab') { e.preventDefault(); fxSubView = fxSubView === 'stamps_to_gold' ? 'gold_to_stamps' : 'stamps_to_gold'; redraw(); return; }
+      if (e.key === 'ArrowUp')   { e.preventDefault(); fxQty = Math.max(1, fxQty + 10); redraw(); return; }
+      if (e.key === 'ArrowDown') { e.preventDefault(); fxQty = Math.max(1, fxQty - 10); redraw(); return; }
+      if (e.key === 'b' || e.key === 'B') {
+        // Buy stamps with gold
+        const fx = state.terminal.fx;
+        const rate = fx.stampToGold;
+        const goldCost = Math.round((fxQty / rate) * 100) / 100;
+        if (state.player.gold < goldCost) { addLog(`Need ${goldCost.toFixed(2)}g to buy ${fxQty} stamps.`, '#ff5555'); return; }
+        state.player.gold = Math.round((state.player.gold - goldCost) * 100) / 100;
+        state.player.stamps += fxQty;
+        addLog(`FX: Bought ${fxQty} stamps for ${goldCost.toFixed(2)}g at rate ${rate.toFixed(1)}.`, TC);
+        drawStatusBar(); redraw(); return;
+      }
+      if (e.key === 's' || e.key === 'S') {
+        // Sell stamps for gold
+        if (state.player.stamps < fxQty) { addLog(`Need ${fxQty} stamps to sell.`, '#ff5555'); return; }
+        const fx = state.terminal.fx;
+        const rate = fx.stampToGold;
+        const goldGain = Math.round((fxQty / rate) * 100) / 100;
+        state.player.stamps -= fxQty;
+        state.player.gold = Math.round((state.player.gold + goldGain) * 100) / 100;
+        state.lifetimeGoldEarned = Math.round((state.lifetimeGoldEarned + goldGain) * 100) / 100;
+        addLog(`FX: Sold ${fxQty} stamps for ${goldGain.toFixed(2)}g at rate ${rate.toFixed(1)}.`, TC);
+        drawStatusBar(); redraw(); return;
+      }
+      return;
+    }
+
+    if (dvTab === 'derivs') {
       if (selInst < 0) {
         const n = parseInt(e.key);
         if (n >= 1 && n <= 8) {
@@ -7689,14 +7889,12 @@ function openDerivativesMenu() {
           redraw(); return;
         }
       } else {
-        // In form — adjust values
         const inst = INSTRUMENTS[selInst];
         const isForward = inst.key.startsWith('fwd');
-        const isFuture  = inst.key.startsWith('fut');
         const isOption  = inst.key.startsWith('call') || inst.key.startsWith('put');
         if (e.key === 'ArrowUp') {
           e.preventDefault();
-          if (formFocus === 0) fQty = Math.max(1, fQty + 10);
+          if (formFocus === 0) fQty = Math.max(10, fQty + 10);
           else if (formFocus === 1) {
             if (isForward) fLockPrice = r10((fLockPrice || state.marketPrice) + 0.5);
             else if (isOption) fStrike = r10((fStrike || state.marketPrice) + 0.5);
@@ -7705,11 +7903,17 @@ function openDerivativesMenu() {
         }
         if (e.key === 'ArrowDown') {
           e.preventDefault();
-          if (formFocus === 0) fQty = Math.max(1, fQty - 10);
+          if (formFocus === 0) fQty = Math.max(10, fQty - 10);
           else if (formFocus === 1) {
             if (isForward) fLockPrice = r10(Math.max(0.5, (fLockPrice || state.marketPrice) - 0.5));
             else if (isOption) fStrike = r10(Math.max(0.5, (fStrike || state.marketPrice) - 0.5));
           } else fDays = Math.max(1, fDays - 1);
+          redraw(); return;
+        }
+        if (e.key === ' ') {
+          e.preventDefault();
+          const maxFocus = (isForward || isOption) ? 2 : 1;
+          formFocus = (formFocus + 1) % (maxFocus + 1);
           redraw(); return;
         }
         if (e.key === 'Tab') {
@@ -7718,13 +7922,9 @@ function openDerivativesMenu() {
           formFocus = (formFocus + 1) % (maxFocus + 1);
           redraw(); return;
         }
-        if (e.key === 'Enter') {
-          openPosition(inst);
-          return;
-        }
+        if (e.key === 'Enter') { openPosition(inst); return; }
       }
-    } else {
-      // POSITIONS tab
+    } else if (dvTab === 'positions') {
       const pos = state.terminal.positions;
       const n = parseInt(e.key);
       if (!isNaN(n) && n >= 1 && n <= pos.length) {
@@ -7802,6 +8002,7 @@ function renderLargeNumber(display, x, y, numberString, color, availableWidth) {
 // ── Launch Facility menu (§9) ─────────────────────────────────────────────────
 
 const CHANGELOG = [
+  { version: '1.07.17', summary: 'Terminal: 4 tabs — candle chart, derivs, FX spot (stamps/gold exchange), positions. Up/down controls, space toggles field, tab switch only when no instrument selected.' },
   { version: '1.07.16', summary: 'Hammer block chars, cooking menu bigger, market courier toggle (z), fullscreen removed from settings, dev menu comprehensive, GS tab labels fixed.' },
   { version: '1.07.15', summary: 'Skills cost crystals (5/pip), 6 skills including Coordination/Rhetoric/Shivers. Crystal cap 25. Armament tab uses stamps. C key for credit.' },
   { version: '1.07.14', summary: 'The Catacombs — night combat dungeon, sword/bow, 5 goblins + dragon boss, treasure. Dev menu updated with all unlocks.' },
@@ -12154,6 +12355,14 @@ function devUnlockEverything() {
   // Weather
   state.weather = { current: 'clear', forecast: 'rain', actualTomorrow: 'storm' };
 
+  // Seed candle history and FX
+  state.terminal.candleHistory = [];
+  for (let i = 0; i < 14; i++) {
+    const p = 7 + Math.sin(i * 0.5) * 3 + (Math.random() - 0.5);
+    state.terminal.candleHistory.push({ open: p, close: p + (Math.random()-0.5)*2, high: p+2, low: p-1, day: i });
+  }
+  state.terminal.fx = { stampToGold: 60, goldToStamp: 1/60, history: [], positions: [], tickCounter: 0 };
+
   addLog('DEV: Everything unlocked. Rocket at 4,990. Catacombs unlocked.', '#ff5555');
   addLog('Toggle couriers to rocket when ready for the finale.', '#ff5555');
 }
@@ -12705,6 +12914,18 @@ setInterval(() => {
 
   state.tick++;
   state.dayTick++;
+  // FX rate update — random walk every tick
+  { const fx = state.terminal.fx;
+    fx.stampToGold += (Math.random() - 0.5) * 3;
+    fx.stampToGold = Math.max(40, Math.min(80, fx.stampToGold));
+    fx.goldToStamp = 1 / fx.stampToGold;
+    fx.tickCounter = (fx.tickCounter || 0) + 1;
+    if (fx.tickCounter >= 3) {
+      fx.tickCounter = 0;
+      fx.history.push({ rate: fx.stampToGold, tick: state.tick });
+      if (fx.history.length > 30) fx.history.shift();
+    }
+  }
   if (state.dayTick >= 240) {
     state.dayTick = 0; state.day++; state.bellFiredToday = false; state.widgetsSoldToday = 0; state.demandMetLogged = false; state._demandImmunityActiveToday = false; state.stats.widgetsMadeToday = 0; state.stats.revenueToday = 0; state.stats.costsToday = 0; state.fishing.catchesToday = 0;
     // Daily stamp find
@@ -12791,6 +13012,13 @@ setInterval(() => {
     state.bellFiredToday = true;
     // Catacombs reset for new day
     if (state.catacombs) state.catacombs.completedTonight = false;
+    // Candle history entry
+    { const ch = state.terminal.candleHistory;
+      const prevClose = ch.length > 0 ? ch[ch.length - 1].close : state.marketPrice;
+      const noise = (Math.random() - 0.5) * 2;
+      ch.push({ open: prevClose, close: state.marketPrice, high: Math.max(prevClose, state.marketPrice) + Math.abs(noise), low: Math.min(prevClose, state.marketPrice) - Math.abs(noise), day: state.day });
+      if (ch.length > 30) ch.shift();
+    }
     // Garden regrowth
     if (state.gardenRegrow) {
       for (const [key, regrowDay] of Object.entries(state.gardenRegrow)) {
