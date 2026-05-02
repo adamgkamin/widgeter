@@ -360,6 +360,7 @@ const state = {
     bowOwned:     false,
   },
   shiversCompanion: { befriended: false, location: 'mine', cx: 4, cy: 6, mx: 8, my: 8 },
+  _companionSpeechActive: false,
   craftingTimeRemote: 10,
   lakeEasterEgg: { discovered: false },
   mine: {
@@ -1024,7 +1025,7 @@ drawArt(0);
 drawPrompt(true);
 
 const CREDIT  = "Created by Adam A.";
-const VERSION = "alpha 1.07.31";
+const VERSION = "alpha 1.07.32";
 
 // ── Sound system ──────────────────────────────────────────────────────────────
 const SOUNDS = {};
@@ -2299,6 +2300,7 @@ function resetState() {
   state.stats = { rmLastTen: [], widgetsLastTen: [], creditsLastTen: [], widgetsMadeToday: 0, revenueToday: 0, costsToday: 0 };
   state.skills = { apprenticeCount: 0, courierCount: 0, workerCarryLevel: 0, workerSpeedLevel: 0, courierCarryLevel: 0, courierSpeedLevel: 0, storageExp1: 0, storageExp2: 0, reducedCarry: 0, discountDump: 0, demandHistory: 0, forecast: 0, futures: 0, optionsBuy: 0, optionsWrite: 0, volatilitySurface: 0, plantStory: 0, smearCampaign: 0, pickaxeLevel: 0, lantern: false, endurance: { pips: 0 }, aquatics: { purchased: false }, interfacing: { pips: 0 }, coordination: { pips: 0 }, rhetoric: { pips: 0 }, shivers: { purchased: false }, espritDeCorps: { pips: 0 }, swordLevel: 0, armorLevel: 0, bowOwned: false };
   state.shiversCompanion = { befriended: false, location: 'mine', cx: 4, cy: 6, mx: 8, my: 8 };
+  state._companionSpeechActive = false;
   state.catacombs = { unlocked: false, completedTonight: false, playerX: 0, playerY: 0, hp: 10, maxHp: 10, tiles: [], enemies: [], chestOpened: false, goldCollected: 0, swordCooldown: 0, bowCooldown: 0, engagedEnemy: null, dungeonName: '', combatMode: null };
   state.player.arrows = 0;
   state.mine = { discovered: false, discoveredDay: -1, tiles: [], lastGenDay: -1, playerX: 12, playerY: 13, playerDir: { x: 0, y: -1 }, totalMined: 0, crystals: 0, bareHandHits: 0, handsBloodied: false, kickedOut: false, kickedOutUntilPeriod: -1, enemyX: -1, enemyY: -1 };
@@ -2691,16 +2693,20 @@ window.addEventListener('keydown', (e) => {
       e.preventDefault();
       if (bookshelfOverlayActive) { bookshelfOverlayActive = false; drawCottageInterior(); return; }
       if (cottageLookActive) { cottageLookActive = false; drawCottageInterior(); return; }
-      // Check if adjacent to companion
+      // Space exits only from door tile at (8, 9)
+      if (state.cottage.playerX === 8 && state.cottage.playerY === 9) { exitCottage(); return; }
+      // Stove, cat, bookshelf, bed, chair — runs first
+      if (handleCottageInteract()) return;
+      // Companion check — only fires if handleCottageInteract didn't handle it
       if (state.shiversCompanion?.befriended && state.shiversCompanion.location === 'cottage') {
         const cx = state.shiversCompanion.cx ?? 4;
         const cy = state.shiversCompanion.cy ?? 6;
         const px = state.cottage.playerX, py = state.cottage.playerY;
-        if (Math.max(Math.abs(px - cx), Math.abs(py - cy)) <= 2) { showCompanionSpeech(); return; }
+        const adjacent = (Math.abs(px - cx) + Math.abs(py - cy) === 1) ||
+                         (px === 2 && py === 6) ||
+                         (px === 6 && py === 6);
+        if (adjacent) { showCompanionSpeech(); return; }
       }
-      // Space exits only from door tile at (8, 9)
-      if (state.cottage.playerX === 8 && state.cottage.playerY === 9) { exitCottage(); return; }
-      handleCottageInteract();
     }
     return;
   }
@@ -8261,6 +8267,7 @@ function openKeyReference() {
 // ── Launch Facility menu (§9) ─────────────────────────────────────────────────
 
 const CHANGELOG = [
+  { version: '1.07.32', summary: 'Companion speech bubble no longer stacks. Stove interaction restored — companion check runs after stove check.' },
   { version: '1.07.31', summary: 'Companion reachable from chair sides, espritDeCorps in resetState, mine companion position, Phase 3 gold-only trigger, GS note guard verified.' },
   { version: '1.07.30', summary: 'GS arrows row verified, footer hints shortened, credit C key restricted, rain cleanup fix.' },
   { version: '1.07.29', summary: 'Phase goal shows g not CR. Companion unwalkable, talks in Moby Dick speech bubble when adjacent.' },
@@ -9967,6 +9974,8 @@ const MOBY_DICK_LINES = [
 ];
 
 function showCompanionSpeech() {
+  if (state._companionSpeechActive) return;
+  state._companionSpeechActive = true;
   const line = MOBY_DICK_LINES[Math.floor(Math.random() * MOBY_DICK_LINES.length)];
   const BW = Math.min(52, line.length + 4);
   const BH = 5;
@@ -10003,6 +10012,7 @@ function showCompanionSpeech() {
     display.draw(textX + i, BY + 2, line[i], '#f0f0f0', '#000000');
   // Dismiss on any key
   window.addEventListener('keydown', function dismiss(e) {
+    state._companionSpeechActive = false;
     window.removeEventListener('keydown', dismiss);
     if (state.gameState === 'cottage') {
       drawCottageInterior();
