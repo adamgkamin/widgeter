@@ -169,7 +169,7 @@ document.addEventListener('keydown', (e) => {
   }
   // C key toggles credit card payment mode (only on overworld/menus, not title/catacombs/look)
   if ((e.key === 'c' || e.key === 'C') && state?.bank?.card?.tier &&
-      ['playing','menu','crafting','inventory','rm_menu','wb_menu','mt_menu','dv_menu'].includes(state.gameState)) {
+      ['playing','crafting','rm_menu','wb_menu','mt_menu'].includes(state.gameState)) {
     state.creditMode = !state.creditMode;
     addLog(state.creditMode ? 'Paying on CREDIT CARD.' : 'Paying with GOLD.', state.creditMode ? '#66ccff' : '#ffd633');
     drawStatusBar();
@@ -1024,7 +1024,7 @@ drawArt(0);
 drawPrompt(true);
 
 const CREDIT  = "Created by Adam A.";
-const VERSION = "alpha 1.07.29";
+const VERSION = "alpha 1.07.30";
 
 // ── Sound system ──────────────────────────────────────────────────────────────
 const SOUNDS = {};
@@ -5715,7 +5715,7 @@ function openGeneralStoreMenu() {
     { const ay=BOX_Y+30; border(ay); for(let i=0;i<IW;i++) display.draw(BOX_X+1+i,ay,'═',DC,BG); }
     // Row 31: footer
     { const ay=BOX_Y+31; border(ay);
-      const txt=gsTab==='clothing'?'a–m: buy/equip  ←→: switch tab  ESC: exit':gsTab==='home_goods'?'a–l: buy/visit  ←→: switch tab  ESC: exit':gsTab==='garden'?'a–l: plant  ←→: switch tab  ESC: exit':gsTab==='tools'?'a–d: mine  e–j: combat  ←→: tab  ESC: exit':'a–h: buy recipe (50 stamps)  ←: prev  ESC: exit';
+      const txt=gsTab==='clothing'?'a-m: buy/equip  ←→: tab  ESC: exit':gsTab==='home_goods'?'a-l: buy/visit  ←→: tab  ESC: exit':gsTab==='garden'?'a-l: plant  ←→: tab  ESC: exit':gsTab==='tools'?'a-d: mine  e-j: combat  ←→: tab  ESC':'a-h: recipe (50 ·)  ←→: tab  ESC: exit';
       const pad=' '.repeat(Math.max(0,Math.floor((IW-txt.length)/2)));
       const padded=menuPad(pad+txt,IW);
       for(let i=0;i<IW;i++) display.draw(BOX_X+1+i,ay,padded[i]||' ','#555555',BG); }
@@ -8261,6 +8261,7 @@ function openKeyReference() {
 // ── Launch Facility menu (§9) ─────────────────────────────────────────────────
 
 const CHANGELOG = [
+  { version: '1.07.30', summary: 'GS arrows row verified, footer hints shortened, credit C key restricted, rain cleanup fix.' },
   { version: '1.07.29', summary: 'Phase goal shows g not CR. Companion unwalkable, talks in Moby Dick speech bubble when adjacent.' },
   { version: '1.07.28', summary: 'Catacombs: full-screen map (78x41), Dark Souls names, dragon 10HP, timestamp cooldowns, enemy bump message, log visible.' },
   { version: '1.07.27', summary: 'Fixed extra pip: pipStart was off by 1 (hardcoded 15 vs actual namePad.length).' },
@@ -14401,7 +14402,7 @@ setInterval(() => {
   } else if (rainDrops.length > 0) {
     for (const d of rainDrops) markDirty(d.x, Math.floor(d.y));
     rainDrops = [];
-    if (state.gameState === 'playing') renderDirty();
+    renderDirty(); // always clean up rain regardless of game state
   }
 
   // Fog / storm visibility cone
