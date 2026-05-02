@@ -1024,7 +1024,7 @@ drawArt(0);
 drawPrompt(true);
 
 const CREDIT  = "Created by Adam A.";
-const VERSION = "alpha 1.07.30";
+const VERSION = "alpha 1.07.31";
 
 // ── Sound system ──────────────────────────────────────────────────────────────
 const SOUNDS = {};
@@ -2297,7 +2297,7 @@ function resetState() {
     state.settings = { fullscreen: savedFS ? JSON.parse(savedFS) : false, currentFontSize: state.settings?.currentFontSize ?? 16 }; }
   state.workers = { apprentices: [], couriers: [] };
   state.stats = { rmLastTen: [], widgetsLastTen: [], creditsLastTen: [], widgetsMadeToday: 0, revenueToday: 0, costsToday: 0 };
-  state.skills = { apprenticeCount: 0, courierCount: 0, workerCarryLevel: 0, workerSpeedLevel: 0, courierCarryLevel: 0, courierSpeedLevel: 0, storageExp1: 0, storageExp2: 0, reducedCarry: 0, discountDump: 0, demandHistory: 0, forecast: 0, futures: 0, optionsBuy: 0, optionsWrite: 0, volatilitySurface: 0, plantStory: 0, smearCampaign: 0, pickaxeLevel: 0, lantern: false, endurance: { pips: 0 }, aquatics: { purchased: false }, interfacing: { pips: 0 }, coordination: { pips: 0 }, rhetoric: { pips: 0 }, shivers: { purchased: false }, swordLevel: 0, armorLevel: 0, bowOwned: false };
+  state.skills = { apprenticeCount: 0, courierCount: 0, workerCarryLevel: 0, workerSpeedLevel: 0, courierCarryLevel: 0, courierSpeedLevel: 0, storageExp1: 0, storageExp2: 0, reducedCarry: 0, discountDump: 0, demandHistory: 0, forecast: 0, futures: 0, optionsBuy: 0, optionsWrite: 0, volatilitySurface: 0, plantStory: 0, smearCampaign: 0, pickaxeLevel: 0, lantern: false, endurance: { pips: 0 }, aquatics: { purchased: false }, interfacing: { pips: 0 }, coordination: { pips: 0 }, rhetoric: { pips: 0 }, shivers: { purchased: false }, espritDeCorps: { pips: 0 }, swordLevel: 0, armorLevel: 0, bowOwned: false };
   state.shiversCompanion = { befriended: false, location: 'mine', cx: 4, cy: 6, mx: 8, my: 8 };
   state.catacombs = { unlocked: false, completedTonight: false, playerX: 0, playerY: 0, hp: 10, maxHp: 10, tiles: [], enemies: [], chestOpened: false, goldCollected: 0, swordCooldown: 0, bowCooldown: 0, engagedEnemy: null, dungeonName: '', combatMode: null };
   state.player.arrows = 0;
@@ -2696,7 +2696,7 @@ window.addEventListener('keydown', (e) => {
         const cx = state.shiversCompanion.cx ?? 4;
         const cy = state.shiversCompanion.cy ?? 6;
         const px = state.cottage.playerX, py = state.cottage.playerY;
-        if (Math.abs(px - cx) + Math.abs(py - cy) === 1) { showCompanionSpeech(); return; }
+        if (Math.max(Math.abs(px - cx), Math.abs(py - cy)) <= 2) { showCompanionSpeech(); return; }
       }
       // Space exits only from door tile at (8, 9)
       if (state.cottage.playerX === 8 && state.cottage.playerY === 9) { exitCottage(); return; }
@@ -3749,7 +3749,7 @@ function checkBankruptcyStipend() {
 }
 
 function checkPhase3Trigger() {
-  if (state.phase === 2 && (state.lifetimeGoldEarned >= 1000 || (state.couriersOwned >= 1 && state.day >= 2))) {
+  if (state.phase === 2 && state.lifetimeGoldEarned >= 1000) {
     state.phase = 3;
     phaseGoalLastValue = -1;
     state.stations.bank = { unlocked: true };
@@ -8261,6 +8261,7 @@ function openKeyReference() {
 // ── Launch Facility menu (§9) ─────────────────────────────────────────────────
 
 const CHANGELOG = [
+  { version: '1.07.31', summary: 'Companion reachable from chair sides, espritDeCorps in resetState, mine companion position, Phase 3 gold-only trigger, GS note guard verified.' },
   { version: '1.07.30', summary: 'GS arrows row verified, footer hints shortened, credit C key restricted, rain cleanup fix.' },
   { version: '1.07.29', summary: 'Phase goal shows g not CR. Companion unwalkable, talks in Moby Dick speech bubble when adjacent.' },
   { version: '1.07.28', summary: 'Catacombs: full-screen map (78x41), Dark Souls names, dragon 10HP, timestamp cooldowns, enemy bump message, log visible.' },
@@ -8719,7 +8720,15 @@ function buildInteriorTileMap() {
   if (fur.clock)        stamp(1,3, 2,4, 'clock',        '┌', '#aaaaaa', 'A wall clock. It keeps better time than you do.', false);
   if (fur.bookshelf)    stamp(14,18,2,5,'bookshelf',    '╔', '#886633', 'Shelves of records. Your history, such as it is.', false);
   if (fur.table)        stamp(7,13,3,5, 'table',        '┌', '#aa7744', 'A sturdy wooden table. Older than it looks.', false);
-  if (fur.rockingchair) stamp(3,5, 5,8, 'rockingchair', '╭', '#aa7744', 'A rocking chair. It faces the fire.', false);
+  if (fur.rockingchair) {
+    stamp(3,5, 5,8, 'rockingchair', '╭', '#aa7744', 'A rocking chair. It faces the fire.', false);
+    interiorTileMap[2][6] = { walkable: true, glyph: '·', fg: '#2a2a1a',
+      description: 'The side of the rocking chair. You could reach out from here.',
+      furniture: null };
+    interiorTileMap[6][6] = { walkable: true, glyph: '·', fg: '#2a2a1a',
+      description: 'The side of the rocking chair. You could reach out from here.',
+      furniture: null };
+  }
   if (fur.rug)          stamp(8,12,5,5, 'rug',          '▒', '#886633', 'A braided rug. It anchors the room.', true);
   if (fur.candles)      stamp(7,13,6,6, 'candles',      '║', '#ffd633', "Two candles. They've been burning a while.", true);
   if (fur.mat)          stamp(9,14,9,9, 'mat',          '▬', '#aa7744', 'A welcome mat. It says nothing but means it.', true);
@@ -10451,7 +10460,9 @@ function enterMine() {
 
     // Shivers companion in mine
     if (state.shiversCompanion?.befriended && state.shiversCompanion.location === 'mine') {
-      display.draw(OX + 8, OY + 8, '@', '#ffffff', BG);
+      const mx = state.shiversCompanion.mx ?? 8;
+      const my = state.shiversCompanion.my ?? 8;
+      display.draw(OX + mx, OY + my, '@', '#ffffff', BG);
     }
 
     // Player
@@ -10501,7 +10512,9 @@ function enterMine() {
   function checkEnemyCollision() {
     if (state.mine.playerX === state.mine.enemyX && state.mine.playerY === state.mine.enemyY) {
       if (state.skills.shivers?.purchased && !state.shiversCompanion?.befriended) {
-        state.shiversCompanion = state.shiversCompanion ?? { befriended: false, location: 'mine' };
+        state.shiversCompanion = state.shiversCompanion ?? { befriended: false, location: 'mine', cx: 4, cy: 6, mx: 8, my: 8 };
+        state.shiversCompanion.mx = state.mine.enemyX;
+        state.shiversCompanion.my = state.mine.enemyY;
         state.shiversCompanion.befriended = true;
         state.shiversCompanion.location = state.cottage.owned ? 'cottage' : 'mine';
         state.mine.enemyX = -1;
