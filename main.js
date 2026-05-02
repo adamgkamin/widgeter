@@ -359,7 +359,7 @@ const state = {
     armorLevel:   0,
     bowOwned:     false,
   },
-  shiversCompanion: { befriended: false, location: 'mine' },
+  shiversCompanion: { befriended: false, location: 'mine', cx: 4, cy: 6, mx: 8, my: 8 },
   craftingTimeRemote: 10,
   lakeEasterEgg: { discovered: false },
   mine: {
@@ -790,9 +790,13 @@ function loadGame() {
       _m.enemyY                = _m.enemyY                ?? -1;
     }
     // shiversCompanion
-    state.shiversCompanion = data.shiversCompanion ?? { befriended: false, location: 'mine' };
+    state.shiversCompanion = data.shiversCompanion ?? { befriended: false, location: 'mine', cx: 4, cy: 6, mx: 8, my: 8 };
     state.shiversCompanion.befriended = state.shiversCompanion.befriended ?? false;
     state.shiversCompanion.location   = state.shiversCompanion.location   ?? 'mine';
+    state.shiversCompanion.cx         = state.shiversCompanion.cx         ?? 4;
+    state.shiversCompanion.cy         = state.shiversCompanion.cy         ?? 6;
+    state.shiversCompanion.mx         = state.shiversCompanion.mx         ?? 8;
+    state.shiversCompanion.my         = state.shiversCompanion.my         ?? 8;
     // Mine skills
     state.skills.pickaxeLevel = state.skills.pickaxeLevel ?? 0;
     state.skills.lantern      = state.skills.lantern      ?? false;
@@ -1020,7 +1024,7 @@ drawArt(0);
 drawPrompt(true);
 
 const CREDIT  = "Created by Adam A.";
-const VERSION = "alpha 1.07.28";
+const VERSION = "alpha 1.07.29";
 
 // ── Sound system ──────────────────────────────────────────────────────────────
 const SOUNDS = {};
@@ -1148,16 +1152,16 @@ function drawPhaseGoal() {
 
   if (state.phase === 1) {
     currentRemaining = Math.max(0, Math.ceil(100 - state.lifetimeGoldEarned));
-    goalText = `PHASE 2 IN ${currentRemaining}CR`;
+    goalText = `PHASE 2 IN ${currentRemaining}g`;
   } else if (state.phase === 2) {
     currentRemaining = Math.max(0, Math.ceil(1000 - state.lifetimeGoldEarned));
-    goalText = `PHASE 3 IN ${currentRemaining}CR`;
+    goalText = `PHASE 3 IN ${currentRemaining}g`;
   } else if (state.phase === 3) {
     currentRemaining = Math.max(0, Math.ceil(2000 - state.lifetimeGoldEarned));
-    goalText = `PHASE 4 IN ${currentRemaining}CR`;
+    goalText = `PHASE 4 IN ${currentRemaining}g`;
   } else if (state.phase === 4) {
     currentRemaining = Math.max(0, Math.ceil(10000 - state.lifetimeGoldEarned));
-    goalText = `PHASE 5 IN ${currentRemaining}CR`;
+    goalText = `PHASE 5 IN ${currentRemaining}g`;
   } else if (state.phase === 5) {
     currentRemaining = Math.max(0, 5000 - state.rocketWidgets);
     if (currentRemaining > 0) {
@@ -2294,7 +2298,7 @@ function resetState() {
   state.workers = { apprentices: [], couriers: [] };
   state.stats = { rmLastTen: [], widgetsLastTen: [], creditsLastTen: [], widgetsMadeToday: 0, revenueToday: 0, costsToday: 0 };
   state.skills = { apprenticeCount: 0, courierCount: 0, workerCarryLevel: 0, workerSpeedLevel: 0, courierCarryLevel: 0, courierSpeedLevel: 0, storageExp1: 0, storageExp2: 0, reducedCarry: 0, discountDump: 0, demandHistory: 0, forecast: 0, futures: 0, optionsBuy: 0, optionsWrite: 0, volatilitySurface: 0, plantStory: 0, smearCampaign: 0, pickaxeLevel: 0, lantern: false, endurance: { pips: 0 }, aquatics: { purchased: false }, interfacing: { pips: 0 }, coordination: { pips: 0 }, rhetoric: { pips: 0 }, shivers: { purchased: false }, swordLevel: 0, armorLevel: 0, bowOwned: false };
-  state.shiversCompanion = { befriended: false, location: 'mine' };
+  state.shiversCompanion = { befriended: false, location: 'mine', cx: 4, cy: 6, mx: 8, my: 8 };
   state.catacombs = { unlocked: false, completedTonight: false, playerX: 0, playerY: 0, hp: 10, maxHp: 10, tiles: [], enemies: [], chestOpened: false, goldCollected: 0, swordCooldown: 0, bowCooldown: 0, engagedEnemy: null, dungeonName: '', combatMode: null };
   state.player.arrows = 0;
   state.mine = { discovered: false, discoveredDay: -1, tiles: [], lastGenDay: -1, playerX: 12, playerY: 13, playerDir: { x: 0, y: -1 }, totalMined: 0, crystals: 0, bareHandHits: 0, handsBloodied: false, kickedOut: false, kickedOutUntilPeriod: -1, enemyX: -1, enemyY: -1 };
@@ -2666,6 +2670,11 @@ window.addEventListener('keydown', (e) => {
       }
       const nx = state.cottage.playerX + d[0], ny = state.cottage.playerY + d[1];
       if (nx >= 1 && nx <= 18 && ny >= 1 && ny <= 9) {
+        if (state.shiversCompanion?.befriended && state.shiversCompanion.location === 'cottage') {
+          const cx = state.shiversCompanion.cx ?? 4;
+          const cy = state.shiversCompanion.cy ?? 6;
+          if (nx === cx && ny === cy) return;
+        }
         const destWalkable = !interiorTileMap[nx] || !interiorTileMap[nx][ny] || interiorTileMap[nx][ny].walkable;
         if (!destWalkable) return;
         state.cottage.playerX = nx; state.cottage.playerY = ny;
@@ -2682,6 +2691,13 @@ window.addEventListener('keydown', (e) => {
       e.preventDefault();
       if (bookshelfOverlayActive) { bookshelfOverlayActive = false; drawCottageInterior(); return; }
       if (cottageLookActive) { cottageLookActive = false; drawCottageInterior(); return; }
+      // Check if adjacent to companion
+      if (state.shiversCompanion?.befriended && state.shiversCompanion.location === 'cottage') {
+        const cx = state.shiversCompanion.cx ?? 4;
+        const cy = state.shiversCompanion.cy ?? 6;
+        const px = state.cottage.playerX, py = state.cottage.playerY;
+        if (Math.abs(px - cx) + Math.abs(py - cy) === 1) { showCompanionSpeech(); return; }
+      }
       // Space exits only from door tile at (8, 9)
       if (state.cottage.playerX === 8 && state.cottage.playerY === 9) { exitCottage(); return; }
       handleCottageInteract();
@@ -8245,6 +8261,7 @@ function openKeyReference() {
 // ── Launch Facility menu (§9) ─────────────────────────────────────────────────
 
 const CHANGELOG = [
+  { version: '1.07.29', summary: 'Phase goal shows g not CR. Companion unwalkable, talks in Moby Dick speech bubble when adjacent.' },
   { version: '1.07.28', summary: 'Catacombs: full-screen map (78x41), Dark Souls names, dragon 10HP, timestamp cooldowns, enemy bump message, log visible.' },
   { version: '1.07.27', summary: 'Fixed extra pip: pipStart was off by 1 (hardcoded 15 vs actual namePad.length).' },
   { version: '1.07.26', summary: 'Fixed extra pip on every skill. All skills use crystals (5 each), not gold.' },
@@ -9906,6 +9923,85 @@ function generateMineTiles() {
 // ── Catacombs dungeon system (§Catacombs) ─────────────────────────────────────
 
 const CAT_W = 78, CAT_H = 41;
+const MOBY_DICK_LINES = [
+  'Call me Ishmael.',
+  'It is a way I have of driving off the spleen.',
+  'I find myself growing grim about the mouth.',
+  'There is nothing surprising in this.',
+  'Who aint a slave?',
+  'The sea is his, and he made it.',
+  'I love to sail forbidden seas.',
+  'Better a sober cannibal than a drunk Christian.',
+  'A whaleship was my Yale College and my Harvard.',
+  'A mighty book demands a mighty theme.',
+  'True places are not down in any map.',
+  'An everlasting itch for things remote.',
+  'There she blows!',
+  'Consider the subtleness of the sea.',
+  'The sea rolls swellingly to the shore.',
+  'Water and meditation are wedded forever.',
+  'All men live enveloped in whale-lines.',
+  'The waves were storied pages.',
+  'I have swam through libraries.',
+  'What is it to stare death and live?',
+  'Old age is always wakeful.',
+  'Truth hath no confines.',
+  'The easiest thing in the world: look sad.',
+  'A laugh is worth a thousand groans.',
+  'The pale usher, threadbare in coat and heart.',
+  'A fine brow is like the East when troubled.',
+  'O Nature, O soul of man — how far beyond.',
+  'I am the architect of my own undoing.',
+  'Think not, is my eleventh commandment.',
+  'Immortality is but ubiquity in time.',
+];
+
+function showCompanionSpeech() {
+  const line = MOBY_DICK_LINES[Math.floor(Math.random() * MOBY_DICK_LINES.length)];
+  const BW = Math.min(52, line.length + 4);
+  const BH = 5;
+  const BX = Math.floor((DISPLAY_WIDTH - BW) / 2);
+  const BY = 8;
+  // Background
+  for (let y = BY; y < BY + BH; y++)
+    for (let x = BX; x < BX + BW; x++)
+      display.draw(x, y, ' ', '#f0f0f0', '#000000');
+  // Border
+  display.draw(BX, BY, '╔', '#f0f0f0', '#000000');
+  display.draw(BX + BW - 1, BY, '╗', '#f0f0f0', '#000000');
+  display.draw(BX, BY + BH - 1, '╚', '#f0f0f0', '#000000');
+  display.draw(BX + BW - 1, BY + BH - 1, '╝', '#f0f0f0', '#000000');
+  for (let x = 1; x < BW - 1; x++) {
+    display.draw(BX + x, BY, '═', '#f0f0f0', '#000000');
+    display.draw(BX + x, BY + BH - 1, '═', '#f0f0f0', '#000000');
+  }
+  for (let y = 1; y < BH - 1; y++) {
+    display.draw(BX, BY + y, '║', '#f0f0f0', '#000000');
+    display.draw(BX + BW - 1, BY + y, '║', '#f0f0f0', '#000000');
+  }
+  // Tail
+  const tailX = BX + Math.floor(BW / 2);
+  display.draw(tailX, BY + BH, '▼', '#f0f0f0', BG);
+  // Speaker label
+  const speaker = '— your companion —';
+  const spX = BX + Math.floor((BW - speaker.length) / 2);
+  for (let i = 0; i < speaker.length; i++)
+    display.draw(spX + i, BY + 1, speaker[i], '#ff88ff', '#000000');
+  // Text
+  const textX = BX + Math.floor((BW - line.length) / 2);
+  for (let i = 0; i < line.length; i++)
+    display.draw(textX + i, BY + 2, line[i], '#f0f0f0', '#000000');
+  // Dismiss on any key
+  window.addEventListener('keydown', function dismiss(e) {
+    window.removeEventListener('keydown', dismiss);
+    if (state.gameState === 'cottage') {
+      drawCottageInterior();
+    } else if (state.gameState === 'mine' && mineRedrawFn) {
+      mineRedrawFn();
+    }
+  }, { once: true });
+}
+
 const DUNGEON_ADJ  = ['LEAKY','FIERY','SUNKEN','FROZEN','CURSED','ROTTING',
                        'FLOODED','ASHEN','SHATTERED','BLEEDING'];
 const DUNGEON_NOUN = ['HELLSCAPE','GROTTO','LABYRINTH','CATACOMB','DEPTHS',
@@ -10453,6 +10549,11 @@ function enterMine() {
       const nx = state.mine.playerX + d[0];
       const ny = state.mine.playerY + d[1];
       if (nx >= 0 && nx < W && ny >= 0 && ny < H && tiles[nx][ny].walkable) {
+        if (state.shiversCompanion?.befriended && state.shiversCompanion.location === 'mine') {
+          const mx = state.shiversCompanion.mx ?? 8;
+          const my = state.shiversCompanion.my ?? 8;
+          if (nx === mx && ny === my) { drawMineInterior(); return; }
+        }
         state.mine.playerX = nx;
         state.mine.playerY = ny;
         if (tiles[nx][ny].isExit) {
@@ -10473,6 +10574,15 @@ function enterMine() {
 
     if (e.key === ' ') {
       e.preventDefault();
+      // Check if adjacent to companion in mine
+      if (state.shiversCompanion?.befriended && state.shiversCompanion.location === 'mine') {
+        const mx = state.shiversCompanion.mx ?? 8;
+        const my = state.shiversCompanion.my ?? 8;
+        if (Math.abs(state.mine.playerX - mx) + Math.abs(state.mine.playerY - my) === 1) {
+          showCompanionSpeech();
+          return;
+        }
+      }
       const px = state.mine.playerX, py = state.mine.playerY;
       const here = tiles[px][py];
 
@@ -12858,7 +12968,7 @@ function devUnlockEverything() {
 
   // Crystals and shivers companion
   state.mine.crystals = 15;
-  state.shiversCompanion = { befriended: true, location: 'cottage' };
+  state.shiversCompanion = { befriended: true, location: 'cottage', cx: 4, cy: 6, mx: 8, my: 8 };
   // Cooking supplies
   state.cookingInventory = { tomato: 3, carrot: 2, potato: 2, pumpkin: 1, corn: 2, pepper: 1, onion: 1, lettuce: 1, beet: 1, mushroom: 2, celery: 1 };
 
