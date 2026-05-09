@@ -1025,7 +1025,7 @@ drawArt(0);
 drawPrompt(true);
 
 const CREDIT  = "Created by Adam A.";
-const VERSION = "alpha 1.07.34";
+const VERSION = "alpha 1.07.35";
 
 // ── Sound system ──────────────────────────────────────────────────────────────
 const SOUNDS = {};
@@ -2752,8 +2752,8 @@ window.addEventListener('keydown', (e) => {
   state.stepsWalked++;
   state.lastNarrativeTick = state.tick;
 
-  // Walk-based stamp award — small chance each step, roughly 1 stamp per 20 steps
-  if (state.phase >= 1 && Math.random() < 0.05) {
+  // Walk-based stamp award — small chance each step, roughly 1 stamp per 500 steps
+  if (state.phase >= 1 && Math.random() < 0.002) {
     const WALK_STAMP_MSGS = [
       'A stamp sticks to your boot.',
       'You find a stamp on the ground.',
@@ -8291,6 +8291,7 @@ function openKeyReference() {
 // ── Launch Facility menu (§9) ─────────────────────────────────────────────────
 
 const CHANGELOG = [
+  { version: '1.07.35', summary: 'Walk-based stamp awards restored (1 per ~500 steps). Dawn stamp delayed to be visible. Stamps shown in status bar.' },
   { version: '1.07.34', summary: 'Walk-based stamp awards restored (1 per ~20 steps). Dawn stamp delayed to be visible. Stamps shown in status bar.' },
   { version: '1.07.33', summary: 'Stamps shown on status bar before market timer. Dawn stamp message fires last.' },
   { version: '1.07.32', summary: 'Companion speech bubble no longer stacks. Stove interaction restored — companion check runs after stove check.' },
