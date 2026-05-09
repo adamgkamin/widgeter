@@ -1025,7 +1025,7 @@ drawArt(0);
 drawPrompt(true);
 
 const CREDIT  = "Created by Adam A.";
-const VERSION = "alpha 1.07.32";
+const VERSION = "alpha 1.07.33";
 
 // ── Sound system ──────────────────────────────────────────────────────────────
 const SOUNDS = {};
@@ -1223,7 +1223,13 @@ function drawStatusBar() {
   sx = seg(sx, `Gold: ${formatCredits(state.player.gold)}`, state.player.gold < 0 ? '#ff5555' : BRIGHT_YELLOW) + 2;
   sx = seg(sx, `Raw: ${inv.rm}`, '#ff9933') + 2;
   sx = seg(sx, `Widgets: ${inv.widgets}/${cap.widgets}`, widgetFg) + 2;
-       seg(sx, `Price: ${state.marketPrice}g`, '#66cc66');
+  sx = seg(sx, `Price: ${state.marketPrice}g`, '#66cc66');
+  // Stamps fit in the gap before TIMER_X=50
+  if (sx < 47) {
+    const stStr = ` · ${state.player.stamps}`;
+    for (let i = 0; i < stStr.length && sx + i < 50; i++)
+      display.draw(sx + i, STATUS_ROW, stStr[i], COLOR_STAMPS, BG);
+  }
   drawTimeIndicator();
   drawPhaseGoal();
   if (state.phase >= 2) {
@@ -8267,6 +8273,7 @@ function openKeyReference() {
 // ── Launch Facility menu (§9) ─────────────────────────────────────────────────
 
 const CHANGELOG = [
+  { version: '1.07.33', summary: 'Stamps shown on status bar before market timer. Dawn stamp message fires last.' },
   { version: '1.07.32', summary: 'Companion speech bubble no longer stacks. Stove interaction restored — companion check runs after stove check.' },
   { version: '1.07.31', summary: 'Companion reachable from chair sides, espritDeCorps in resetState, mine companion position, Phase 3 gold-only trigger, GS note guard verified.' },
   { version: '1.07.30', summary: 'GS arrows row verified, footer hints shortened, credit C key restricted, rain cleanup fix.' },
@@ -13594,24 +13601,6 @@ setInterval(() => {
   }
   if (state.dayTick >= 240) {
     state.dayTick = 0; state.day++; state.bellFiredToday = false; state.widgetsSoldToday = 0; state.demandMetLogged = false; state._demandImmunityActiveToday = false; state.stats.widgetsMadeToday = 0; state.stats.revenueToday = 0; state.stats.costsToday = 0; state.fishing.catchesToday = 0;
-    // Daily stamp find
-    { const stampAmount = 2 + Math.floor(Math.random() * 4);
-      state.player.stamps += stampAmount;
-      const STAMP_MSGS = [
-        'You notice some stamps in your pocket.','A few stamps fall out of your sleeve.',
-        'You find stamps stuck to your boot.','There are stamps wedged in your belt.',
-        'You spot stamps on the ground beside you.','Stamps tumble out when you stretch.',
-        'You feel something papery in your coat. Stamps.','A gust of wind blows stamps into your hand.',
-        'You lean against a wall and stamps crinkle underneath.','Something shiny catches your eye. Stamps in the grass.',
-        'Your hat feels heavy. Stamps were hiding inside.','You shake out your bag. Stamps everywhere.',
-        'A stamp is stuck to the bottom of your shoe.','You reach into your back pocket. More stamps.',
-        'Stamps were pressed between the pages of your notebook.','You sit down and hear a crunch. Stamps in your chair.',
-        'The wind delivers stamps to your doorstep.','You open your lunchbox. Stamps instead of lunch.',
-        'A bird drops stamps at your feet and flies away.','You scratch your head and stamps rain down.',
-      ];
-      const stampMsg = STAMP_MSGS[Math.floor(Math.random() * STAMP_MSGS.length)];
-      addLog(`${stampMsg} +${stampAmount}`, COLOR_STAMPS);
-    }
     // Casino daily reset
     if (state.stations.casino) { state.stations.casino.spunToday = 0; state.stations.casino.dailyBetTotal = 0; state.stations.casino.lossesTonight = 0; }
     // Assign three spread-out blink ticks per uncollected rock
@@ -13659,6 +13648,24 @@ setInterval(() => {
         renderDirty();
         setTimeout(() => addLog('The ground has opened up in the south.', '#66ccff'), 1200);
       }
+    }
+    // Daily stamp find — fires last so the message is always visible at dawn
+    { const stampAmount = 2 + Math.floor(Math.random() * 4);
+      state.player.stamps += stampAmount;
+      const STAMP_MSGS = [
+        'You notice some stamps in your pocket.','A few stamps fall out of your sleeve.',
+        'You find stamps stuck to your boot.','There are stamps wedged in your belt.',
+        'You spot stamps on the ground beside you.','Stamps tumble out when you stretch.',
+        'You feel something papery in your coat. Stamps.','A gust of wind blows stamps into your hand.',
+        'You lean against a wall and stamps crinkle underneath.','Something shiny catches your eye. Stamps in the grass.',
+        'Your hat feels heavy. Stamps were hiding inside.','You shake out your bag. Stamps everywhere.',
+        'A stamp is stuck to the bottom of your shoe.','You reach into your back pocket. More stamps.',
+        'Stamps were pressed between the pages of your notebook.','You sit down and hear a crunch. Stamps in your chair.',
+        'The wind delivers stamps to your doorstep.','You open your lunchbox. Stamps instead of lunch.',
+        'A bird drops stamps at your feet and flies away.','You scratch your head and stamps rain down.',
+      ];
+      const stampMsg = STAMP_MSGS[Math.floor(Math.random() * STAMP_MSGS.length)];
+      addLog(`${stampMsg} +${stampAmount}`, COLOR_STAMPS);
     }
   }
   const prevMarketOpen = state.marketOpen;
