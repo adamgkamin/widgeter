@@ -1025,7 +1025,7 @@ drawArt(0);
 drawPrompt(true);
 
 const CREDIT  = "Created by Adam A.";
-const VERSION = "alpha 1.07.33";
+const VERSION = "alpha 1.07.34";
 
 // ── Sound system ──────────────────────────────────────────────────────────────
 const SOUNDS = {};
@@ -2751,7 +2751,25 @@ window.addEventListener('keydown', (e) => {
   if (destTile.glyph === '~') state.stats.pondStepsWalked = (state.stats.pondStepsWalked || 0) + 1;
   state.stepsWalked++;
   state.lastNarrativeTick = state.tick;
-  // (Walk-based stamp awards removed — stamps awarded daily at dawn)
+
+  // Walk-based stamp award — small chance each step, roughly 1 stamp per 20 steps
+  if (state.phase >= 1 && Math.random() < 0.05) {
+    const WALK_STAMP_MSGS = [
+      'A stamp sticks to your boot.',
+      'You find a stamp on the ground.',
+      'A stamp falls from your pocket.',
+      'Something catches your eye. A stamp.',
+      'You kick a stamp along the path.',
+      'A stamp tumbles out of your sleeve.',
+      'There was a stamp in your shoe this whole time.',
+      'A stamp drifts by. You grab it.',
+    ];
+    const msg = WALK_STAMP_MSGS[Math.floor(Math.random() * WALK_STAMP_MSGS.length)];
+    state.player.stamps += 1;
+    addLog(`${msg} +1`, COLOR_STAMPS);
+    drawStatusBar();
+  }
+
   if (state.stepsWalked === 1000)
     addLog('Your boots have worn a groove in the path.', '#cc66cc');
   if (state.stepsWalked === 5000)
@@ -8273,6 +8291,7 @@ function openKeyReference() {
 // ── Launch Facility menu (§9) ─────────────────────────────────────────────────
 
 const CHANGELOG = [
+  { version: '1.07.34', summary: 'Walk-based stamp awards restored (1 per ~20 steps). Dawn stamp delayed to be visible. Stamps shown in status bar.' },
   { version: '1.07.33', summary: 'Stamps shown on status bar before market timer. Dawn stamp message fires last.' },
   { version: '1.07.32', summary: 'Companion speech bubble no longer stacks. Stove interaction restored — companion check runs after stove check.' },
   { version: '1.07.31', summary: 'Companion reachable from chair sides, espritDeCorps in resetState, mine companion position, Phase 3 gold-only trigger, GS note guard verified.' },
@@ -13649,7 +13668,7 @@ setInterval(() => {
         setTimeout(() => addLog('The ground has opened up in the south.', '#66ccff'), 1200);
       }
     }
-    // Daily stamp find — fires last so the message is always visible at dawn
+    // Daily stamp find — delayed so it appears after rock hints and other dawn messages
     { const stampAmount = 2 + Math.floor(Math.random() * 4);
       state.player.stamps += stampAmount;
       const STAMP_MSGS = [
@@ -13665,7 +13684,10 @@ setInterval(() => {
         'A bird drops stamps at your feet and flies away.','You scratch your head and stamps rain down.',
       ];
       const stampMsg = STAMP_MSGS[Math.floor(Math.random() * STAMP_MSGS.length)];
-      addLog(`${stampMsg} +${stampAmount}`, COLOR_STAMPS);
+      setTimeout(() => {
+        addLog(`${stampMsg} +${stampAmount}`, COLOR_STAMPS);
+        drawStatusBar();
+      }, 3000);
     }
   }
   const prevMarketOpen = state.marketOpen;
